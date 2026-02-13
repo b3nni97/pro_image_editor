@@ -2573,7 +2573,9 @@ class ProImageEditorState extends State<ProImageEditor>
                     builder: (context, constraints) {
                       sizesManager.editorSize = constraints.biggest;
                       var scaffold = Scaffold(
-                        backgroundColor: mainEditorConfigs.style.background,
+                        backgroundColor:
+                            mainEditorConfigs.style.background?.call(context) ??
+                                kImageEditorBackground,
                         resizeToAvoidBottomInset: false,
                         appBar: _buildAppBar(),
                         body: _buildBody(),
@@ -2605,6 +2607,18 @@ class ProImageEditorState extends State<ProImageEditor>
                       return scaffold;
                     },
                   ),
+                  // child: LayoutBuilder(builder: (context, constraints) {
+                  //   sizesManager.editorSize = constraints.biggest;
+                  //   return Scaffold(
+                  //     backgroundColor:
+                  //         mainEditorConfigs.style.background?.call(context) ??
+                  //             kImageEditorBackground,
+                  //     resizeToAvoidBottomInset: false,
+                  //     appBar: _buildAppBar(),
+                  //     body: _buildBody(),
+                  //     bottomNavigationBar: _buildBottomNavBar(),
+                  //   );
+                  // }),
                 ),
               ),
             ),

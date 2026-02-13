@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../core/mixins/editor_callbacks_mixin.dart';
+import '../../shared/widgets/extended/interactive_viewer/extended_interactive_viewer.dart';
 import '/core/constants/image_constants.dart';
 import '/core/mixins/converted_callbacks.dart';
 import '/core/mixins/converted_configs.dart';
@@ -165,8 +167,15 @@ class FilterEditorState extends State<FilterEditor>
         ImageEditorConvertedConfigs,
         ImageEditorConvertedCallbacks,
         StandaloneEditorState<FilterEditor, FilterEditorInitConfigs> {
+  /// A key for managing the interactive viewer state.
+  final GlobalKey<ExtendedInteractiveViewerState> interactiveViewerKey =
+      GlobalKey();
+
   /// Update the image with the applied filter and the slider value.
   late final StreamController<void> _uiFilterStream;
+
+  /// The ui filter stream to rebuild depending widgets.
+  StreamController<void> get uiFilterStream => _uiFilterStream;
 
   /// The selected filter.
   FilterModel get selectedFilter => _selectedFilter;
@@ -182,6 +191,16 @@ class FilterEditorState extends State<FilterEditor>
   set filterOpacity(double value) {
     setFilterOpacity(value);
   }
+
+  /// A notifier for the last changed filter.
+  ValueNotifier<FilterModel> lastChangedFilterNotifier =
+      ValueNotifier(PresetFilters.none);
+
+  /// The opacity of the last changed filter.
+  double lastChangedFilterOpacity = 1;
+
+  // /// The opacity of the selected filter.
+  // double filterOpacity = 1;
 
   @override
   void initState() {
@@ -278,11 +297,18 @@ class FilterEditorState extends State<FilterEditor>
   /// Handles changes in the filter factor value.
   void _onChanged(double value) {
     setFilterOpacity(value);
-    filterEditorCallbacks?.handleFilterFactorChange(value);
+
+    // void onChanged(double value) {
+    //   filterOpacity = value;
+    //   _uiFilterStream.add(null);
+    //   lastChangedFilterNotifier.value = selectedFilter;
+    //   lastChangedFilterOpacity = filterOpacity;
+    //   filterEditorCallbacks?.handleFilterFactorChange(value);
+    // }
   }
 
   /// Handles the end of changes in the filter factor value.
-  void _onChangedEnd(double value) {
+  void onChangedEnd(double value) {
     filterEditorCallbacks?.handleFilterFactorChangeEnd(value);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       takeScreenshot();
@@ -306,7 +332,9 @@ class FilterEditorState extends State<FilterEditor>
             child: RecordInvisibleWidget(
               controller: screenshotCtrl,
               child: Scaffold(
-                backgroundColor: filterEditorConfigs.style.background,
+                backgroundColor:
+                    filterEditorConfigs.style.background?.call(context) ??
+                        kImageEditorBackground,
                 appBar: _buildAppBar(),
                 body: _buildBody(),
                 bottomNavigationBar: _buildBottomNavBar(),
@@ -336,38 +364,68 @@ class FilterEditorState extends State<FilterEditor>
   Widget _buildBody() {
     return LayoutBuilder(builder: (context, constraints) {
       editorBodySize = constraints.biggest;
+      final mainConfigs = configs.filterEditor;
+
       return Stack(
         alignment: Alignment.center,
         fit: StackFit.expand,
         children: [
-          if (initConfigs.convertToUint8List && isVideoEditor)
-            _buildBackground(),
-          ContentRecorder(
-            controller: screenshotCtrl,
+          ExtendedInteractiveViewer(
+            key: interactiveViewerKey,
+            zoomConfigs: mainConfigs,
+            onInteractionStart: (details) {
+              callbacks.filterEditorCallbacks?.onEditorZoomScaleStart
+                  ?.call(details);
+            },
+            onInteractionUpdate: (details) {
+              callbacks.filterEditorCallbacks?.onEditorZoomScaleUpdate
+                  ?.call(details);
+            },
+            onInteractionEnd: (details) {
+              callbacks.filterEditorCallbacks?.onEditorZoomScaleEnd
+                  ?.call(details);
+            },
+            onMatrix4Change: (value) {
+              callbacks.filterEditorCallbacks?.onEditorZoomMatrix4Change
+                  ?.call(value);
+            },
             child: Stack(
               alignment: Alignment.center,
               fit: StackFit.expand,
               children: [
-                if (!initConfigs.convertToUint8List || !isVideoEditor)
+                if (initConfigs.convertToUint8List && isVideoEditor)
                   _buildBackground(),
-                if (filterEditorConfigs.showLayers && layers != null)
-                  LayerStack(
-                    transformHelper: TransformHelper(
-                      mainBodySize:
-                          getValidSizeOrDefault(mainBodySize, editorBodySize),
-                      mainImageSize:
-                          getValidSizeOrDefault(mainImageSize, editorBodySize),
-                      editorBodySize: editorBodySize,
-                      transformConfigs: initialTransformConfigs,
-                    ),
-                    configs: configs,
-                    layers: layers!,
-                    clipBehavior: Clip.none,
-                    overlayColor: filterEditorConfigs.style.background,
+                ContentRecorder(
+                  controller: screenshotCtrl,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    fit: StackFit.expand,
+                    children: [
+                      if (!initConfigs.convertToUint8List || !isVideoEditor)
+                        _buildBackground(),
+                      if (filterEditorConfigs.showLayers && layers != null)
+                        LayerStack(
+                          transformHelper: TransformHelper(
+                            mainBodySize: getValidSizeOrDefault(
+                                mainBodySize, editorBodySize),
+                            mainImageSize: getValidSizeOrDefault(
+                                mainImageSize, editorBodySize),
+                            editorBodySize: editorBodySize,
+                            transformConfigs: initialTransformConfigs,
+                          ),
+                          configs: configs,
+                          layers: layers!,
+                          clipBehavior: Clip.none,
+                          overlayColor: filterEditorConfigs.style.background
+                                  ?.call(context) ??
+                              kImageEditorBackground,
+                        ),
+                      if (filterEditorConfigs.widgets.bodyItemsRecorded != null)
+                        ...filterEditorConfigs.widgets.bodyItemsRecorded!(
+                            this, rebuildController.stream)
+                    ],
                   ),
-                if (filterEditorConfigs.widgets.bodyItemsRecorded != null)
-                  ...filterEditorConfigs.widgets.bodyItemsRecorded!(
-                      this, rebuildController.stream),
+                ),
               ],
             ),
           ),
@@ -408,6 +466,47 @@ class FilterEditorState extends State<FilterEditor>
     );
   }
 
+  /// Builds the Filter Editor Item List
+  Widget buildFilterEditorItemList() {
+    return StatefulBuilder(builder: (context, setStateFilterList) {
+      return FilterEditorItemList(
+        editorState: this,
+        mainBodySize: getValidSizeOrDefault(mainBodySize, editorBodySize),
+        mainImageSize: getValidSizeOrDefault(mainImageSize, editorBodySize),
+        editorImage: editorImage,
+        image: editorImage != null
+            ? null
+            : widget.videoController!.thumbnails?.isNotEmpty == true
+                ? Image(
+                    image: widget.videoController!.thumbnails!.first,
+                  )
+                : Image.memory(kImageEditorTransparentBytes),
+        activeFilters: appliedFilters,
+        blurFactor: appliedBlurFactor,
+        configs: configs,
+        transformConfigs: initialTransformConfigs,
+        selectedFilter: selectedFilter.filters,
+        previewImageSize: const Size(52, 52),
+        onSelectFilter: (filter) {
+          if (filter == lastChangedFilterNotifier.value) {
+            filterOpacity = lastChangedFilterOpacity;
+          } else {
+            filterOpacity = 1.0;
+          }
+
+          selectedFilter = filter;
+          _uiFilterStream.add(null);
+          setStateFilterList(() {});
+          filterEditorCallbacks?.handleFilterChanged(filter);
+          WidgetsBinding.instance.addPostFrameCallback((_) async {
+            takeScreenshot();
+          });
+        },
+        lastChangedFilterNotifier: lastChangedFilterNotifier,
+      );
+    });
+  }
+
   /// Builds the bottom navigation bar with filter options.
   Widget? _buildBottomNavBar() {
     if (filterEditorConfigs.widgets.bottomBar != null) {
@@ -417,7 +516,8 @@ class FilterEditorState extends State<FilterEditor>
 
     return SafeArea(
       child: Container(
-        color: filterEditorConfigs.style.background,
+        color: filterEditorConfigs.style.background?.call(context) ??
+            kImageEditorBackground,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -436,7 +536,7 @@ class FilterEditorState extends State<FilterEditor>
                                   rebuildController.stream,
                                   filterOpacity,
                                   _onChanged,
-                                  _onChangedEnd,
+                                  onChangedEnd,
                                 ) ??
                                 Slider(
                                   min: 0,
@@ -444,7 +544,7 @@ class FilterEditorState extends State<FilterEditor>
                                   divisions: 100,
                                   value: filterOpacity,
                                   onChanged: _onChanged,
-                                  onChangeEnd: _onChangedEnd,
+                                  onChangeEnd: onChangedEnd,
                                 ),
                       );
                     }),
@@ -452,6 +552,7 @@ class FilterEditorState extends State<FilterEditor>
             ),
             StatefulBuilder(builder: (context, setStateFilterList) {
               return FilterEditorItemList(
+                editorState: this,
                 mainBodySize:
                     getValidSizeOrDefault(mainBodySize, editorBodySize),
                 mainImageSize:
@@ -479,8 +580,10 @@ class FilterEditorState extends State<FilterEditor>
                     takeScreenshot();
                   });
                 },
+                lastChangedFilterNotifier: lastChangedFilterNotifier,
               );
             }),
+            // buildFilterEditorItemList(),
           ],
         ),
       ),

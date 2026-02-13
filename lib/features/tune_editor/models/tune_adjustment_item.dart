@@ -11,6 +11,7 @@ class TuneAdjustmentItem {
   ///
   /// - [label] is the display text for the adjustment item.
   /// - [icon] is the icon representing the adjustment item.
+  /// - [iconWidget] is a custom icon widget representing the adjustment item.
   /// - [id] is the unique identifier for the adjustment item.
   /// - [min] defines the minimum value of the adjustment range.
   /// - [max] defines the maximum value of the adjustment range.
@@ -22,7 +23,8 @@ class TuneAdjustmentItem {
   ///   displaying the adjustment value, defaulting to 100.
   const TuneAdjustmentItem({
     required this.label,
-    required this.icon,
+    this.icon,
+    this.iconWidget,
     required this.id,
     required this.min,
     required this.max,
@@ -35,7 +37,10 @@ class TuneAdjustmentItem {
   final String label;
 
   /// The icon representing the adjustment item.
-  final IconData icon;
+  final IconData? icon;
+
+  /// A custom icon widget representing the adjustment item.
+  final WidgetBuilder? iconWidget;
 
   /// The unique identifier for the adjustment item.
   final String id;
@@ -91,6 +96,7 @@ class TuneAdjustmentItem {
   TuneAdjustmentItem copyWith({
     String? label,
     IconData? icon,
+    WidgetBuilder? iconWidget,
     String? id,
     double? min,
     double? max,
@@ -102,6 +108,7 @@ class TuneAdjustmentItem {
     return TuneAdjustmentItem(
       label: label ?? this.label,
       icon: icon ?? this.icon,
+      iconWidget: iconWidget ?? this.iconWidget,
       id: id ?? this.id,
       min: min ?? this.min,
       max: max ?? this.max,

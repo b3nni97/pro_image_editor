@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 import '../../constants/editor_style_constants.dart';
+import 'main_editor_style.dart';
 
 /// The `FilterEditorStyle` class defines the style for the filter editor in
 /// the image editor.
@@ -42,7 +43,7 @@ class FilterEditorStyle {
     this.appBarColor = kImageEditorAppBarColor,
     this.previewTextColor = const Color(0xFFE1E1E1),
     this.previewSelectedTextColor = const Color.fromARGB(255, 34, 148, 242),
-    this.background = kImageEditorBackground,
+    this.background,
     this.filterListSpacing = 15,
     this.filterListMargin = const EdgeInsets.fromLTRB(8, 4, 8, 10),
     this.uiOverlayStyle = kImageEditorUiOverlayStyle,
@@ -55,7 +56,7 @@ class FilterEditorStyle {
   final Color appBarColor;
 
   /// Background color of the filter editor.
-  final Color background;
+  final ResolveColor? background;
 
   /// Color of the preview text.
   final Color previewTextColor;
@@ -81,7 +82,7 @@ class FilterEditorStyle {
   FilterEditorStyle copyWith({
     Color? appBarBackground,
     Color? appBarColor,
-    Color? background,
+    ResolveColor? background,
     Color? previewTextColor,
     Color? previewSelectedTextColor,
     double? filterListSpacing,

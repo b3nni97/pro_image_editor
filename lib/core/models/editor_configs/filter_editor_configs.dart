@@ -7,6 +7,7 @@ import '../icons/filter_editor_icons.dart';
 import '../styles/filter_editor_style.dart';
 import 'utils/base_sub_editor_configs.dart';
 import 'utils/editor_safe_area.dart';
+import 'utils/zoom_configs.dart';
 
 export '../custom_widgets/filter_editor_widgets.dart';
 export '../icons/filter_editor_icons.dart';
@@ -27,7 +28,7 @@ export '../styles/filter_editor_style.dart';
 ///   ],
 /// );
 /// ```
-class FilterEditorConfigs implements BaseSubEditorConfigs {
+class FilterEditorConfigs extends ZoomConfigs implements BaseSubEditorConfigs {
   /// Creates an instance of FilterEditorConfigs with optional settings.
   ///
   /// By default, the editor is enabled, and the filter list contains all
@@ -38,6 +39,14 @@ class FilterEditorConfigs implements BaseSubEditorConfigs {
       'Use tools inside MainEditorConfigs instead, e.g. tools: '
       '[SubEditorMode.filter]',
     )
+    super.enableZoom,
+    super.editorMinScale,
+    super.editorMaxScale,
+    super.enableDoubleTapZoom,
+    super.doubleTapZoomFactor,
+    super.doubleTapZoomDuration,
+    super.doubleTapZoomCurve,
+    super.boundaryMargin,
     this.enabled = true,
     this.showLayers = true,
     this.enableMultiSelection = true,

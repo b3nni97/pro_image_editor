@@ -1,14 +1,17 @@
 // Flutter imports:
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import '/core/constants/editor_style_constants.dart';
 
 import 'sub_editor_page_style.dart';
+
+typedef Color ResolveColor(BuildContext context);
 
 /// Represents the styling configuration for the main editor interface.
 class MainEditorStyle {
   /// Creates a new instance of [MainEditorStyle].
   const MainEditorStyle({
-    this.background = kImageEditorBackground,
+    this.background,
     this.bottomBarColor = kImageEditorBottomBarColor,
     this.bottomBarBackground = kImageEditorBottomBarBackground,
     this.appBarColor = kImageEditorAppBarColor,
@@ -19,7 +22,7 @@ class MainEditorStyle {
   });
 
   /// Background color for the image editor in the overview.
-  final Color background;
+  final ResolveColor? background;
 
   /// Color of the bottom bar.
   final Color bottomBarColor;
@@ -52,7 +55,7 @@ class MainEditorStyle {
   ///
   /// Returns a new [MainEditorStyle] instance with the overridden properties.
   MainEditorStyle copyWith({
-    Color? background,
+    ResolveColor? background,
     Color? bottomBarColor,
     Color? bottomBarBackground,
     Color? appBarColor,

@@ -18,6 +18,10 @@ class TuneEditorCallbacks extends StandaloneEditorCallbacks {
     super.onRedo,
     super.onUndo,
     super.onCloseEditor,
+    this.onEditorZoomScaleStart,
+    this.onEditorZoomScaleUpdate,
+    this.onEditorZoomScaleEnd,
+    this.onEditorZoomMatrix4Change,
   });
 
   /// A callback function that is triggered when the tune factor changes.
@@ -35,6 +39,75 @@ class TuneEditorCallbacks extends StandaloneEditorCallbacks {
   /// The [ValueChanged<TuneAdjustmentType>] parameter provides the new tune
   /// type.
   final ValueChanged<String>? onTuneChanged;
+
+  /// Called when the user ends a pan or scale gesture on the widget.
+  ///
+  /// At the time this is called, the [TransformationController] will have
+  /// already been updated to reflect the change caused by the interaction,
+  /// though a pan may cause an inertia animation after this is called as well.
+  ///
+  /// {@template flutter.widgets.InteractiveViewer.onInteractionEnd}
+  /// Will be called even if the interaction is disabled with [panEnabled] or
+  /// [scaleEnabled] for both touch gestures and mouse interactions.
+  ///
+  /// A [GestureDetector] wrapping the InteractiveViewer will not respond to
+  /// [GestureDetector.onScaleStart], [GestureDetector.onScaleUpdate], and
+  /// [GestureDetector.onScaleEnd]. Use [onEditorZoomScaleStart],
+  /// [onEditorZoomScaleUpdate], and [onEditorZoomScaleEnd] to respond to those
+  /// gestures.
+  /// {@endtemplate}
+  ///
+  /// See also:
+  ///
+  ///  * [onEditorZoomScaleStart], which handles the start of the same
+  ///    interaction.
+  ///  * [onEditorZoomScaleUpdate], which handles an update to the same
+  ///    interaction.
+  final GestureScaleEndCallback? onEditorZoomScaleEnd;
+
+  /// Called when the user begins a pan or scale gesture on the editor.
+  ///
+  /// At the time this is called, the [TransformationController] will not have
+  /// changed due to this interaction.
+  ///
+  /// {@macro flutter.widgets.InteractiveViewer.onInteractionEnd}
+  ///
+  /// The coordinates provided in the details' `focalPoint` and
+  /// `localFocalPoint` are normal Flutter event coordinates, not
+  /// InteractiveViewer scene coordinates. See
+  /// [TransformationController.toScene] for how to convert these coordinates to
+  /// scene coordinates relative to the child.
+  ///
+  /// See also:
+  ///
+  ///  * [onEditorZoomScaleUpdate], which handles an update to the same
+  ///    interaction.
+  ///  * [onEditorZoomScaleEnd], which handles the end of the same interaction.
+  final GestureScaleStartCallback? onEditorZoomScaleStart;
+
+  /// Called when the user updates a pan or scale gesture on the editor.
+  ///
+  /// At the time this is called, the [TransformationController] will have
+  /// already been updated to reflect the change caused by the interaction, if
+  /// the interaction caused the matrix to change.
+  ///
+  /// {@macro flutter.widgets.InteractiveViewer.onEditorZoomScaleEnd}
+  ///
+  /// The coordinates provided in the details' `focalPoint` and
+  /// `localFocalPoint` are normal Flutter event coordinates, not
+  /// InteractiveViewer scene coordinates. See
+  /// [TransformationController.toScene] for how to convert these coordinates to
+  /// scene coordinates relative to the child.
+  ///
+  /// See also:
+  ///
+  ///  * [onEditorZoomScaleStart], which handles the start of the same
+  ///    interaction.
+  ///  * [onEditorZoomScaleEnd], which handles the end of the same interaction.
+  final GestureScaleUpdateCallback? onEditorZoomScaleUpdate;
+
+  /// Called when the editor zoom matrix changes.
+  final Function(Matrix4 value)? onEditorZoomMatrix4Change;
 
   /// Handles the tune factor change event.
   ///
@@ -75,6 +148,10 @@ class TuneEditorCallbacks extends StandaloneEditorCallbacks {
     Function()? onRedo,
     Function()? onUndo,
     Function()? onCloseEditor,
+    GestureScaleEndCallback? onEditorZoomScaleEnd,
+    GestureScaleStartCallback? onEditorZoomScaleStart,
+    GestureScaleUpdateCallback? onEditorZoomScaleUpdate,
+    Function(Matrix4 value)? onEditorZoomMatrix4Change,
   }) {
     return TuneEditorCallbacks(
       onTuneFactorChange: onTuneFactorChange ?? this.onTuneFactorChange,
@@ -88,6 +165,13 @@ class TuneEditorCallbacks extends StandaloneEditorCallbacks {
       onRedo: onRedo ?? this.onRedo,
       onUndo: onUndo ?? this.onUndo,
       onCloseEditor: onCloseEditor ?? this.onCloseEditor,
+      onEditorZoomScaleEnd: onEditorZoomScaleEnd ?? this.onEditorZoomScaleEnd,
+      onEditorZoomScaleStart:
+          onEditorZoomScaleStart ?? this.onEditorZoomScaleStart,
+      onEditorZoomScaleUpdate:
+          onEditorZoomScaleUpdate ?? this.onEditorZoomScaleUpdate,
+      onEditorZoomMatrix4Change:
+          onEditorZoomMatrix4Change ?? this.onEditorZoomMatrix4Change,
     );
   }
 }

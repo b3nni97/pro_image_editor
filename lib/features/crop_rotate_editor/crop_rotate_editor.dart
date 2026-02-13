@@ -3,6 +3,8 @@
 
 // Dart imports:
 import 'dart:math';
+import 'dart:math' as math;
+import 'dart:ui' as ui;
 import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
@@ -10,6 +12,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart' hide Image;
 import 'package:flutter/services.dart';
 
+import '../../shared/widgets/extended/interactive_viewer_scroll_physics.dart';
 import '/core/mixins/converted_callbacks.dart';
 import '/core/mixins/converted_configs.dart';
 import '/core/mixins/standalone_editor.dart';
@@ -45,6 +48,9 @@ import 'widgets/outside_gestures/outside_gesture_behavior.dart';
 
 export 'enums/crop_mode.enum.dart';
 export 'widgets/crop_aspect_ratio_options.dart';
+
+/// Enum zur Unterscheidung der Gesten am Ende der Interaktion.
+enum _GestureType { pan, scale }
 
 /// The `CropRotateEditor` widget allows users to editing images with crop, flip
 /// and rotate tools.
@@ -218,6 +224,21 @@ class CropRotateEditorState extends State<CropRotateEditor>
   /// A debounce object for scroll history actions.
   late final Debounce _scrollHistoryDebounce;
 
+  /// Controller used for fling animations when panning ends with velocity.
+  late AnimationController _flingCtrl;
+
+  /// Simulations for inertial scrolling on each axis.
+  Simulation? _simulationX;
+  Simulation? _simulationY;
+  Simulation? _combinedSimulation;
+  Simulation? _simulationScale;
+
+  double? _scaleStart; // Scale value at start of scaling gesture.
+  double _lastScale = 1.0;
+
+  Offset _lastFocal = Offset.zero; // Brennpunkt aus dem vorigen Update
+  _GestureType? _gestureType;
+
   /// Indicates whether to show the fake hero animation.
   bool _showFakeHero = true;
 
@@ -282,9 +303,6 @@ class CropRotateEditorState extends State<CropRotateEditor>
   /// The interaction progress for opacity.
   double _interactionOpacityProgress = 0;
 
-  /// The padding around the screen.
-  final double _screenPadding = 20;
-
   /// The starting scale value for pinch gestures.
   double _startingPinchScale = 1;
 
@@ -294,9 +312,6 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
   /// The starting translate offset for gestures.
   Offset _startingTranslate = Offset.zero;
-
-  /// The starting center offset for gestures.
-  Offset _startingCenterOffset = Offset.zero;
 
   /// The view rectangle for the cropping area.
   Rect _viewRect = Rect.zero;
@@ -371,6 +386,9 @@ class CropRotateEditorState extends State<CropRotateEditor>
             fadeInOpacity: _painterOpacity,
             style: cropRotateEditorConfigs.style,
             drawCircle: cropMode == CropMode.oval,
+            background:
+                cropRotateEditorConfigs.style.background?.call(context) ??
+                    kImageEditorBackground,
           )
         : null;
   }
@@ -395,6 +413,8 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
     // Initialize controllers
     _bottomBarScrollCtrl = ScrollController();
+    _flingCtrl = AnimationController(vsync: this);
+
     _fakeHeroTransformConfigs =
         initialTransformConfigs ?? TransformConfigs.empty();
     _interactiveCornerArea = isDesktop
@@ -518,6 +538,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
     _onScaleEndDebounce.dispose();
     _onScaleAllowUpdateDebounce.dispose();
     _bottomBarScrollCtrl.dispose();
+    _flingCtrl.dispose();
     rotateCtrl.dispose();
     scaleCtrl.dispose();
     ServicesBinding.instance.keyboard.removeHandler(_onKeyEvent);
@@ -934,9 +955,11 @@ class CropRotateEditorState extends State<CropRotateEditor>
     bool animated = true,
   }) {
     if (!animated) scaleCtrl.duration = Duration.zero;
+
+    final EdgeInsets margin = cropRotateEditorConfigs.boundaryMargin;
     Size contentSize = Size(
-      editorBodySize.width - _screenPadding * 2,
-      editorBodySize.height - _screenPadding * 2,
+      editorBodySize.width - margin.horizontal,
+      editorBodySize.height - margin.vertical,
     );
 
     double cropSpaceHorizontal =
@@ -1288,34 +1311,34 @@ class CropRotateEditorState extends State<CropRotateEditor>
     }
   }
 
-  /// Updates the scale factor for the image based on a pinch gesture value.
-  ///
-  /// This method calculates the new zoom level by multiplying the starting
-  /// pinch scale with the provided [value] and clamping it between 1.0 and
-  /// the configured maximum scale. It also adjusts the translation offset to
-  /// maintain the focal point at the center of the zoom operation.
-  ///
-  /// The method performs the following steps:
-  /// 1. Calculates the new zoom level within allowed bounds
-  /// 2. Computes the center offset to preserve the zoom focal point
-  /// 3. Updates the translation and user scale factor
-  /// 4. Applies offset limits and triggers scale callbacks
-  void setScale(double value) {
-    double newZoom = (_startingPinchScale * value)
-        .clamp(1.0, cropRotateEditorConfigs.maxScale);
+  // /// Updates the scale factor for the image based on a pinch gesture value.
+  // ///
+  // /// This method calculates the new zoom level by multiplying the starting
+  // /// pinch scale with the provided [value] and clamping it between 1.0 and
+  // /// the configured maximum scale. It also adjusts the translation offset to
+  // /// maintain the focal point at the center of the zoom operation.
+  // ///
+  // /// The method performs the following steps:
+  // /// 1. Calculates the new zoom level within allowed bounds
+  // /// 2. Computes the center offset to preserve the zoom focal point
+  // /// 3. Updates the translation and user scale factor
+  // /// 4. Applies offset limits and triggers scale callbacks
+  // void setScale(double value) {
+  //   double newZoom = (_startingPinchScale * value)
+  //       .clamp(1.0, cropRotateEditorConfigs.maxScale);
 
-    // Calculate the center offset point from the new zoomed view
-    Offset centerZoomOffset =
-        _startingCenterOffset * _startingPinchScale / newZoom;
+  //   // Calculate the center offset point from the new zoomed view
+  //   Offset centerZoomOffset =
+  //       _startingCenterOffset * _startingPinchScale / newZoom;
 
-    // Update translation and zoom values
-    translate = _startingTranslate - _startingCenterOffset + centerZoomOffset;
-    userScaleFactor = newZoom;
+  //   // Update translation and zoom values
+  //   translate = _startingTranslate - _startingCenterOffset + centerZoomOffset;
+  //   userScaleFactor = newZoom;
 
-    // Set offset limits and trigger widget rebuild
-    _setOffsetLimits();
-    cropRotateEditorCallbacks?.handleScale();
-  }
+  //   // Set offset limits and trigger widget rebuild
+  //   _setOffsetLimits();
+  //   cropRotateEditorCallbacks?.handleScale();
+  // }
 
   void _zoomOutside() async {
     const int frameHelper = 1000 ~/ 60;
@@ -1378,15 +1401,15 @@ class CropRotateEditorState extends State<CropRotateEditor>
     if (_blockInteraction || details.pointerCount > 2) return;
     _blockInteraction = true;
 
+    _stopFlingAnimation();
+
     _editorScreenOffsetHelper = _calculateEditorScreenOffset();
 
+    _scaleStart = userScaleFactor;
     _startingPinchScale = userScaleFactor;
     _startingTranslate = translate;
-    // Calculate the center offset point from the old zoomed view
-    _startingCenterOffset = _startingTranslate +
-        _getRealHitPoint(
-                position: details.localFocalPoint, zoom: userScaleFactor) /
-            userScaleFactor;
+    _lastFocal = details.focalPoint;
+    _lastScale = 1.0; // Reset für neue Gesture
 
     if (!_scaleStarted) {
       /// On desktop devices we detect always in `onPointerHover` events.
@@ -1440,8 +1463,34 @@ class CropRotateEditorState extends State<CropRotateEditor>
       return;
     }
     _blockInteraction = true;
+
+    _gestureType ??=
+        details.scale == 1.0 ? _GestureType.pan : _GestureType.scale;
+
     if (details.pointerCount == 2) {
-      setScale(details.scale);
+      final double desiredScale = _scaleStart! * details.scale;
+      double newZoom =
+          _applyScaleChange(desiredScale / userScaleFactor) * userScaleFactor;
+
+      if (newZoom < 0.01) newZoom = 0.01;
+
+      final Offset center =
+          Offset(editorBodySize.width / 2, editorBodySize.height / 2);
+      final Offset focalNewLocal =
+          details.focalPoint - _editorScreenOffsetHelper;
+      final Offset focalOldLocal = _lastFocal - _editorScreenOffsetHelper;
+
+      final Offset panDelta = (focalNewLocal - focalOldLocal) / newZoom;
+      final Offset zoomDelta =
+          (focalOldLocal - center) * (1 / newZoom - 1 / userScaleFactor);
+
+      translate += zoomDelta;
+      translate += _getPhysicsAppliedDelta(panDelta);
+
+      userScaleFactor = newZoom;
+      _lastFocal = details.focalPoint;
+
+      cropRotateEditorCallbacks?.handleScale();
     } else {
       if (_currentCropAreaPart != CropAreaPart.none &&
           _currentCropAreaPart != CropAreaPart.inside) {
@@ -1457,10 +1506,11 @@ class CropRotateEditorState extends State<CropRotateEditor>
         double halfSpaceHorizontal = _cropSpaceHorizontal / 2;
         double halfSpaceVertical = _cropSpaceVertical / 2;
 
-        double outsidePadding = _screenPadding * 2;
+        final EdgeInsets margin = cropRotateEditorConfigs.boundaryMargin;
+
         double cornerGap =
             cropRotateEditorConfigs.style.cropCornerLength * 2.25;
-        double minCornerDistance = outsidePadding + cornerGap;
+        double minCornerDistance = cornerGap;
 
         double halfViewRectW = _viewRect.width / 2;
         double halfViewRectH = _viewRect.height / 2;
@@ -1484,8 +1534,8 @@ class CropRotateEditorState extends State<CropRotateEditor>
             offset.dx + halfViewRectW + halfSpaceHorizontal + circleGapX;
         double dy = offset.dy + halfViewRectH + halfSpaceVertical + circleGapY;
 
-        double maxRight = cropRect.right + outsidePadding - minCornerDistance;
-        double maxBottom = cropRect.bottom + outsidePadding - minCornerDistance;
+        double maxRight = cropRect.right + margin.right - minCornerDistance;
+        double maxBottom = cropRect.bottom + margin.bottom - minCornerDistance;
 
         double minLeft = halfSpaceHorizontal;
         double minRight = imgW - halfSpaceHorizontal;
@@ -1521,14 +1571,13 @@ class CropRotateEditorState extends State<CropRotateEditor>
         }
 
         double doubleInteractiveArea = _interactiveCornerArea * 2;
-        double halfScreenPadding = _screenPadding / 2;
 
         double zoomOutHitAreaX = max(
-            halfScreenPadding,
+            margin.left / 2,
             (editorBodySize.width - realViewRectSize.width) / 2 -
                 doubleInteractiveArea);
         double zoomOutHitAreaY = max(
-            halfScreenPadding,
+            margin.top / 2,
             (editorBodySize.height - realViewRectSize.height) / 2 -
                 doubleInteractiveArea);
 
@@ -1668,11 +1717,13 @@ class CropRotateEditorState extends State<CropRotateEditor>
         cropPainterKey.currentState!.update(foregroundPainter: cropPainter);
       } else {
         double scaleFactor = userScaleFactor / _scaleStartZoomHelper;
-        translate +=
+
+        Offset delta =
             Offset(details.focalPointDelta.dx, details.focalPointDelta.dy) /
                 scaleFactor *
                 (cropRotateEditorConfigs.invertDragDirection ? -1 : 1);
-        _setOffsetLimits();
+        translate += _getPhysicsAppliedDelta(delta);
+
         cropRotateEditorCallbacks?.handleMove();
 
         cropPainterKey.currentState!.update(foregroundPainter: cropPainter);
@@ -1681,17 +1732,180 @@ class CropRotateEditorState extends State<CropRotateEditor>
     _blockInteraction = false;
   }
 
-  void _onScaleEnd(ScaleEndDetails details) async {
-    Rect interpolatedRect(Rect initRect, Rect targetRect, double curveT) {
-      return Rect.fromLTRB(
-        lerpDouble(initRect.left, targetRect.left, curveT)!,
-        lerpDouble(initRect.top, targetRect.top, curveT)!,
-        lerpDouble(initRect.right, targetRect.right, curveT)!,
-        lerpDouble(initRect.bottom, targetRect.bottom, curveT)!,
-      );
+  Offset _getPhysicsAppliedDelta(Offset panDelta) {
+    final Offset currentOffset = translate * -1;
+    final ScrollMetrics metricsX =
+        _calculateScrollMetrics(currentOffset.dx, AxisDirection.right);
+    final ScrollMetrics metricsY =
+        _calculateScrollMetrics(currentOffset.dy, AxisDirection.down);
+
+    final double proposedX = currentOffset.dx - panDelta.dx;
+    final double proposedY = currentOffset.dy - panDelta.dy;
+
+    final double overscrollX = panDelta.dx == 0
+        ? 0
+        : cropRotateEditorConfigs.scrollPhysics
+            .applyBoundaryConditions(metricsX, proposedX);
+    final double overscrollY = panDelta.dy == 0
+        ? 0
+        : cropRotateEditorConfigs.scrollPhysics
+            .applyBoundaryConditions(metricsY, proposedY);
+
+    if (overscrollX == 0 && overscrollY == 0) {
+      final double dx = panDelta.dx == 0
+          ? 0
+          : cropRotateEditorConfigs.scrollPhysics
+              .applyPhysicsToUserOffset(metricsX, panDelta.dx);
+      final double dy = panDelta.dy == 0
+          ? 0
+          : cropRotateEditorConfigs.scrollPhysics
+              .applyPhysicsToUserOffset(metricsY, panDelta.dy);
+      return Offset(dx, dy);
+    } else {
+      return Offset(panDelta.dx + overscrollX, panDelta.dy + overscrollY);
+    }
+  }
+
+  double _applyScaleChange(double scale) {
+    // Compute current and desired scales
+    final double currentScale = userScaleFactor;
+    // scale provided is a desired change in scale between the current scale
+    // and the start of the gesture
+    final double scaleChange = scale;
+
+    // desired but not necessarily achieved if physics is applied
+    final double desiredScale = currentScale * scale;
+
+    // Early return if not allowed to zoom outside bounds
+    if (!_shouldAllowScale(desiredScale)) {
+      // Clamp the overall scale
+      final double clampedTotalScale =
+          clampDouble(desiredScale, 1, cropRotateEditorConfigs.maxScale);
+      final double clampedScale = clampedTotalScale / currentScale;
+      return clampedScale;
     }
 
-    if (_blockInteraction || details.pointerCount > 2) return;
+    // Compute ratio of this update's scale to the previous update
+    final double scaleRatio = scaleChange / _lastScale;
+    // Store for next frame
+    _lastScale = scaleChange;
+    // Physics requires the incremental scale change since last update
+    final double incrementalScale = currentScale * scaleRatio;
+
+    if (((desiredScale < 1) ||
+        (desiredScale > cropRotateEditorConfigs.maxScale))) {
+      final contentSize = _renderedImgConstraints.biggest;
+
+      // Compute current and desired absolute scale
+      final double contentWidth = contentSize.width * currentScale;
+      final double desiredContentWidth = contentSize.width * incrementalScale;
+      final double contentHeight = contentSize.height * currentScale;
+      final double desiredContentHeight = contentSize.height * incrementalScale;
+
+      // Build horizontal and vertical metrics
+      final ScrollMetrics metricsX = FixedScrollMetrics(
+        pixels: contentWidth,
+        minScrollExtent: contentSize.width * 1,
+        maxScrollExtent: contentSize.width * cropRotateEditorConfigs.maxScale,
+        viewportDimension: contentSize.width * cropRotateEditorConfigs.maxScale,
+        axisDirection: AxisDirection.right,
+        devicePixelRatio: 1.0,
+      );
+      final ScrollMetrics metricsY = FixedScrollMetrics(
+        pixels: contentHeight,
+        minScrollExtent: contentSize.height * 1,
+        maxScrollExtent: contentSize.height * cropRotateEditorConfigs.maxScale,
+        viewportDimension:
+            contentSize.height * cropRotateEditorConfigs.maxScale,
+        axisDirection: AxisDirection.down,
+        devicePixelRatio: 1.0,
+      );
+
+      // Compute content deltas
+      final double deltaX = desiredContentWidth - contentWidth;
+      final double deltaY = desiredContentHeight - contentHeight;
+
+      // Apply scroll physics half the delta to simulate exeeding a boundary
+      // on one side
+      final double adjustedX = cropRotateEditorConfigs.scrollPhysics
+              .applyPhysicsToUserOffset(metricsX, deltaX / 2) *
+          2;
+      final double adjustedY = cropRotateEditorConfigs.scrollPhysics
+              .applyPhysicsToUserOffset(metricsY, deltaY / 2) *
+          2;
+
+      // Convert back to scale factors
+      final double newScaleX = (contentWidth + adjustedX) / contentWidth;
+      final double newScaleY = (contentHeight + adjustedY) / contentHeight;
+      final double factor = (newScaleX + newScaleY) / 2;
+
+      return factor;
+    } else {
+      final double clampedTotalScale =
+          clampDouble(desiredScale, 1, cropRotateEditorConfigs.maxScale);
+      final double clampedScale = clampedTotalScale / currentScale;
+
+      // Apply the scale factor to the matrix
+      return clampedScale;
+    }
+  }
+
+  /// Determines whether [proposedScale] can be applied without clamping,
+  /// by probing the widget.scrollPhysics.
+  bool _shouldAllowScale(double proposedScale) {
+    final contentSize = _renderedImgConstraints.biggest;
+
+    final double currentScale = userScaleFactor;
+    final double contentWidth = contentSize.width * currentScale;
+    final double desiredContentWidth = contentSize.width * proposedScale;
+    final double contentHeight = contentSize.height * currentScale;
+    final double desiredContentHeight = contentSize.height * proposedScale;
+
+    final ScrollMetrics metricsX = FixedScrollMetrics(
+      pixels: contentWidth,
+      minScrollExtent: contentSize.width * 1,
+      maxScrollExtent: contentSize.width * cropRotateEditorConfigs.maxScale,
+      viewportDimension: _viewRect.width,
+      axisDirection: AxisDirection.right,
+      devicePixelRatio: 1.0,
+    );
+    final ScrollMetrics metricsY = FixedScrollMetrics(
+      pixels: contentHeight,
+      minScrollExtent: contentSize.height * 1,
+      maxScrollExtent: contentSize.height * cropRotateEditorConfigs.maxScale,
+      viewportDimension: _viewRect.height,
+      axisDirection: AxisDirection.down,
+      devicePixelRatio: 1.0,
+    );
+
+    final double adjustmentX = cropRotateEditorConfigs.scrollPhysics
+        .applyBoundaryConditions(metricsX, desiredContentWidth);
+    final double adjustmentY = cropRotateEditorConfigs.scrollPhysics
+        .applyBoundaryConditions(metricsY, desiredContentHeight);
+
+    return adjustmentX == 0.0 && adjustmentY == 0.0;
+  }
+
+  void _handleCombinedAnimation() {
+    if (!_flingCtrl.isAnimating) {
+      _flingCtrl.removeListener(_handleCombinedAnimation);
+      return;
+    }
+
+    final double t = _flingCtrl.lastElapsedDuration!.inMilliseconds / 1000.0;
+    final double x = _simulationX?.x(t) ?? translate.dx * -1;
+    final double y = _simulationY?.x(t) ?? translate.dy * -1;
+    translate = Offset(-x, -y);
+
+    if (_simulationScale != null) {
+      final double simulatedScrollPos = _simulationScale!.x(t);
+      final scale = simulatedScrollPos / 1000;
+      userScaleFactor = scale;
+    }
+  }
+
+  void _onScaleEnd(ScaleEndDetails details) {
+    if (_blockInteraction) return;
     _blockInteraction = true;
     _interactionActive = false;
 
@@ -1704,15 +1918,27 @@ class CropRotateEditorState extends State<CropRotateEditor>
             cropPainterKey.currentState!.setForegroundPainter(cropPainter);
           },
           mounted: mounted,
-          transitionFunction: Curves.decelerate.transform,
           duration: cropRotateEditorConfigs.opacityOutsideCropAreaDuration,
         );
       }
     });
 
+    _activeScaleOut = false;
+
     if (cropRect != _viewRect) {
-      /// Return is important for tests
-      if (cropRect.isEmpty) return;
+      Rect interpolatedRect(Rect initRect, Rect targetRect, double curveT) {
+        return Rect.fromLTRB(
+          lerpDouble(initRect.left, targetRect.left, curveT)!,
+          lerpDouble(initRect.top, targetRect.top, curveT)!,
+          lerpDouble(initRect.right, targetRect.right, curveT)!,
+          lerpDouble(initRect.bottom, targetRect.bottom, curveT)!,
+        );
+      }
+
+      if (cropRect.isEmpty) {
+        _blockInteraction = false;
+        return;
+      }
 
       Rect initRect = Rect.fromCenter(
           center: _viewRect.center,
@@ -1757,21 +1983,10 @@ class CropRotateEditorState extends State<CropRotateEditor>
               startZoom /
               2;
 
-      await loopWithTransitionTiming(
+      loopWithTransitionTiming(
         (double curveT) {
           userScaleFactor = lerpDouble(startZoom, targetZoom, curveT)!;
-
-          translate = Offset(
-            startOffset.dx +
-                (targetOffset.dx - startOffset.dx) *
-                    (targetCropRect.width / cropRect.width) *
-                    curveT,
-            startOffset.dy +
-                (targetOffset.dy - startOffset.dy) *
-                    (targetCropRect.height / cropRect.height) *
-                    curveT,
-          );
-
+          translate = Offset.lerp(startOffset, targetOffset, curveT)!;
           cropRect = interpolatedRect(startCropRect, targetCropRect, curveT);
           _setOffsetLimits(
             rect: _ratio < 0
@@ -1782,20 +1997,176 @@ class CropRotateEditorState extends State<CropRotateEditor>
         mounted: mounted,
         duration: animationDuration,
         transitionFunction: animationCurve.transform,
+      ).whenComplete(() {
+        cropRect = targetCropRect;
+        translate = targetOffset;
+        userScaleFactor = targetZoom;
+        _setOffsetLimits();
+        calcFitToScreen();
+        cropRotateEditorCallbacks?.handleResize();
+        addHistory();
+        _blockInteraction = false;
+      });
+      return;
+    }
+    addHistory();
+
+    if (details.pointerCount <= 0) {
+      _stopAllAnimations();
+      addHistory();
+
+      const double minScale = 1.0;
+      final double maxScale = cropRotateEditorConfigs.maxScale;
+
+      final ScrollMetrics scaleMetrics = FixedScrollMetrics(
+        pixels: userScaleFactor * 1000,
+        minScrollExtent: minScale * 1000,
+        maxScrollExtent: maxScale * 1000,
+        viewportDimension: 0,
+        axisDirection: AxisDirection.down,
+        devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
       );
 
-      cropRect = targetCropRect;
-      translate = targetOffset;
-      userScaleFactor = targetZoom;
+      _simulationScale = cropRotateEditorConfigs.scrollPhysics
+          .createBallisticSimulation(scaleMetrics, 0.0);
 
-      _setOffsetLimits();
-      calcFitToScreen();
-      cropRotateEditorCallbacks?.handleResize();
+      final Offset adjustedOffset = translate * -1;
+      final double targetScale =
+          userScaleFactor.clamp(1.0, cropRotateEditorConfigs.maxScale);
+      final double currentScale = userScaleFactor;
+      final double flingVelocityX = math.min(
+              (details.velocity.pixelsPerSecond.dx / currentScale).abs(),
+              cropRotateEditorConfigs.scrollPhysics.maxFlingVelocity) *
+          details.velocity.pixelsPerSecond.dx.sign;
+      final double flingVelocityY = math.min(
+              (details.velocity.pixelsPerSecond.dy / currentScale).abs(),
+              cropRotateEditorConfigs.scrollPhysics.maxFlingVelocity) *
+          details.velocity.pixelsPerSecond.dy.sign;
+
+      final ScrollMetrics metricsX =
+          _calculateScrollMetrics(adjustedOffset.dx, AxisDirection.right);
+      final ScrollMetrics metricsY =
+          _calculateScrollMetrics(adjustedOffset.dy, AxisDirection.down);
+
+      _simulationX = cropRotateEditorConfigs.scrollPhysics
+          .createBallisticSimulation(metricsX, -flingVelocityX);
+      _simulationY = cropRotateEditorConfigs.scrollPhysics
+          .createBallisticSimulation(metricsY, -flingVelocityY);
+      _combinedSimulation = _getCombinedSimulation(
+        _simulationX,
+        _simulationY,
+        _simulationScale,
+      );
+
+      final bool isScaleInBounds = (userScaleFactor - targetScale).abs() < 0.01;
+      if (_combinedSimulation == null && isScaleInBounds) {
+        _interactionActive = false;
+        _blockInteraction = false;
+        return;
+      }
+
+      _flingCtrl
+        ..reset()
+        ..addListener(_handleCombinedAnimation);
+
+      if (_combinedSimulation != null) {
+        _flingCtrl.animateWith(_combinedSimulation!);
+      } else {
+        _flingCtrl.duration = const Duration(milliseconds: 250);
+        _flingCtrl.forward();
+      }
+
+      _flingCtrl.addStatusListener((status) {
+        if (status == AnimationStatus.completed ||
+            status == AnimationStatus.dismissed) {
+          _interactionActive = false;
+          _blockInteraction = false;
+        }
+      });
+    } else {
+      _interactionActive = false;
     }
-    _activeScaleOut = false;
-    _blockInteraction = false;
 
-    addHistory();
+    _blockInteraction = false;
+  }
+
+  void _stopAllAnimations() {
+    _flingCtrl.stop();
+  }
+
+  /// Calculate pan boundaries based on current scale and view rect.
+  Rect _panBoundaries(double scale) {
+    final double maxX =
+        (_renderedImgConstraints.maxWidth * scale - _viewRect.width) /
+            2 /
+            scale;
+    final double maxY =
+        (_renderedImgConstraints.maxHeight * scale - _viewRect.height) /
+            2 /
+            scale;
+    return Rect.fromLTRB(
+      -max(0.0, maxX),
+      -max(0.0, maxY),
+      max(0, maxX),
+      max(0, maxY),
+    );
+  }
+
+  /// Build scroll metrics for applying [ScrollPhysics].
+  ScrollMetrics _calculateScrollMetrics(
+    double pixels,
+    AxisDirection axisDirection, {
+    double? scale,
+  }) {
+    final Rect bounds = _panBoundaries(scale ?? userScaleFactor);
+    final Axis axis = (axisDirection == AxisDirection.left ||
+            axisDirection == AxisDirection.right)
+        ? Axis.horizontal
+        : Axis.vertical;
+    return FixedScrollMetrics(
+      pixels: pixels,
+      minScrollExtent: axis == Axis.horizontal ? bounds.left : bounds.top,
+      maxScrollExtent: axis == Axis.horizontal ? bounds.right : bounds.bottom,
+      viewportDimension:
+          axis == Axis.horizontal ? _viewRect.width : _viewRect.height,
+      axisDirection: axisDirection,
+      devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+    );
+  }
+
+  Simulation? _getCombinedSimulation(
+    Simulation? simulationX,
+    Simulation? simulationY,
+    Simulation? simulationScale,
+  ) {
+    if (simulationX == null && simulationY == null && simulationScale == null) {
+      return null;
+    }
+
+    return CombinedSimulation(
+      simulationX: simulationX ?? simulationY ?? simulationScale!,
+      simulationY: simulationY ?? simulationX ?? simulationScale!,
+      simulationScale: simulationScale ?? simulationX ?? simulationY!,
+    );
+  }
+
+  void _handleFlingAnimation() {
+    if (!_flingCtrl.isAnimating) {
+      _flingCtrl.removeListener(_handleFlingAnimation);
+      return;
+    }
+    final double t = _flingCtrl.lastElapsedDuration!.inMilliseconds / 1000.0;
+    final double x = _simulationX != null ? -_simulationX!.x(t) : translate.dx;
+    final double y = _simulationY != null ? -_simulationY!.x(t) : translate.dy;
+    translate = Offset(x, y);
+  }
+
+  void _stopFlingAnimation() {
+    if (_flingCtrl.isAnimating) {
+      _flingCtrl
+        ..stop()
+        ..removeListener(_handleFlingAnimation);
+    }
   }
 
   void _handleDoubleTapDown(TapDownDetails details) {
@@ -2117,7 +2488,9 @@ class CropRotateEditorState extends State<CropRotateEditor>
                         theme.tooltipTheme.copyWith(preferBelow: true)),
                 child: Scaffold(
                   resizeToAvoidBottomInset: false,
-                  backgroundColor: cropRotateEditorConfigs.style.background,
+                  backgroundColor:
+                      cropRotateEditorConfigs.style.background?.call(context) ??
+                          kImageEditorBackground,
                   appBar: _buildAppBar(constraints),
                   body: Center(
                     child: SizedBox(
@@ -2183,6 +2556,10 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
   Widget _buildBody() {
     return SafeArea(
+      top: cropRotateEditorConfigs.safeArea.top,
+      bottom: cropRotateEditorConfigs.safeArea.bottom,
+      left: cropRotateEditorConfigs.safeArea.left,
+      right: cropRotateEditorConfigs.safeArea.right,
       child: ScreenResizeDetector(
         ignoreSafeArea: false,
         onResizeUpdate: (event) {
@@ -2195,9 +2572,11 @@ class CropRotateEditorState extends State<CropRotateEditor>
             editorBodySize = event.newContentSize;
             cropPainterKey.currentState?.setForegroundPainter(cropPainter);
           }
+
+          final EdgeInsets margin = cropRotateEditorConfigs.boundaryMargin;
           cropEditorScreenRatio = Size(
-            editorBodySize.width - _screenPadding * 2,
-            editorBodySize.height - _screenPadding * 2,
+            editorBodySize.width - margin.horizontal,
+            editorBodySize.height - margin.vertical,
           ).aspectRatio;
         },
         onResizeEnd: (event) {
@@ -2282,6 +2661,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
         _gestureKey.currentState!.rawKey.currentState!.handlePointerDown(event);
         if (_activePointers == 0) _scaleStartZoomHelper = userScaleFactor;
         _activePointers++;
+        _stopFlingAnimation();
       },
       onPointerUp: (event) {
         _activePointers--;
@@ -2403,17 +2783,18 @@ class CropRotateEditorState extends State<CropRotateEditor>
     return Align(
       alignment: Alignment.center,
       child: Padding(
-        padding: EdgeInsets.all(_screenPadding),
+        padding: EdgeInsets.zero ?? cropRotateEditorConfigs.boundaryMargin,
         child: child,
       ),
     );
   }
 
   Widget _buildImage() {
-    double maxWidth =
-        _imgWidth / _imgHeight * (editorBodySize.height - _screenPadding * 2);
-    double maxHeight =
-        (editorBodySize.width - _screenPadding * 2) * _imgHeight / _imgWidth;
+    final EdgeInsets margin = cropRotateEditorConfigs.boundaryMargin;
+    final double availableHeight = editorBodySize.height - margin.vertical;
+    final double availableWidth = editorBodySize.width - margin.horizontal;
+    double maxWidth = _imgWidth / _imgHeight * availableHeight;
+    double maxHeight = availableWidth * _imgHeight / _imgWidth;
     return ConstrainedBox(
       constraints: BoxConstraints(
         maxWidth: maxWidth.isNaN ? _imgWidth : maxWidth,
@@ -2455,7 +2836,9 @@ class CropRotateEditorState extends State<CropRotateEditor>
                     configs: configs,
                     layers: _rawLayers,
                     clipBehavior: Clip.none,
-                    overlayColor: cropRotateEditorConfigs.style.background,
+                    overlayColor: cropRotateEditorConfigs.style.background
+                            ?.call(context) ??
+                        kImageEditorBackground,
                   ),
                 ),
             ],
@@ -2467,7 +2850,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
   Widget _buildFakeHero() {
     return Padding(
-      padding: EdgeInsets.all(_screenPadding),
+      padding: cropRotateEditorConfigs.boundaryMargin,
       child: LayoutBuilder(builder: (context, constraints) {
         return Stack(
           alignment: Alignment.center,
@@ -2505,7 +2888,9 @@ class CropRotateEditorState extends State<CropRotateEditor>
                 configs: configs,
                 layers: _layers,
                 clipBehavior: Clip.none,
-                overlayColor: cropRotateEditorConfigs.style.background,
+                overlayColor:
+                    cropRotateEditorConfigs.style.background?.call(context) ??
+                        kImageEditorBackground,
               ),
           ],
         );

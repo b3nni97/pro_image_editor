@@ -4,6 +4,7 @@ import 'dart:math';
 // Flutter imports:
 import 'package:flutter/material.dart';
 
+import '../filter_editor.dart';
 import '/core/models/editor_configs/pro_image_editor_configs.dart';
 import '/core/models/editor_image.dart';
 import '/features/tune_editor/models/tune_adjustment_matrix.dart';
@@ -20,6 +21,7 @@ class FilterEditorItemList extends StatefulWidget {
   /// Constructor for creating an instance of FilterEditorItemList.
   const FilterEditorItemList({
     super.key,
+    required this.editorState,
     this.editorImage,
     this.image,
     this.activeFilters,
@@ -35,8 +37,12 @@ class FilterEditorItemList extends StatefulWidget {
     this.borderRadius,
     this.listHeight = 104.0,
     this.previewImageSize = const Size(64, 64),
+    required this.lastChangedFilterNotifier,
   }) : assert(editorImage != null || image != null,
             'Either editorImage or image must be provided.');
+
+  /// The FilterEditorState to access the state of the current filter editor.
+  final FilterEditorState editorState;
 
   /// The EditorImage class represents an image with multiple sources,
   /// including bytes, file, network URL, and asset path.
@@ -96,6 +102,9 @@ class FilterEditorItemList extends StatefulWidget {
   /// The height of the list in the editor's UI.
   final double listHeight;
 
+  /// A notifier for the last changed filter.
+  final ValueNotifier<FilterModel> lastChangedFilterNotifier;
+
   @override
   State<FilterEditorItemList> createState() => _FilterEditorItemListState();
 }
@@ -129,6 +138,24 @@ class _FilterEditorItemListState extends State<FilterEditorItemList> {
 
   /// Builds a horizontal list of filter preview buttons.
   Widget _buildFilterList() {
+    if (_filterConfigs.widgets.filterList != null) {
+      return _filterConfigs.widgets.filterList!.call(
+        widget.editorState,
+        _filters,
+        (context, index) {
+          return buildFilterButton(
+            filter: _filters[index],
+            index: index,
+            activeFilters: widget.activeFilters,
+          );
+        },
+        (index) {
+          final filter = _filters[index];
+          setState(() => widget.onSelectFilter(filter));
+        },
+        widget.lastChangedFilterNotifier,
+      );
+    }
     return SizedBox(
       height: widget.listHeight,
       child: EditorScrollbar(

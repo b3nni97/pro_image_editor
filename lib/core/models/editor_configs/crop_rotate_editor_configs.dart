@@ -12,6 +12,7 @@ import '../icons/crop_rotate_editor_icons.dart';
 import '../styles/crop_rotate_editor_style.dart';
 import 'utils/base_sub_editor_configs.dart';
 import 'utils/editor_safe_area.dart';
+import 'utils/zoom_configs.dart';
 
 export '/features/crop_rotate_editor/enums/crop_tool_enum.dart';
 export '/features/crop_rotate_editor/models/rotate_direction.dart';
@@ -36,12 +37,21 @@ export '../styles/crop_rotate_editor_style.dart';
 ///   initAspectRatio: CropAspectRatios.custom,
 /// );
 /// ```
-class CropRotateEditorConfigs implements BaseSubEditorConfigs {
+class CropRotateEditorConfigs extends ZoomConfigs
+    implements BaseSubEditorConfigs {
   /// Creates an instance of CropRotateEditorConfigs with optional settings.
   ///
   /// By default, all options are enabled, and the initial aspect ratio is set
   /// to `CropAspectRatios.custom`.
   const CropRotateEditorConfigs({
+    super.enableZoom,
+    super.editorMinScale,
+    super.editorMaxScale,
+    super.enableDoubleTapZoom,
+    super.doubleTapZoomFactor,
+    super.doubleTapZoomDuration,
+    super.doubleTapZoomCurve,
+    super.boundaryMargin,
     this.desktopCornerDragArea = 7,
     this.mobileCornerDragArea = kMinInteractiveDimension,
     this.enableGesturePop = true,
@@ -101,6 +111,7 @@ class CropRotateEditorConfigs implements BaseSubEditorConfigs {
     this.icons = const CropRotateEditorIcons(),
     this.widgets = const CropRotateEditorWidgets(),
     this.maxWidthFactor,
+    this.scrollPhysics = const BouncingScrollPhysics(),
   })  : assert(maxScale >= 1, 'maxScale must be greater than or equal to 1'),
         assert(desktopCornerDragArea > 0,
             'desktopCornerDragArea must be positive'),
@@ -217,6 +228,9 @@ class CropRotateEditorConfigs implements BaseSubEditorConfigs {
   /// This property can be customized to fine-tune the scaling behavior based
   /// on the specific requirements of the platform or application context.
   final double? maxWidthFactor;
+
+  /// The scroll physics used for calculating scale and pan behavior.
+  final ScrollPhysics scrollPhysics;
 
   /// The allowed aspect ratios for cropping.
   ///

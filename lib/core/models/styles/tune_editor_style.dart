@@ -2,6 +2,7 @@
 import 'package:flutter/services.dart';
 
 import '../../constants/editor_style_constants.dart';
+import 'main_editor_style.dart';
 
 /// A style class for the Tune Editor that allows customization of colors
 /// used in the app bar and background.
@@ -19,7 +20,7 @@ class TuneEditorStyle {
     this.bottomBarBackground = kImageEditorBottomBarBackground,
     this.bottomBarActiveItemColor = kImageEditorPrimaryColor,
     this.bottomBarInactiveItemColor = kImageEditorBottomBarColor,
-    this.background = kImageEditorBackground,
+    this.background,
     this.uiOverlayStyle = kImageEditorUiOverlayStyle,
   });
 
@@ -30,7 +31,7 @@ class TuneEditorStyle {
   final Color appBarColor;
 
   /// Background color of the tune editor.
-  final Color background;
+  final ResolveColor? background;
 
   /// Background color of the bottom navigation bar.
   final Color bottomBarBackground;
@@ -58,7 +59,7 @@ class TuneEditorStyle {
   TuneEditorStyle copyWith({
     Color? appBarBackground,
     Color? appBarColor,
-    Color? background,
+    ResolveColor? background,
     Color? bottomBarBackground,
     Color? bottomBarActiveItemColor,
     Color? bottomBarInactiveItemColor,

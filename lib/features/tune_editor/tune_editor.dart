@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../shared/widgets/extended/interactive_viewer/extended_interactive_viewer.dart';
 import '/core/mixins/converted_callbacks.dart';
 import '/core/mixins/converted_configs.dart';
 import '/core/mixins/standalone_editor.dart';
@@ -160,6 +161,10 @@ class TuneEditorState extends State<TuneEditor>
         ImageEditorConvertedConfigs,
         ImageEditorConvertedCallbacks,
         StandaloneEditorState<TuneEditor, TuneEditorInitConfigs> {
+  /// A key for managing the interactive viewer state.
+  final GlobalKey<ExtendedInteractiveViewerState> interactiveViewerKey =
+      GlobalKey();
+
   /// A stream controller used to manage UI updates.
   ///
   /// This stream is used to broadcast events when the UI needs to be rebuilt.
@@ -390,7 +395,9 @@ class TuneEditorState extends State<TuneEditor>
             child: RecordInvisibleWidget(
               controller: screenshotCtrl,
               child: Scaffold(
-                backgroundColor: tuneEditorConfigs.style.background,
+                backgroundColor:
+                    tuneEditorConfigs.style.background?.call(context) ??
+                        kImageEditorBackground,
                 appBar: _buildAppBar(),
                 body: _buildBody(),
                 bottomNavigationBar: _buildBottomNavBar(),
@@ -424,25 +431,50 @@ class TuneEditorState extends State<TuneEditor>
   Widget _buildBody() {
     return LayoutBuilder(builder: (context, constraints) {
       editorBodySize = constraints.biggest;
+      final mainConfigs = configs.tuneEditor;
       return Stack(
         alignment: Alignment.center,
         fit: StackFit.expand,
         children: [
-          if (initConfigs.convertToUint8List && isVideoEditor)
-            _buildBackground(),
-          ContentRecorder(
-            controller: screenshotCtrl,
+          ExtendedInteractiveViewer(
+            key: interactiveViewerKey,
+            zoomConfigs: mainConfigs,
+            onInteractionStart: (details) {
+              callbacks.tuneEditorCallbacks?.onEditorZoomScaleStart
+                  ?.call(details);
+            },
+            onInteractionUpdate: (details) {
+              callbacks.tuneEditorCallbacks?.onEditorZoomScaleUpdate
+                  ?.call(details);
+            },
+            onInteractionEnd: (details) {
+              callbacks.tuneEditorCallbacks?.onEditorZoomScaleEnd
+                  ?.call(details);
+            },
+            onMatrix4Change: (value) {
+              callbacks.tuneEditorCallbacks?.onEditorZoomMatrix4Change
+                  ?.call(value);
+            },
             child: Stack(
-              alignment: Alignment.center,
-              fit: StackFit.expand,
               children: [
-                if (!initConfigs.convertToUint8List || !isVideoEditor)
+                if (initConfigs.convertToUint8List && isVideoEditor)
                   _buildBackground(),
-                if (tuneEditorConfigs.showLayers && layers != null)
-                  _buildLayers(),
-                if (tuneEditorConfigs.widgets.bodyItemsRecorded != null)
-                  ...tuneEditorConfigs.widgets.bodyItemsRecorded!(
-                      this, rebuildController.stream),
+                ContentRecorder(
+                  controller: screenshotCtrl,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    fit: StackFit.expand,
+                    children: [
+                      if (!initConfigs.convertToUint8List || !isVideoEditor)
+                        _buildBackground(),
+                      if (tuneEditorConfigs.showLayers && layers != null)
+                        _buildLayers(),
+                      if (tuneEditorConfigs.widgets.bodyItemsRecorded != null)
+                        ...tuneEditorConfigs.widgets.bodyItemsRecorded!(
+                            this, rebuildController.stream),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
@@ -494,7 +526,8 @@ class TuneEditorState extends State<TuneEditor>
       configs: configs,
       layers: layers!,
       clipBehavior: Clip.none,
-      overlayColor: tuneEditorConfigs.style.background,
+      overlayColor: tuneEditorConfigs.style.background?.call(context) ??
+          kImageEditorBackground,
     );
   }
 

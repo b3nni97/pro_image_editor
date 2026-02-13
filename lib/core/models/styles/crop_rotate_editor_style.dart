@@ -2,6 +2,7 @@
 import 'package:flutter/services.dart';
 
 import '../../constants/editor_style_constants.dart';
+import 'main_editor_style.dart';
 
 /// The `CropRotateEditorStyle` class defines the styles for the crop and rotate
 /// editor in the image editor.
@@ -56,7 +57,7 @@ class CropRotateEditorStyle {
     this.appBarBackground = kImageEditorAppBarBackground,
     this.appBarColor = kImageEditorAppBarColor,
     this.helperLineColor = const Color(0xFF000000),
-    this.background = kImageEditorBackground,
+    this.background,
     this.cropCornerColor = kImageEditorPrimaryColor,
     this.cropOverlayColor = const Color(0xFF000000),
     this.bottomBarBackground = kImageEditorAppBarBackground,
@@ -97,7 +98,7 @@ class CropRotateEditorStyle {
   final Color aspectRatioSheetForegroundColor;
 
   /// Background color of the crop and rotate editor.
-  final Color background;
+  final ResolveColor? background;
 
   /// Color of the crop corners.
   final Color cropCornerColor;
@@ -151,7 +152,7 @@ class CropRotateEditorStyle {
     Color? bottomBarColor,
     Color? aspectRatioSheetBackgroundColor,
     Color? aspectRatioSheetForegroundColor,
-    Color? background,
+    ResolveColor? background,
     Color? cropCornerColor,
     Color? helperLineColor,
     Color? cropOverlayColor,

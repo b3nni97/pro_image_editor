@@ -1,7 +1,7 @@
 import 'dart:async';
-
 import 'package:flutter/material.dart';
 
+import '../../../core/constants/editor_style_constants.dart';
 import '/core/models/editor_callbacks/pro_image_editor_callbacks.dart';
 import '/core/models/editor_configs/pro_image_editor_configs.dart';
 import '/features/crop_rotate_editor/widgets/crop_layer_painter.dart';
@@ -244,7 +244,26 @@ class MainEditorInteractiveContent extends StatelessWidget {
         builder: (context, snapshot) {
           return CustomPaint(
             foregroundPainter: configs.imageGeneration.cropToImageBounds
-                ? _buildCropLayerPainter()
+                ? _buildCropLayerPainter(context)
+                // ? CropLayerPainter(
+                //     opacity:
+                //         configs.mainEditor.style.outsideCaptureAreaLayerOpacity,
+                //     backgroundColor:
+                //         configs.mainEditor.style.background?.call(context) ??
+                //             kImageEditorBackground,
+                //     imgRatio: stateManager.transformConfigs.isNotEmpty
+                //         ? stateManager
+                //             .transformConfigs.cropRect.size.aspectRatio
+                //         : sizesManager.decodedImageSize.aspectRatio,
+                //     isRoundCropper: configs.cropRotateEditor.enableRoundCropper,
+                //     is90DegRotated:
+                //         stateManager.transformConfigs.is90DegRotated,
+                //     interactiveViewerScale:
+                //         interactiveViewerKey.currentState?.scaleFactor ?? 1.0,
+                //     interactiveViewerOffset:
+                //         interactiveViewerKey.currentState?.offset ??
+                //             Offset.zero,
+                //   )
                 : null,
             child: const SizedBox.expand(),
           );
@@ -253,14 +272,15 @@ class MainEditorInteractiveContent extends StatelessWidget {
     );
   }
 
-  CropLayerPainter _buildCropLayerPainter() {
+  CropLayerPainter _buildCropLayerPainter(BuildContext context) {
     final transformConfigs = stateManager.transformConfigs;
     final hasTransformChanges = transformConfigs.isNotEmpty;
     final cropMode = transformConfigs.cropMode;
 
     return CropLayerPainter(
       opacity: configs.mainEditor.style.outsideCaptureAreaLayerOpacity,
-      backgroundColor: configs.mainEditor.style.background,
+      backgroundColor: configs.mainEditor.style.background?.call(context) ??
+          kImageEditorBackground,
       imgRatio: hasTransformChanges
           ? transformConfigs.cropRect.size.aspectRatio
           : sizesManager.decodedImageSize.aspectRatio,

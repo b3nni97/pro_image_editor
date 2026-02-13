@@ -7,6 +7,7 @@ import '../icons/tune_editor_icons.dart';
 import '../styles/tune_editor_style.dart';
 import 'utils/base_sub_editor_configs.dart';
 import 'utils/editor_safe_area.dart';
+import 'utils/zoom_configs.dart';
 
 export '../custom_widgets/tune_editor_widgets.dart';
 export '../icons/tune_editor_icons.dart';
@@ -17,7 +18,7 @@ export '../styles/tune_editor_style.dart';
 /// This class defines various configurations such as enabling the editor,
 /// showing layers, providing tune adjustment options, and defining the
 /// editor's safe area.
-class TuneEditorConfigs implements BaseSubEditorConfigs {
+class TuneEditorConfigs extends ZoomConfigs implements BaseSubEditorConfigs {
   /// Creates a [TuneEditorConfigs] instance with the specified parameters.
   ///
   /// - [enabled] determines whether the tune editor is enabled or not.
@@ -31,6 +32,14 @@ class TuneEditorConfigs implements BaseSubEditorConfigs {
       'Use tools inside MainEditorConfigs instead, e.g. tools: '
       '[SubEditorMode.tune]',
     )
+    super.enableZoom,
+    super.editorMinScale,
+    super.editorMaxScale,
+    super.enableDoubleTapZoom,
+    super.doubleTapZoomFactor,
+    super.doubleTapZoomDuration,
+    super.doubleTapZoomCurve,
+    super.boundaryMargin,
     this.enabled = true,
     this.showLayers = true,
     this.tuneAdjustmentOptions,

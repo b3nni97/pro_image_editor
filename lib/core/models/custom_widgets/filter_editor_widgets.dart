@@ -27,6 +27,7 @@ class FilterEditorWidgets
     super.bodyItemsRecorded,
     this.slider,
     this.filterButton,
+    this.filterList,
   });
 
   /// A custom slider widget for the filter editor.
@@ -59,6 +60,15 @@ class FilterEditorWidgets
     Key filterKey,
   )? filterButton;
 
+  /// Creating the filter list which holds the filter buttons.
+  final Widget Function(
+    FilterEditorState editorState,
+    List<FilterModel> filters,
+    NullableIndexedWidgetBuilder itemBuilder,
+    Function(int index) onSelectFilter,
+    ValueNotifier<FilterModel> lastChangedFilterNotifier,
+  )? filterList;
+
   @override
   FilterEditorWidgets copyWith({
     ReactiveAppbar? Function(
@@ -78,6 +88,13 @@ class FilterEditorWidgets
       Widget editorImage,
       Key filterKey,
     )? filterButton,
+    final Widget Function(
+      FilterEditorState editorState,
+      List<FilterModel> filters,
+      NullableIndexedWidgetBuilder itemBuilder,
+      Function(int index) onSelectFilter,
+      ValueNotifier<FilterModel> lastChangedFilterNotifier,
+    )? filterList,
   }) {
     return FilterEditorWidgets(
       appBar: appBar ?? this.appBar,
@@ -86,6 +103,7 @@ class FilterEditorWidgets
       bodyItemsRecorded: bodyItemsRecorded ?? this.bodyItemsRecorded,
       slider: slider ?? this.slider,
       filterButton: filterButton ?? this.filterButton,
+      filterList: filterList ?? this.filterList,
     );
   }
 }

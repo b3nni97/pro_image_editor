@@ -48,6 +48,7 @@ class CropCornerPainter extends CustomPainter {
     required this.scaleFactor,
     required this.style,
     required this.rotationScaleFactor,
+    required this.background,
   });
 
   /// The rectangle defining the crop area.
@@ -115,6 +116,9 @@ class CropCornerPainter extends CustomPainter {
   /// This double value influences how elements are scaled when the image is
   /// rotated, ensuring that elements remain proportionate.
   final double rotationScaleFactor;
+
+  /// The background color
+  final Color background;
 
   double get _cropOffsetLeft => cropRect.left;
   double get _cropOffsetRight => cropRect.right;
@@ -185,7 +189,7 @@ class CropCornerPainter extends CustomPainter {
     }
 
     Color interpolatedColor = Color.lerp(
-      style.background,
+      background,
       style.cropOverlayColor,
       fadeInOpacity,
     )!;
@@ -371,7 +375,8 @@ class CropCornerPainter extends CustomPainter {
         oldDelegate.screenSize != screenSize ||
         oldDelegate.scaleFactor != scaleFactor ||
         oldDelegate.style != style ||
-        oldDelegate.rotationScaleFactor != rotationScaleFactor;
+        oldDelegate.rotationScaleFactor != rotationScaleFactor ||
+        oldDelegate.background != background;
   }
 
   /// Create a copy of the [CropCornerPainter].
@@ -387,6 +392,7 @@ class CropCornerPainter extends CustomPainter {
       scaleFactor: scaleFactor,
       style: style,
       rotationScaleFactor: rotationScaleFactor,
+      background: background,
     );
   }
 }
