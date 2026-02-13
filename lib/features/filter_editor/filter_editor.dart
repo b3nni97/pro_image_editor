@@ -292,19 +292,14 @@ class FilterEditorState extends State<FilterEditor>
   void setFilterOpacity(double value) {
     _filterOpacity = value.clamp(0, 1);
     _uiFilterStream.add(null);
+    lastChangedFilterNotifier.value = selectedFilter;
+    lastChangedFilterOpacity = filterOpacity;
+    filterEditorCallbacks?.handleFilterFactorChange(value);
   }
 
   /// Handles changes in the filter factor value.
-  void _onChanged(double value) {
+  void onChanged(double value) {
     setFilterOpacity(value);
-
-    // void onChanged(double value) {
-    //   filterOpacity = value;
-    //   _uiFilterStream.add(null);
-    //   lastChangedFilterNotifier.value = selectedFilter;
-    //   lastChangedFilterOpacity = filterOpacity;
-    //   filterEditorCallbacks?.handleFilterFactorChange(value);
-    // }
   }
 
   /// Handles the end of changes in the filter factor value.
@@ -535,7 +530,7 @@ class FilterEditorState extends State<FilterEditor>
                                   this,
                                   rebuildController.stream,
                                   filterOpacity,
-                                  _onChanged,
+                                  onChanged,
                                   onChangedEnd,
                                 ) ??
                                 Slider(
@@ -543,7 +538,7 @@ class FilterEditorState extends State<FilterEditor>
                                   max: 1,
                                   divisions: 100,
                                   value: filterOpacity,
-                                  onChanged: _onChanged,
+                                  onChanged: onChanged,
                                   onChangeEnd: onChangedEnd,
                                 ),
                       );
