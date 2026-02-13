@@ -1,4 +1,5 @@
-import 'package:flutter/widgets.dart';
+import 'package:flutter/widgets.dart' hide TransformationController;
+import '../interactive_viewer_scroll_physics.dart';
 import '/core/models/editor_configs/utils/zoom_configs.dart';
 import 'extended_raw_interactive_viewer.dart';
 
@@ -122,10 +123,9 @@ class ExtendedInteractiveViewer extends StatefulWidget {
 class ExtendedInteractiveViewerState extends State<ExtendedInteractiveViewer>
     with TickerProviderStateMixin {
   final _rawViewerKey = GlobalKey<ExtendedRawInteractiveViewerState>();
-  late ExtendedTransformationController _transformCtrl;
-  // late TransformationController _transformCtrl;
+  late TransformationController _transformCtrl;
   // Allows access to the [TransformationController]
-  // TransformationController? get transformationController => _transformCtrl;
+  TransformationController? get transformationController => _transformCtrl;
   late final AnimationController _animationCtrl;
   late bool _enableInteraction;
 
@@ -135,19 +135,18 @@ class ExtendedInteractiveViewerState extends State<ExtendedInteractiveViewer>
   @override
   void initState() {
     super.initState();
-    _transformCtrl = ExtendedTransformationController(widget.initialMatrix4)
-      ..addListener(() {
-        // _transformCtrl = TransformationController(
-        //   (widget.initialMatrix4 ?? Matrix4.identity())
-        //     ..scale(
-        //       widget.zoomConfigs.editorMinScale,
-        //     )
-        //     ..translate(
-        //       widget.zoomConfigs.boundaryMargin.left,
-        //       widget.zoomConfigs.boundaryMargin.top,
-        //     ),
-        // )..addListener(() {
-        //     widget.onMatrix4Change?.call(_transformCtrl.value);
+
+    _transformCtrl = TransformationController(
+      (widget.initialMatrix4 ?? Matrix4.identity())
+        ..scale(
+          widget.zoomConfigs.editorMinScale,
+        )
+        ..translate(
+          widget.zoomConfigs.boundaryMargin.left,
+          widget.zoomConfigs.boundaryMargin.top,
+        ),
+    )..addListener(() {
+        widget.onMatrix4Change?.call(_transformCtrl.value);
       });
     _animationCtrl = AnimationController(
       vsync: this,
@@ -314,8 +313,15 @@ class ExtendedInteractiveViewerState extends State<ExtendedInteractiveViewer>
   Widget build(BuildContext context) {
     if (!widget.zoomConfigs.enableZoom) return widget.child;
 
-    return ExtendedRawInteractiveViewer(
-      key: _rawViewerKey,
+    /// If we disable the interaction we need to return it as Transform widget
+    /// that the InteractiveViewer will not absorb the scale events.
+    if (!_enableInteraction) {
+      return Transform(
+        transform: _transformCtrl.value,
+        child: widget.child,
+      );
+    }
+    return InteractiveViewerScrollPhysics(
       boundaryMargin: widget.zoomConfigs.boundaryMargin,
       transformationController: _transformCtrl,
       panEnabled: _enableInteraction,
@@ -324,35 +330,11 @@ class ExtendedInteractiveViewerState extends State<ExtendedInteractiveViewer>
       maxScale: widget.zoomConfigs.editorMaxScale,
       onInteractionStart: widget.onInteractionStart,
       onInteractionUpdate: widget.onInteractionUpdate,
-      onInteractionEnd: widget.onInteractionEnd,
-      enableExternalGestureDetector: widget.enableExternalGestureDetector,
-      invertTrackpadDirection: widget.zoomConfigs.invertTrackpadDirection,
-      // scrollPhysics: const BouncingScrollPhysics(),
+      // onInteractionEnd: widget.onInteractionEnd,
+      // enableExternalGestureDetector: widget.enableExternalGestureDetector,
+      // invertTrackpadDirection: widget.zoomConfigs.invertTrackpadDirection,
+      scrollPhysics: const BouncingScrollPhysics(),
       child: widget.child,
     );
-
-    // /// If we disable the interaction we need to return it as Transform widget
-    // /// that the InteractiveViewer will not absorb the scale events.
-    // if (!_enableInteraction) {
-    //   return Transform(
-    //     transform: _transformCtrl.value,
-    //     child: widget.child,
-    //   );
-    // }
-    // return InteractiveViewerScrollPhysics(
-    //   boundaryMargin: widget.zoomConfigs.boundaryMargin,
-    //   transformationController: _transformCtrl,
-    //   panEnabled: _enableInteraction,
-    //   scaleEnabled: _enableInteraction,
-    //   minScale: widget.zoomConfigs.editorMinScale,
-    //   maxScale: widget.zoomConfigs.editorMaxScale,
-    //   onInteractionStart: widget.onInteractionStart,
-    //   onInteractionUpdate: widget.onInteractionUpdate,
-    //   onInteractionEnd: widget.onInteractionEnd,
-    //   enableExternalGestureDetector: widget.enableExternalGestureDetector,
-    //   invertTrackpadDirection: widget.zoomConfigs.invertTrackpadDirection,
-    //   scrollPhysics: const BouncingScrollPhysics(),
-    //   child: widget.child,
-    // );
   }
 }
