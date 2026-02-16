@@ -21,6 +21,7 @@ import '/core/platform/io/io_helper.dart';
 import '/features/crop_rotate_editor/widgets/crop_editor_appbar.dart';
 import '/features/crop_rotate_editor/widgets/crop_editor_bottombar.dart';
 import '/features/crop_rotate_editor/widgets/outside_gestures/crop_rotate_gesture_detector.dart';
+
 import '/features/crop_rotate_editor/widgets/outside_gestures/outside_gesture_listener.dart';
 import '/plugins/defer_pointer/defer_pointer.dart';
 import '/pro_image_editor.dart';
@@ -369,6 +370,17 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
   double _rotationScaleFactor = 1;
 
+  /// The current straightening angle applied via the slider (-π/4 to +π/4).
+  double _straightenAngle = 0.0;
+
+
+
+  /// The current scale from straightening.
+  double _straightenScale = 1.0;
+
+  /// Flag indicating whether straighten mode is active.
+  bool _isStraightenModeActive = false;
+
   @override
   CropCornerPainter? get cropPainter {
     return showWidgets
@@ -453,6 +465,10 @@ class CropRotateEditorState extends State<CropRotateEditor>
     scaleAnimation =
         Tween<double>(begin: initScale, end: initScale).animate(scaleCtrl);
 
+    // Initialize straighten rotation scale animation
+    _straightenAngle = initialTransformConfigs?.straightenAngle ?? 0.0;
+    _straightenScale = _calculateStraightenScale(_straightenAngle);
+
     // Initialize aspect ratio
     aspectRatio =
         cropRotateEditorConfigs.initAspectRatio ?? CropAspectRatios.custom;
@@ -497,6 +513,8 @@ class CropRotateEditorState extends State<CropRotateEditor>
           return !cropRotateEditorConfigs.showAspectRatioButton;
         case CropRotateTool.reset:
           return !cropRotateEditorConfigs.showResetButton;
+        case CropRotateTool.straighten:
+          return false; // Straighten is always visible if included in tools
       }
     });
 
@@ -541,6 +559,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
     _flingCtrl.dispose();
     rotateCtrl.dispose();
     scaleCtrl.dispose();
+
     ServicesBinding.instance.keyboard.removeHandler(_onKeyEvent);
     super.dispose();
   }
@@ -946,6 +965,59 @@ class CropRotateEditorState extends State<CropRotateEditor>
     calcFitToScreen();
 
     cropRotateEditorCallbacks?.handleRotateStart(rotateAnimation.value);
+  }
+
+  /// Calculates the scale factor needed to fill the viewport when the image
+  /// is straightened (rotated) by the given angle.
+  ///
+  /// [straightenAngle] The straightening angle in radians.
+  /// Returns the scale factor needed to prevent gaps in the viewport.
+  double _calculateStraightenScale(double straightenAngle) {
+    if (straightenAngle == 0) return 1.0;
+
+    double absAngle = straightenAngle.abs();
+    double width = _viewRect.width;
+    double height = _viewRect.height;
+
+    if (width == 0 || height == 0) return 1.0;
+
+    // Calculate the bounding box of the rotated viewport
+    double cosAngle = cos(absAngle);
+    double sinAngle = sin(absAngle);
+
+    // The rotated viewport's bounding box dimensions
+    double boundingWidth = width * cosAngle + height * sinAngle;
+    double boundingHeight = width * sinAngle + height * cosAngle;
+
+    // Scale needed to fit the rotated image back into the viewport
+    double scaleX = boundingWidth / width;
+    double scaleY = boundingHeight / height;
+
+    return max(scaleX, scaleY);
+  }
+
+  /// Sets the straightening angle and updates the auto-zoom to fill viewport.
+  ///
+  /// [angle] The straightening angle in radians, clamped to -π/4 to π/4.
+  void setStraightenAngle(double angle) {
+    // Clamp angle to -45° to +45° range
+    const double maxAngle = pi / 4; // 45 degrees in radians
+    double clampedAngle = angle.clamp(-maxAngle, maxAngle);
+
+    _straightenAngle = clampedAngle;
+
+    // Calculate required zoom to fill viewport at this angle
+    _straightenScale = _calculateStraightenScale(clampedAngle);
+
+    _setOffsetLimits();
+    _updateAllStates();
+    addHistory(scaleRotation: oldScaleFactor, straightenAngle: clampedAngle);
+  }
+
+  /// Toggles straighten mode on/off.
+  void toggleStraightenMode() {
+    _isStraightenModeActive = !_isStraightenModeActive;
+    _updateAllStates();
   }
 
   @override
@@ -2095,20 +2167,40 @@ class CropRotateEditorState extends State<CropRotateEditor>
   }
 
   /// Calculate pan boundaries based on current scale and view rect.
+  Offset _getMaxOffset(double scale, {Rect? viewRect}) {
+    Rect r = viewRect ?? _viewRect;
+    // Calculate the scale and rotation adjustments
+    double straightenScale = _straightenScale;
+    double straightenAngle = _straightenAngle;
+
+    // Calculate the bounding box of the rotated viewport
+    double cosAngle = cos(straightenAngle);
+    double sinAngle = sin(straightenAngle);
+    double rotatedWidth = r.width * cosAngle.abs() + r.height * sinAngle.abs();
+    double rotatedHeight = r.width * sinAngle.abs() + r.height * cosAngle.abs();
+
+    // Adjust crop dimensions by the straighten scale
+    double effectiveCropWidth = rotatedWidth / straightenScale;
+    double effectiveCropHeight = rotatedHeight / straightenScale;
+
+    return Offset(
+      (_renderedImgConstraints.maxWidth * scale - effectiveCropWidth) /
+          2 /
+          scale,
+      (_renderedImgConstraints.maxHeight * scale - effectiveCropHeight) /
+          2 /
+          scale,
+    );
+  }
+
+  /// Calculate pan boundaries based on current scale and view rect.
   Rect _panBoundaries(double scale) {
-    final double maxX =
-        (_renderedImgConstraints.maxWidth * scale - _viewRect.width) /
-            2 /
-            scale;
-    final double maxY =
-        (_renderedImgConstraints.maxHeight * scale - _viewRect.height) /
-            2 /
-            scale;
+    Offset maxOffset = _getMaxOffset(scale);
     return Rect.fromLTRB(
-      -max(0.0, maxX),
-      -max(0.0, maxY),
-      max(0, maxX),
-      max(0, maxY),
+      -max(0.0, maxOffset.dx),
+      -max(0.0, maxOffset.dy),
+      max(0, maxOffset.dx),
+      max(0, maxOffset.dy),
     );
   }
 
@@ -2205,14 +2297,9 @@ class CropRotateEditorState extends State<CropRotateEditor>
             ))
         : Offset.zero;
 
-    double maxOffsetX =
-        (_renderedImgConstraints.maxWidth * targetZoom - _viewRect.width) /
-            2 /
-            targetZoom;
-    double maxOffsetY =
-        (_renderedImgConstraints.maxHeight * targetZoom - _viewRect.height) /
-            2 /
-            targetZoom;
+    Offset maxOffset = _getMaxOffset(targetZoom);
+    double maxOffsetX = maxOffset.dx;
+    double maxOffsetY = maxOffset.dy;
 
     /// direct double clamp trigger an error on android samsung s10 so better
     /// use own solution to clamp
@@ -2243,19 +2330,9 @@ class CropRotateEditorState extends State<CropRotateEditor>
   }
 
   void _setOffsetLimits({Rect? rect}) {
-    Rect r = rect ?? _viewRect;
-
-    double cropWidth = r.width;
-    double cropHeight = r.height;
-
-    double minX =
-        (_renderedImgConstraints.maxWidth * userScaleFactor - cropWidth) /
-            2 /
-            userScaleFactor;
-    double minY =
-        (_renderedImgConstraints.maxHeight * userScaleFactor - cropHeight) /
-            2 /
-            userScaleFactor;
+    Offset maxOffset = _getMaxOffset(userScaleFactor, viewRect: rect);
+    double minX = maxOffset.dx;
+    double minY = maxOffset.dy;
 
     Offset offset = translate;
 
@@ -2497,10 +2574,17 @@ class CropRotateEditorState extends State<CropRotateEditor>
                       width: constraints.maxWidth *
                           (cropRotateEditorConfigs.maxWidthFactor ??
                               (!kIsWeb && Platform.isAndroid ? 0.9 : 1)),
-                      child: _buildBody(),
+                      child: Stack(
+                        children: [
+                          _buildBody(),
+                          Positioned(
+                              bottom: 0,
+                              child: _buildBottomAppBar() ?? Container()),
+                        ],
+                      ),
                     ),
                   ),
-                  bottomNavigationBar: _buildBottomAppBar(),
+                  // bottomNavigationBar: _buildBottomAppBar(),
                 ),
               ),
             );
@@ -2546,10 +2630,21 @@ class CropRotateEditorState extends State<CropRotateEditor>
             configs: cropRotateEditorConfigs,
             theme: theme,
             tools: tools,
+            isStraightenModeActive: _isStraightenModeActive,
+            straightenAngle: _straightenAngle,
+            rebuildController: rebuildController,
+            editorState: this,
             onRotate: rotate,
             onFlip: flip,
             onOpenAspectRatioOptions: openAspectRatioOptions,
             onReset: reset,
+            onStraighten: toggleStraightenMode,
+            onStraightenChanged: (angle) {
+              setStraightenAngle(angle);
+            },
+            onStraightenChangeEnd: (angle) {
+              // Final angle is already set by setStraightenAngle
+            },
           )
         : null;
   }
@@ -2615,12 +2710,16 @@ class CropRotateEditorState extends State<CropRotateEditor>
                         child: _buildRotationScaleTransform(
                           child: _buildPaintContainer(
                             child: _buildCropPainter(
-                              child: _buildUserScaleTransform(
-                                child: _buildTranslate(
-                                  child: DeferPointer(
-                                    child: _buildEventListener(
-                                      child: _buildGestureDetector(
-                                        child: _buildImage(),
+                              child: _buildStraightenRotationTransform(
+                                child: _buildStraightenScaleTransform(
+                                  child: _buildUserScaleTransform(
+                                    child: _buildTranslate(
+                                      child: DeferPointer(
+                                        child: _buildEventListener(
+                                          child: _buildGestureDetector(
+                                            child: _buildImage(),
+                                          ),
+                                        ),
                                       ),
                                     ),
                                   ),
@@ -2765,6 +2864,22 @@ class CropRotateEditorState extends State<CropRotateEditor>
         alignment: Alignment.center,
         child: child,
       ),
+      child: child,
+    );
+  }
+
+  Widget _buildStraightenScaleTransform({required Widget child}) {
+    return Transform.scale(
+      scale: _straightenScale,
+      alignment: Alignment.center,
+      child: child,
+    );
+  }
+
+  Widget _buildStraightenRotationTransform({required Widget child}) {
+    return Transform.rotate(
+      angle: _straightenAngle,
+      alignment: Alignment.center,
       child: child,
     );
   }

@@ -11,4 +11,7 @@ enum CropRotateTool {
 
   /// A tool to reset all transformations to their original state.
   reset,
+
+  /// A tool to straighten/fine-tune rotate the image using a slider (-45° to +45°).
+  straighten,
 }

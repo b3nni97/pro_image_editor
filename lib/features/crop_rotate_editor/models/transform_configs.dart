@@ -49,6 +49,7 @@ class TransformConfigs {
     required this.flipY,
     required this.offset,
     this.cropMode = CropMode.rectangular,
+    this.straightenAngle = 0.0,
   });
 
   /// Creates a [TransformConfigs] instance from a map.
@@ -83,6 +84,7 @@ class TransformConfigs {
         safeParseDouble(map['offset']?['dx']),
         safeParseDouble(map['offset']?['dy']),
       ),
+      straightenAngle: safeParseDouble(map['straightenAngle'], fallback: 0.0),
     );
   }
 
@@ -103,6 +105,7 @@ class TransformConfigs {
       flipY: false,
       offset: const Offset(0, 0),
       cropMode: CropMode.rectangular,
+      straightenAngle: 0.0,
     );
   }
 
@@ -185,6 +188,13 @@ class TransformConfigs {
   /// vertical axis.
   final bool flipY;
 
+  /// The straightening angle applied to the image.
+  ///
+  /// This angle represents the fine-tuning rotation (typically -45° to +45°)
+  /// applied via the slider, separate from the 90° rotation.
+  /// Value is in radians.
+  final double straightenAngle;
+
   /// Checks if the transformation configurations are empty.
   ///
   /// This property returns `true` if all properties are in their default states
@@ -199,7 +209,8 @@ class TransformConfigs {
         aspectRatio == -1 &&
         flipX == false &&
         flipY == false &&
-        offset == const Offset(0, 0);
+        offset == const Offset(0, 0) &&
+        straightenAngle == 0;
   }
 
   /// Checks if the transformation configurations are not empty.
@@ -269,6 +280,7 @@ class TransformConfigs {
         'dx': offset.dx.roundSmart(maxDecimalPlaces),
         'dy': offset.dy.roundSmart(maxDecimalPlaces),
       },
+      'straightenAngle': straightenAngle.roundSmart(maxDecimalPlaces),
     };
   }
 
@@ -341,6 +353,7 @@ class TransformConfigs {
     Rect? cropRect,
     Size? originalSize,
     double? cropEditorScreenRatio,
+    double? straightenAngle,
   }) {
     return TransformConfigs(
       cropMode: cropMode ?? this.cropMode,
@@ -355,6 +368,7 @@ class TransformConfigs {
       originalSize: originalSize ?? this.originalSize,
       cropEditorScreenRatio:
           cropEditorScreenRatio ?? this.cropEditorScreenRatio,
+      straightenAngle: straightenAngle ?? this.straightenAngle,
     );
   }
 
@@ -373,7 +387,8 @@ class TransformConfigs {
         other.aspectRatio == aspectRatio &&
         other.flipX == flipX &&
         other.flipY == flipY &&
-        other.cropMode == cropMode;
+        other.cropMode == cropMode &&
+        other.straightenAngle == straightenAngle;
   }
 
   @override
@@ -388,7 +403,8 @@ class TransformConfigs {
         aspectRatio.hashCode ^
         flipX.hashCode ^
         flipY.hashCode ^
-        cropMode.hashCode;
+        cropMode.hashCode ^
+        straightenAngle.hashCode;
   }
 }
 

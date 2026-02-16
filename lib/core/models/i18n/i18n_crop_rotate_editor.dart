@@ -32,6 +32,7 @@ class I18nCropRotateEditor {
     this.redo = 'Redo',
     this.smallScreenMoreTooltip = 'More',
     this.reset = 'Reset',
+    this.straighten = 'Straighten',
   });
 
   /// Text for the bottom navigation bar item that opens the Crop and Rotate
@@ -59,6 +60,9 @@ class I18nCropRotateEditor {
   /// Text for the "Reset" button.
   final String reset;
 
+  /// Text for the "Straighten" button.
+  final String straighten;
+
   /// Text for the "Undo" button.
   final String undo;
 
@@ -83,6 +87,7 @@ class I18nCropRotateEditor {
     String? cancel,
     String? done,
     String? reset,
+    String? straighten,
     String? undo,
     String? redo,
     String? smallScreenMoreTooltip,
@@ -97,6 +102,7 @@ class I18nCropRotateEditor {
       cancel: cancel ?? this.cancel,
       done: done ?? this.done,
       reset: reset ?? this.reset,
+      straighten: straighten ?? this.straighten,
       undo: undo ?? this.undo,
       redo: redo ?? this.redo,
       smallScreenMoreTooltip:

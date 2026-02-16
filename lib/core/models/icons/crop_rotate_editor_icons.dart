@@ -28,6 +28,7 @@ class CropRotateEditorIcons {
     this.aspectRatio = Icons.crop,
     this.flip = Icons.flip,
     this.reset = Icons.restore,
+    this.straighten = Icons.tune,
     this.applyChanges = Icons.done,
     this.backButton = Icons.arrow_back,
     this.undoAction = Icons.undo,
@@ -48,6 +49,9 @@ class CropRotateEditorIcons {
 
   /// The icon for the reset action.
   final IconData reset;
+
+  /// The icon for the straighten action.
+  final IconData straighten;
 
   /// The icon for the back button.
   final IconData backButton;
@@ -73,6 +77,7 @@ class CropRotateEditorIcons {
     IconData? aspectRatio,
     IconData? flip,
     IconData? reset,
+    IconData? straighten,
     IconData? backButton,
     IconData? applyChanges,
     IconData? undoAction,
@@ -84,6 +89,7 @@ class CropRotateEditorIcons {
       aspectRatio: aspectRatio ?? this.aspectRatio,
       flip: flip ?? this.flip,
       reset: reset ?? this.reset,
+      straighten: straighten ?? this.straighten,
       backButton: backButton ?? this.backButton,
       applyChanges: applyChanges ?? this.applyChanges,
       undoAction: undoAction ?? this.undoAction,

@@ -31,6 +31,7 @@ class CropRotateEditorWidgets
     super.bottomBar,
     super.bodyItems,
     this.aspectRatioOptions,
+    this.slider,
   });
 
   /// A widget for selecting aspect ratio options in the crop editor.
@@ -47,6 +48,13 @@ class CropRotateEditorWidgets
   /// aspect ratios.
   final CropEditorAspectRatioOptions<CropRotateEditorState>? aspectRatioOptions;
 
+  /// A custom slider widget for the straighten tool in the crop editor.
+  ///
+  /// This widget allows users to adjust the straighten angle using a slider.
+  ///
+  /// {@macro customSliderWidget}
+  final CustomSlider<CropRotateEditorState>? slider;
+
   @override
   CropRotateEditorWidgets copyWith({
     ReactiveAppbar? Function(
@@ -57,12 +65,14 @@ class CropRotateEditorWidgets
         bottomBar,
     CustomBodyItems<CropRotateEditorState>? bodyItems,
     CropEditorAspectRatioOptions<CropRotateEditorState>? aspectRatioOptions,
+    CustomSlider<CropRotateEditorState>? slider,
   }) {
     return CropRotateEditorWidgets(
       appBar: appBar ?? this.appBar,
       bottomBar: bottomBar ?? this.bottomBar,
       bodyItems: bodyItems ?? this.bodyItems,
       aspectRatioOptions: aspectRatioOptions ?? this.aspectRatioOptions,
+      slider: slider ?? this.slider,
     );
   }
 }

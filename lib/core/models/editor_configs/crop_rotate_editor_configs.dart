@@ -70,6 +70,7 @@ class CropRotateEditorConfigs extends ZoomConfigs
     this.showResetButton = true,
     this.tools = const [
       CropRotateTool.rotate,
+      CropRotateTool.straighten,
       CropRotateTool.flip,
       CropRotateTool.aspectRatio,
       CropRotateTool.reset,

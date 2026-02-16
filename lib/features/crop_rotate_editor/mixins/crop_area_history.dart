@@ -281,7 +281,11 @@ mixin CropAreaHistory
   }
 
   /// Adds the current transformation to the history.
-  void addHistory({double? scaleRotation, double? angle}) {
+  void addHistory({
+    double? scaleRotation,
+    double? angle,
+    double? straightenAngle,
+  }) {
     if (!initialized) return;
     cleanForwardChanges();
     history.add(
@@ -297,6 +301,7 @@ mixin CropAreaHistory
         flipY: flipY,
         offset: translate,
         cropMode: cropMode,
+        straightenAngle: straightenAngle ?? 0.0,
       ),
     );
     screenshotHistoryPosition++;
