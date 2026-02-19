@@ -71,6 +71,7 @@ class CropRotateEditorConfigs extends ZoomConfigs
     this.tools = const [
       CropRotateTool.rotate,
       CropRotateTool.straighten,
+      CropRotateTool.perspective,
       CropRotateTool.flip,
       CropRotateTool.aspectRatio,
       CropRotateTool.reset,

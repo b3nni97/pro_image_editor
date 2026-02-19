@@ -1,6 +1,7 @@
 // Flutter imports:
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'dart:math';
 
 // Project imports:
 import '/core/models/editor_configs/pro_image_editor_configs.dart';
@@ -97,8 +98,10 @@ class TransformedContentGenerator extends StatelessWidget {
             child: _buildFitRotateFlip(
               fitFactor: fitFactor,
               child: _buildCropPainter(
-                child: _buildScaleRotate(
-                  child: child,
+                child: _buildStraightenPerspective(
+                  child: _buildScaleRotate(
+                    child: child,
+                  ),
                 ),
               ),
             ),
@@ -135,6 +138,55 @@ class TransformedContentGenerator extends StatelessWidget {
       alignment: Alignment.center,
       transform: outerMatrix,
       child: child,
+    );
+  }
+
+  double _calculateStraightenScale(double straightenAngle) {
+    if (straightenAngle == 0) return 1.0;
+
+    double absAngle = straightenAngle.abs();
+    double w = _transformConfigs.cropRect.width;
+    double h = _transformConfigs.cropRect.height;
+
+    if (w == 0 || h == 0) return 1.0;
+
+    double cosAngle = 1 /
+        (1 /
+                (w /
+                    (w * cos(absAngle) +
+                        h * sin(absAngle))) +
+            1 /
+                (h /
+                    (h * cos(absAngle) +
+                        w * sin(absAngle))) -
+            1);
+
+    return 1 / cosAngle;
+  }
+
+  Widget _buildStraightenPerspective({required Widget child}) {
+    if (_transformConfigs.straightenAngle == 0 &&
+        _transformConfigs.perspectiveX == 0 &&
+        _transformConfigs.perspectiveY == 0) {
+      return child;
+    }
+
+    final matrix = Matrix4.identity()
+      ..setEntry(3, 2, 0.001)
+      ..rotateX(_transformConfigs.perspectiveX)
+      ..rotateY(_transformConfigs.perspectiveY)
+      ..rotateZ(_transformConfigs.straightenAngle);
+
+    final straightenScale =
+        _calculateStraightenScale(_transformConfigs.straightenAngle);
+
+    return Transform(
+      transform: matrix,
+      alignment: Alignment.center,
+      child: Transform.scale(
+        scale: straightenScale,
+        child: child,
+      ),
     );
   }
 

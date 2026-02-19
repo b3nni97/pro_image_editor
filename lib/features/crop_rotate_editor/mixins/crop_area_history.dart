@@ -177,6 +177,14 @@ mixin CropAreaHistory
   @protected
   bool flipY = false;
 
+  /// The horizontal perspective applied to the image.
+  @protected
+  double perspectiveX = 0.0;
+
+  /// The vertical perspective applied to the image.
+  @protected
+  double perspectiveY = 0.0;
+
   /// Indicates whether the editor has been initialized.
   ///
   /// This boolean flag tracks whether the editor has completed its
@@ -302,6 +310,8 @@ mixin CropAreaHistory
         offset: translate,
         cropMode: cropMode,
         straightenAngle: straightenAngle ?? 0.0,
+        perspectiveX: perspectiveX,
+        perspectiveY: perspectiveY,
       ),
     );
     screenshotHistoryPosition++;
@@ -366,6 +376,8 @@ mixin CropAreaHistory
     translate = activeHistory.offset;
     userScaleFactor = activeHistory.scaleUser;
     cropRect = activeHistory.cropRect;
+    perspectiveX = activeHistory.perspectiveX;
+    perspectiveY = activeHistory.perspectiveY;
     aspectRatio = activeHistory.aspectRatio < 0
         ? cropRect.size.aspectRatio
         : activeHistory.aspectRatio;
@@ -413,6 +425,8 @@ mixin CropAreaHistory
     initialized = false;
     flipX = false;
     flipY = false;
+    perspectiveX = 0.0;
+    perspectiveY = 0.0;
     translate = Offset.zero;
     setCropMode(
       cropRotateEditorConfigs.initialCropMode,

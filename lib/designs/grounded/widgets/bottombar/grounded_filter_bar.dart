@@ -130,6 +130,8 @@ class _GroundedFilterBarState extends State<GroundedFilterBar>
               configs: configs,
               transformConfigs: widget.editor.initialTransformConfigs,
               selectedFilter: widget.editor.selectedFilter.filters,
+              editorState: widget.editor,
+              lastChangedFilterNotifier: widget.editor.lastChangedFilterNotifier,
               onSelectFilter: (filter) {
                 widget.editor.setFilter(filter);
               },

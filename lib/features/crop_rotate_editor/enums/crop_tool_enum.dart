@@ -14,4 +14,7 @@ enum CropRotateTool {
 
   /// A tool to straighten/fine-tune rotate the image using a slider (-45° to +45°).
   straighten,
+
+  /// A tool to adjust the perspective of the image.
+  perspective,
 }

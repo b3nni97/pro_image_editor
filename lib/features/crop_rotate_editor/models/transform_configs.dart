@@ -50,6 +50,8 @@ class TransformConfigs {
     required this.offset,
     this.cropMode = CropMode.rectangular,
     this.straightenAngle = 0.0,
+    this.perspectiveX = 0.0,
+    this.perspectiveY = 0.0,
   });
 
   /// Creates a [TransformConfigs] instance from a map.
@@ -85,6 +87,8 @@ class TransformConfigs {
         safeParseDouble(map['offset']?['dy']),
       ),
       straightenAngle: safeParseDouble(map['straightenAngle'], fallback: 0.0),
+      perspectiveX: safeParseDouble(map['perspectiveX'], fallback: 0.0),
+      perspectiveY: safeParseDouble(map['perspectiveY'], fallback: 0.0),
     );
   }
 
@@ -106,6 +110,8 @@ class TransformConfigs {
       offset: const Offset(0, 0),
       cropMode: CropMode.rectangular,
       straightenAngle: 0.0,
+      perspectiveX: 0.0,
+      perspectiveY: 0.0,
     );
   }
 
@@ -195,6 +201,12 @@ class TransformConfigs {
   /// Value is in radians.
   final double straightenAngle;
 
+  /// The horizontal perspective applied to the image.
+  final double perspectiveX;
+
+  /// The vertical perspective applied to the image.
+  final double perspectiveY;
+
   /// Checks if the transformation configurations are empty.
   ///
   /// This property returns `true` if all properties are in their default states
@@ -210,7 +222,9 @@ class TransformConfigs {
         flipX == false &&
         flipY == false &&
         offset == const Offset(0, 0) &&
-        straightenAngle == 0;
+        straightenAngle == 0 &&
+        perspectiveX == 0 &&
+        perspectiveY == 0;
   }
 
   /// Checks if the transformation configurations are not empty.
@@ -281,6 +295,8 @@ class TransformConfigs {
         'dy': offset.dy.roundSmart(maxDecimalPlaces),
       },
       'straightenAngle': straightenAngle.roundSmart(maxDecimalPlaces),
+      'perspectiveX': perspectiveX.roundSmart(maxDecimalPlaces),
+      'perspectiveY': perspectiveY.roundSmart(maxDecimalPlaces),
     };
   }
 
@@ -354,6 +370,8 @@ class TransformConfigs {
     Size? originalSize,
     double? cropEditorScreenRatio,
     double? straightenAngle,
+    double? perspectiveX,
+    double? perspectiveY,
   }) {
     return TransformConfigs(
       cropMode: cropMode ?? this.cropMode,
@@ -369,6 +387,8 @@ class TransformConfigs {
       cropEditorScreenRatio:
           cropEditorScreenRatio ?? this.cropEditorScreenRatio,
       straightenAngle: straightenAngle ?? this.straightenAngle,
+      perspectiveX: perspectiveX ?? this.perspectiveX,
+      perspectiveY: perspectiveY ?? this.perspectiveY,
     );
   }
 
@@ -388,7 +408,9 @@ class TransformConfigs {
         other.flipX == flipX &&
         other.flipY == flipY &&
         other.cropMode == cropMode &&
-        other.straightenAngle == straightenAngle;
+        other.straightenAngle == straightenAngle &&
+        other.perspectiveX == perspectiveX &&
+        other.perspectiveY == perspectiveY;
   }
 
   @override
@@ -404,7 +426,9 @@ class TransformConfigs {
         flipX.hashCode ^
         flipY.hashCode ^
         cropMode.hashCode ^
-        straightenAngle.hashCode;
+        straightenAngle.hashCode ^
+        perspectiveX.hashCode ^
+        perspectiveY.hashCode;
   }
 }
 

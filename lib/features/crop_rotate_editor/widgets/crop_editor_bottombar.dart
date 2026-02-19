@@ -50,6 +50,12 @@ class CropEditorBottombar extends StatefulWidget {
     required this.onStraighten,
     required this.onStraightenChanged,
     required this.onStraightenChangeEnd,
+    required this.isPerspectiveModeActive,
+    required this.perspectiveX,
+    required this.perspectiveY,
+    required this.onPerspective,
+    required this.onPerspectiveChanged,
+    required this.onPerspectiveChangeEnd,
   });
 
   /// Controls the scroll behavior of the bottom bar.
@@ -100,17 +106,38 @@ class CropEditorBottombar extends StatefulWidget {
   /// Callback when straighten slider interaction ends.
   final Function(double value) onStraightenChangeEnd;
 
+  /// Whether perspective mode is currently active.
+  final bool isPerspectiveModeActive;
+
+  /// Current horizontal perspective value.
+  final double perspectiveX;
+
+  /// Current vertical perspective value.
+  final double perspectiveY;
+
+  /// Callback for toggling perspective mode.
+  final Function() onPerspective;
+
+  /// Callback when perspective slider value changes.
+  final Function(double x, double y) onPerspectiveChanged;
+
+  /// Callback when perspective slider interaction ends.
+  final Function(double x, double y) onPerspectiveChangeEnd;
+
   @override
   State<CropEditorBottombar> createState() => _CropEditorBottombarState();
 }
 
 class _CropEditorBottombarState extends State<CropEditorBottombar> {
   late ValueNotifier<double> _sliderValue;
+  late ValueNotifier<double> _perspectiveValue;
+  bool _isHorizontalPerspective = true;
 
   @override
   void initState() {
     super.initState();
     _sliderValue = ValueNotifier(widget.straightenAngle);
+    _perspectiveValue = ValueNotifier(widget.perspectiveX);
   }
 
   @override
@@ -119,11 +146,21 @@ class _CropEditorBottombarState extends State<CropEditorBottombar> {
     if (widget.straightenAngle != oldWidget.straightenAngle) {
       _sliderValue.value = widget.straightenAngle;
     }
+    if (_isHorizontalPerspective) {
+      if (widget.perspectiveX != oldWidget.perspectiveX) {
+        _perspectiveValue.value = widget.perspectiveX;
+      }
+    } else {
+      if (widget.perspectiveY != oldWidget.perspectiveY) {
+        _perspectiveValue.value = widget.perspectiveY;
+      }
+    }
   }
 
   @override
   void dispose() {
     _sliderValue.dispose();
+    _perspectiveValue.dispose();
     super.dispose();
   }
 
@@ -169,6 +206,13 @@ class _CropEditorBottombarState extends State<CropEditorBottombar> {
           icon: widget.configs.icons.straighten,
           onTap: widget.onStraighten,
         );
+      case CropRotateTool.perspective:
+        return _ToolItem(
+          key: const ValueKey('crop-rotate-editor-perspective-btn'),
+          label: widget.i18n.perspective,
+          icon: widget.configs.icons.perspective,
+          onTap: widget.onPerspective,
+        );
     }
   }
 
@@ -179,14 +223,93 @@ class _CropEditorBottombarState extends State<CropEditorBottombar> {
       child: SafeArea(
         child: Container(
           color: widget.configs.style.bottomBarBackground,
-          padding: widget.isStraightenModeActive
+          padding: widget.isStraightenModeActive || widget.isPerspectiveModeActive
               ? const EdgeInsets.symmetric(vertical: 8)
               : EdgeInsets.zero,
           child: widget.isStraightenModeActive
               ? _buildSlider()
-              : _buildTools(),
+              : widget.isPerspectiveModeActive
+                  ? _buildPerspectiveSliders()
+                  : _buildTools(),
         ),
       ),
+    );
+  }
+
+  Widget _buildPerspectiveSliders() {
+    const double maxAngle = pi / 4; // 45 degrees
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            IconButton(
+              onPressed: () {
+                setState(() {
+                  _isHorizontalPerspective = true;
+                  _perspectiveValue.value = widget.perspectiveX;
+                });
+              },
+              icon: Icon(
+                Icons.swap_horiz,
+                color: _isHorizontalPerspective
+                    ? widget.configs.style.appBarColor
+                    : widget.configs.style.appBarColor.withOpacity(0.5),
+              ),
+              tooltip: 'Horizontal',
+            ),
+            IconButton(
+              onPressed: () {
+                setState(() {
+                  _isHorizontalPerspective = false;
+                  _perspectiveValue.value = widget.perspectiveY;
+                });
+              },
+              icon: Icon(
+                Icons.swap_vert,
+                color: !_isHorizontalPerspective
+                    ? widget.configs.style.appBarColor
+                    : widget.configs.style.appBarColor.withOpacity(0.5),
+              ),
+              tooltip: 'Vertical',
+            ),
+          ],
+        ),
+        // Slider
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 800),
+          child: RepaintBoundary(
+            child: ValueListenableBuilder(
+              valueListenable: _perspectiveValue,
+              builder: (_, value, __) {
+                return Slider(
+                  min: -maxAngle,
+                  max: maxAngle,
+                  divisions: 180,
+                  value: value,
+                  onChanged: (val) {
+                    _perspectiveValue.value = val;
+                    if (_isHorizontalPerspective) {
+                      widget.onPerspectiveChanged(val, widget.perspectiveY);
+                    } else {
+                      widget.onPerspectiveChanged(widget.perspectiveX, val);
+                    }
+                  },
+                  onChangeEnd: (val) {
+                    if (_isHorizontalPerspective) {
+                      widget.onPerspectiveChangeEnd(val, widget.perspectiveY);
+                    } else {
+                      widget.onPerspectiveChangeEnd(widget.perspectiveX, val);
+                    }
+                  },
+                );
+              },
+            ),
+          ),
+        ),
+      ],
     );
   }
 

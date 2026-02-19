@@ -29,6 +29,7 @@ class CropRotateEditorIcons {
     this.flip = Icons.flip,
     this.reset = Icons.restore,
     this.straighten = Icons.tune,
+    this.perspective = Icons.view_in_ar,
     this.applyChanges = Icons.done,
     this.backButton = Icons.arrow_back,
     this.undoAction = Icons.undo,
@@ -52,6 +53,9 @@ class CropRotateEditorIcons {
 
   /// The icon for the straighten action.
   final IconData straighten;
+
+  /// The icon for the perspective action.
+  final IconData perspective;
 
   /// The icon for the back button.
   final IconData backButton;
@@ -78,6 +82,7 @@ class CropRotateEditorIcons {
     IconData? flip,
     IconData? reset,
     IconData? straighten,
+    IconData? perspective,
     IconData? backButton,
     IconData? applyChanges,
     IconData? undoAction,
@@ -90,6 +95,7 @@ class CropRotateEditorIcons {
       flip: flip ?? this.flip,
       reset: reset ?? this.reset,
       straighten: straighten ?? this.straighten,
+      perspective: perspective ?? this.perspective,
       backButton: backButton ?? this.backButton,
       applyChanges: applyChanges ?? this.applyChanges,
       undoAction: undoAction ?? this.undoAction,

@@ -77,6 +77,11 @@ class WhatsappFilters extends StatelessWidget {
               onSelectFilter: (filter) {
                 editor.addHistory(filters: filter.filters);
               },
+              editorState: editor,
+              lastChangedFilterNotifier: ValueNotifier(FilterModel(
+                name: 'None',
+                filters: [],
+              )),
             ),
           ),
         ),

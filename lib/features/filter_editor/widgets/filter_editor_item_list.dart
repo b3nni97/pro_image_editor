@@ -41,8 +41,8 @@ class FilterEditorItemList extends StatefulWidget {
   }) : assert(editorImage != null || image != null,
             'Either editorImage or image must be provided.');
 
-  /// The FilterEditorState to access the state of the current filter editor.
-  final FilterEditorState editorState;
+  /// The editor state to access the state of the current editor.
+  final State editorState;
 
   /// The EditorImage class represents an image with multiple sources,
   /// including bytes, file, network URL, and asset path.
@@ -140,7 +140,9 @@ class _FilterEditorItemListState extends State<FilterEditorItemList> {
   Widget _buildFilterList() {
     if (_filterConfigs.widgets.filterList != null) {
       return _filterConfigs.widgets.filterList!.call(
-        widget.editorState,
+        widget.editorState is FilterEditorState
+            ? widget.editorState as FilterEditorState
+            : widget.editorState as dynamic,
         _filters,
         (context, index) {
           return buildFilterButton(
