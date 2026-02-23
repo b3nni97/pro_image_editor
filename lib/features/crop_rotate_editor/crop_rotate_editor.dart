@@ -235,6 +235,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
   Simulation? _simulationScale;
   double? _scaleStart; // Scale value at start of scaling gesture.
   double _lastScale = 1.0;
+  double _perspectiveMinScale = 1.0;
   Offset _lastFocal = Offset.zero; // Brennpunkt aus dem vorigen Update
   _GestureType? _gestureType;
 
@@ -741,7 +742,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
       onScale: (scale) async {
         double startZoom = userScaleFactor;
         double targetZoom = (userScaleFactor + scale)
-            .clamp(1, cropRotateEditorConfigs.maxScale);
+            .clamp(_effectiveMinScale, cropRotateEditorConfigs.maxScale);
 
         await loopWithTransitionTiming(
           (double curveT) {
@@ -858,6 +859,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
           _straightenScale = 1;
           perspectiveX = 0;
           perspectiveY = 0;
+          _perspectiveMinScale = 1.0;
           userScaleFactor = 1;
           cropRect = initialTransformConfigs?.cropRect ??
               Rect.fromLTWH(
@@ -1061,8 +1063,6 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
   void setPerspective(double x, double y) {
     if (perspectiveX == x && perspectiveY == y) return;
-
-    print('DEBUG: setPerspective called with x:$x, y:$y');
     perspectiveX = x;
     perspectiveY = y;
     _fitToScreen();
@@ -1084,18 +1084,16 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
   bool get _hasPerspective => perspectiveX != 0 || perspectiveY != 0;
 
+  double get _effectiveMinScale => _perspectiveMinScale;
+
   void _applyPerspectiveSolver() {
-    print('DEBUG: _applyPerspectiveSolver ENTERED');
 
     final Size imgSize = Size(
       _renderedImgConstraints.maxWidth,
       _renderedImgConstraints.maxHeight,
     );
 
-    print(
-        'DEBUG: Checking early return: viewRect:$_viewRect, imgSize:$imgSize');
     if (_viewRect.isEmpty || imgSize.isEmpty || imgSize.isInfinite) {
-      print('DEBUG: Early return triggered!');
       return;
     }
 
@@ -1161,7 +1159,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
       final resultAabb = FitPolygonInQuadSolver.solve(viewportPoly, imageQuad,
           enableResize: true);
-      print(resultAabb.rect);
+
       final scaleCorrection = viewWidth / resultAabb.width;
       final screenShift =
           (viewportPoly.boundingBox.center - resultAabb.center).offset;
@@ -1184,6 +1182,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
     setState(() {
       userScaleFactor = currentScale / _straightenScale;
       translate = currentTranslate;
+      _perspectiveMinScale = userScaleFactor;
     });
   }
 
@@ -1747,11 +1746,11 @@ class CropRotateEditorState extends State<CropRotateEditor>
   void _zoomOutside() async {
     const int frameHelper = 1000 ~/ 60;
 
-    while (userScaleFactor > 1 && _activeScaleOut) {
+    while (userScaleFactor > _effectiveMinScale && _activeScaleOut) {
       double oldZoom = userScaleFactor;
       double zoomFactor = 0.025;
       userScaleFactor -= zoomFactor;
-      userScaleFactor = max(1, userScaleFactor);
+      userScaleFactor = max(_effectiveMinScale, userScaleFactor);
 
       var zoomOutsideWidth = _viewRect.width / oldZoom * userScaleFactor;
       var zoomOutsideHeight = _viewRect.height / oldZoom * userScaleFactor;
@@ -2219,7 +2218,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
     if (!_shouldAllowScale(desiredScale)) {
       // Clamp the overall scale
       final double clampedTotalScale =
-          clampDouble(desiredScale, 1, cropRotateEditorConfigs.maxScale);
+          clampDouble(desiredScale, _effectiveMinScale, cropRotateEditorConfigs.maxScale);
       final double clampedScale = clampedTotalScale / currentScale;
 
       return clampedScale;
@@ -2232,7 +2231,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
     // Physics requires the incremental scale change since last update
     final double incrementalScale = currentScale * scaleRatio;
 
-    if (((desiredScale < 1) ||
+    if (((desiredScale < _effectiveMinScale) ||
         (desiredScale > cropRotateEditorConfigs.maxScale))) {
       final contentSize = _renderedImgConstraints.biggest;
 
@@ -2245,7 +2244,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
       // Build horizontal and vertical metrics
       final ScrollMetrics metricsX = FixedScrollMetrics(
         pixels: contentWidth,
-        minScrollExtent: contentSize.width * 1,
+        minScrollExtent: contentSize.width * _effectiveMinScale,
         maxScrollExtent: contentSize.width * cropRotateEditorConfigs.maxScale,
         viewportDimension: contentSize.width * cropRotateEditorConfigs.maxScale,
         axisDirection: AxisDirection.right,
@@ -2254,7 +2253,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
       final ScrollMetrics metricsY = FixedScrollMetrics(
         pixels: contentHeight,
-        minScrollExtent: contentSize.height * 1,
+        minScrollExtent: contentSize.height * _effectiveMinScale,
         maxScrollExtent: contentSize.height * cropRotateEditorConfigs.maxScale,
         viewportDimension:
             contentSize.height * cropRotateEditorConfigs.maxScale,
@@ -2306,7 +2305,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
     final ScrollMetrics metricsX = FixedScrollMetrics(
       pixels: contentWidth,
-      minScrollExtent: contentSize.width * 1,
+      minScrollExtent: contentSize.width * _effectiveMinScale,
       maxScrollExtent: contentSize.width * cropRotateEditorConfigs.maxScale,
       viewportDimension: _viewRect.width,
       axisDirection: AxisDirection.right,
@@ -2315,7 +2314,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
     final ScrollMetrics metricsY = FixedScrollMetrics(
       pixels: contentHeight,
-      minScrollExtent: contentSize.height * 1,
+      minScrollExtent: contentSize.height * _effectiveMinScale,
       maxScrollExtent: contentSize.height * cropRotateEditorConfigs.maxScale,
       viewportDimension: _viewRect.height,
       axisDirection: AxisDirection.down,
@@ -2468,7 +2467,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
       _stopAllAnimations();
       addHistory();
 
-      const double minScale = 1.0;
+      final double minScale = _effectiveMinScale;
       final double maxScale = cropRotateEditorConfigs.maxScale;
 
       final ScrollMetrics scaleMetrics = FixedScrollMetrics(
@@ -2485,7 +2484,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
       final Offset adjustedOffset = translate * -1;
       final double targetScale =
-          userScaleFactor.clamp(1.0, cropRotateEditorConfigs.maxScale);
+          userScaleFactor.clamp(_effectiveMinScale, cropRotateEditorConfigs.maxScale);
       final double currentScale = userScaleFactor;
 
       final double flingVelocityX = math.min(
@@ -2499,9 +2498,11 @@ class CropRotateEditorState extends State<CropRotateEditor>
           details.velocity.pixelsPerSecond.dy.sign;
 
       final ScrollMetrics metricsX =
-          _calculateScrollMetrics(adjustedOffset.dx, AxisDirection.right);
+          _calculateScrollMetrics(adjustedOffset.dx, AxisDirection.right,
+              scale: targetScale);
       final ScrollMetrics metricsY =
-          _calculateScrollMetrics(adjustedOffset.dy, AxisDirection.down);
+          _calculateScrollMetrics(adjustedOffset.dy, AxisDirection.down,
+              scale: targetScale);
 
       _simulationX = cropRotateEditorConfigs.scrollPhysics
           .createBallisticSimulation(metricsX, -flingVelocityX);
@@ -2819,10 +2820,10 @@ class CropRotateEditorState extends State<CropRotateEditor>
     _blockInteraction = true;
     cropRotateEditorCallbacks?.handleDoubleTap();
 
-    bool zoomInside = userScaleFactor <= 1;
+    bool zoomInside = userScaleFactor <= _effectiveMinScale;
     double startZoom = userScaleFactor;
     double targetZoom =
-        zoomInside ? cropRotateEditorConfigs.doubleTapScaleFactor : 1;
+        zoomInside ? cropRotateEditorConfigs.doubleTapScaleFactor : _effectiveMinScale;
 
     Offset startOffset = translate;
     Offset targetOffset = zoomInside
@@ -2917,7 +2918,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
       // Adjust zoom based on scroll direction
       if (deltaY > 0) {
         newZoom -= factor;
-        newZoom = max(1, newZoom);
+        newZoom = max(_effectiveMinScale, newZoom);
       } else if (deltaY < 0) {
         newZoom += factor;
         newZoom = min(cropRotateEditorConfigs.maxScale, newZoom);
