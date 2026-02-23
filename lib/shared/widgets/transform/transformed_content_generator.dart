@@ -171,8 +171,16 @@ class TransformedContentGenerator extends StatelessWidget {
       return child;
     }
 
+    final longestSide = max(
+      _transformConfigs.originalSize.width,
+      _transformConfigs.originalSize.height,
+    );
+    final perspectiveDepth = longestSide > 0 && !longestSide.isInfinite
+        ? 0.001 / (longestSide / 1000.0)
+        : 0.001;
+
     final matrix = Matrix4.identity()
-      ..setEntry(3, 2, 0.001)
+      ..setEntry(3, 2, perspectiveDepth)
       ..rotateX(_transformConfigs.perspectiveX)
       ..rotateY(_transformConfigs.perspectiveY)
       ..rotateZ(_transformConfigs.straightenAngle);

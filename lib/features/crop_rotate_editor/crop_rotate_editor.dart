@@ -3451,13 +3451,22 @@ class CropRotateEditorState extends State<CropRotateEditor>
     );
   }
 
+  double get _perspectiveDepth {
+    final longestSide = max(
+      _renderedImgConstraints.maxWidth,
+      _renderedImgConstraints.maxHeight,
+    );
+    if (longestSide <= 0 || longestSide.isInfinite) return 0.001;
+    return 0.001 / (longestSide / 1000.0);
+  }
+
   Matrix4 _calculateStraightenAndPerspectiveMatrix({
     required double angle,
     required double perspectiveX,
     required double perspectiveY,
   }) {
     return Matrix4.identity()
-      ..setEntry(3, 2, 0.001) // perspective depth
+      ..setEntry(3, 2, _perspectiveDepth)
       ..rotateX(perspectiveX)
       ..rotateY(perspectiveY)
       ..rotateZ(angle);
