@@ -289,12 +289,22 @@ class Quad2 {
     );
   }
 
-  /// Whether this [Quad2] contains the given [point].
+  /// Whether this [Quad2] contains the given [point] using the Ray-Casting algorithm.
+  /// This correctly handles concave and self-intersecting (bowtie) quads
+  /// that can result from extreme perspective transformations.
   bool containsPoint(Vector2 point) {
-    if (tri1.containsPoint(point.vector3)) return true;
-    if (tri2.containsPoint(point.vector3)) return true;
-
-    return false;
+    bool inside = false;
+    final points = vertices;
+    for (int i = 0, j = points.length - 1; i < points.length; j = i++) {
+      final pi = points[i];
+      final pj = points[j];
+      
+      if (((pi.y > point.y) != (pj.y > point.y)) &&
+          (point.x < (pj.x - pi.x) * (point.y - pi.y) / (pj.y - pi.y) + pi.x)) {
+        inside = !inside;
+      }
+    }
+    return inside;
   }
 
   /// Transforms this [Quad2] by the given transformation matrix.
