@@ -1084,7 +1084,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
   bool get _hasPerspective => perspectiveX != 0 || perspectiveY != 0;
 
-  double get _effectiveMinScale => _perspectiveMinScale;
+  double get _effectiveMinScale => _hasPerspective ? _perspectiveMinScale : 1.0;
 
   void _applyPerspectiveSolver() {
 
@@ -1228,10 +1228,6 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
     double currentScale = scale * _straightenScale;
     Offset currentTranslate = proposedTranslate;
-
-    debugPrint('--- _clampTranslateWithPerspective Start ---');
-    debugPrint('  proposedTranslate: $proposedTranslate, scale: $scale');
-
     if (currentScale <= 0) currentScale = 1.0;
 
     final prMatrix = _calculateStraightenAndPerspectiveMatrix(
@@ -1247,9 +1243,9 @@ class CropRotateEditorState extends State<CropRotateEditor>
     double m30 = prMatrix.storage[3];
     double m31 = prMatrix.storage[7];
 
-    // We want  m30*(v.x + t.x)*S + m31*(v.y + t.y)*S + 1.0 >= 0.05
-    // => m30*t.x + m31*t.y >= (0.05 - 1.0)/S - (m30*v.x + m31*v.y)
-    double minW = 0.05;
+    // We want  m30*(v.x + t.x)*S + m31*(v.y + t.y)*S + 1.0 >= 0.0101
+    // => m30*t.x + m31*t.y >= (0.0101 - 1.0)/S - (m30*v.x + m31*v.y)
+    double minW = 0.0101;
     for (int i = 0; i < 4; i++) {
       final v = imgCorners[i];
       double currentW = m30 * (v.x + currentTranslate.dx) * currentScale +
@@ -1265,14 +1261,18 @@ class CropRotateEditorState extends State<CropRotateEditor>
         if (lenSq > 1e-6) {
           double shiftK = Wdiff / (lenSq * currentScale);
           currentTranslate += Offset(m30 * shiftK, m31 * shiftK);
-          debugPrint(
-              '  [WARN] W-Cull Correction applied! shifted translate from $proposedTranslate to $currentTranslate');
+
         }
       }
     }
 
+    // Save the W-clipped translation. If the solver diverges, we must fall back
+    // to this, NOT `proposedTranslate`, to guarantee W >= 0.0101 in the physics engine.
+    Offset wClippedTranslate = currentTranslate;
+
     // Keep track if solver fails
     bool solverFailed = false;
+    double prevCorrectionDist = double.infinity;
 
     for (int i = 0; i < 10; i++) {
       final prMatrix = _calculateStraightenAndPerspectiveMatrix(
@@ -1313,10 +1313,17 @@ class CropRotateEditorState extends State<CropRotateEditor>
       final translateCorrection = Offset(localDx, localDy) / currentScale;
 
       if (translateCorrection.dx.isNaN || translateCorrection.dy.isNaN) {
-        debugPrint('  [ERROR] translateCorrection is NaN during loop $i');
         solverFailed = true;
         break;
       }
+      
+      // If correction is growing instead of shrinking, the solver has diverged
+      final corrDist = translateCorrection.distance;
+      if (i > 0 && corrDist > prevCorrectionDist * 1.5 && corrDist > 1.0) {
+        solverFailed = true;
+        break;
+      }
+      prevCorrectionDist = corrDist;
 
       currentTranslate += translateCorrection;
 
@@ -1325,15 +1332,10 @@ class CropRotateEditorState extends State<CropRotateEditor>
       }
     }
 
-    if (solverFailed ||
-        (currentTranslate - proposedTranslate).distance > 200.0) {
-      debugPrint(
-          '  [WARN] Solver produced erratic translation or failed. Returning fallback.');
-      debugPrint('  Proposed: $proposedTranslate, Current: $currentTranslate');
-      // If solver fails, we return the 'currentTranslate' because it represents
-      // the last valid, completely solved or clamped state before the math broke down.
-      // This guarantees `_panBoundaries` gets a valid starting point for raycasting.
-      return currentTranslate;
+    if (solverFailed) {
+      // If solver diverged, return the W-clipped translate as it represents
+      // the last valid clamped state before the math broke down.
+      return wClippedTranslate;
     }
 
     return currentTranslate;
@@ -1875,8 +1877,6 @@ class CropRotateEditorState extends State<CropRotateEditor>
           _applyScaleChange(desiredScale / userScaleFactor) * userScaleFactor;
 
       if (newZoom < 0.01) newZoom = 0.01;
-      print(
-          'DEBUG: _onScaleUpdate newZoom=$newZoom, hasPerspective=$_hasPerspective');
 
       final Offset center =
           Offset(editorBodySize.width / 2, editorBodySize.height / 2);
@@ -2156,8 +2156,13 @@ class CropRotateEditorState extends State<CropRotateEditor>
         //     proposedTranslate: translate + delta,
         //     scale: userScaleFactor,
         //   );
-        // } else {
-        translate += _getPhysicsAppliedDelta(delta);
+        Offset physicsDelta = _getPhysicsAppliedDelta(delta);
+        debugPrint('--- _onScaleUpdate ---');
+        debugPrint('Translate Before: $translate');
+        debugPrint('Delta input: $delta');
+        debugPrint('Physics applied delta: $physicsDelta');
+        translate += physicsDelta;
+        debugPrint('Translate After: $translate');
         // }
 
         cropRotateEditorCallbacks?.handleMove();
@@ -2205,6 +2210,65 @@ class CropRotateEditorState extends State<CropRotateEditor>
     }
   }
 
+  /// Calculates the absolute maximum scale allowed before the 3D perspective
+  /// W-coordinate drops below 0.0101 (clipping behind the camera).
+  ///
+  /// This is **translate-independent**: it computes the global worst-case
+  /// across all valid pan positions so the max zoom stays constant regardless
+  /// of where the user has panned.
+  double get _effectiveMaxScale {
+    double maxUserConfigScale = cropRotateEditorConfigs.maxScale;
+    if (!_hasPerspective) return maxUserConfigScale;
+
+    final Size imgSize = Size(
+      _renderedImgConstraints.maxWidth,
+      _renderedImgConstraints.maxHeight,
+    );
+
+    if (imgSize.isEmpty || imgSize.isInfinite) return maxUserConfigScale;
+
+    final imgHalfWidth = imgSize.width / 2;
+    final imgHalfHeight = imgSize.height / 2;
+
+    final prMatrix = _calculateStraightenAndPerspectiveMatrix(
+      angle: _straightenAngle,
+      perspectiveX: perspectiveX,
+      perspectiveY: perspectiveY,
+    );
+
+    double m30 = prMatrix.storage[3].abs();
+    double m31 = prMatrix.storage[7].abs();
+    double sBase = _straightenScale;
+
+    // The W-clip formula per corner is:
+    //   W = (m30*(v.x + t.dx) + m31*(v.y + t.dy)) * scale * sBase + 1.0
+    //
+    // The worst corner at translate=0 has M_corner = -(m30*halfW + m31*halfH).
+    // The worst translate adds another -(m30*maxTx + m31*maxTy) where
+    // maxTx ≈ imgHalfWidth at high zoom (upper bound).
+    //
+    // Combined worst: M_total = -2 * sBase * (m30*halfW + m31*halfH)
+    // But the viewport constrains max translate:
+    //   maxTx = halfW - viewHalfW/scale, so at the limit:
+    //   viewHalfW/scale contributes a positive offset B to the numerator.
+    //
+    // Closed-form: maxScale = (B + 0.9899) / A
+    //   A = 2 * sBase * (|m30|*halfW + |m31|*halfH)
+    //   B = sBase * (|m30|*viewHalfW + |m31|*viewHalfH)
+
+    double A = 2.0 * sBase * (m30 * imgHalfWidth + m31 * imgHalfHeight);
+
+    if (A <= 0) return maxUserConfigScale;
+
+    double viewHalfW = _viewRect.isEmpty ? 0.0 : _viewRect.width / 2;
+    double viewHalfH = _viewRect.isEmpty ? 0.0 : _viewRect.height / 2;
+    double B = sBase * (m30 * viewHalfW + m31 * viewHalfH);
+
+    double minAllowedUserScale = (B + 0.9899) / A;
+
+    return max(_effectiveMinScale, min(maxUserConfigScale, minAllowedUserScale));
+  }
+
   double _applyScaleChange(double scale) {
     // Compute current and desired scales
     final double currentScale = userScaleFactor;
@@ -2214,11 +2278,13 @@ class CropRotateEditorState extends State<CropRotateEditor>
     // desired but not necessarily achieved if physics is applied
     final double desiredScale = currentScale * scale;
 
+    final double effectiveMaxScale = _effectiveMaxScale;
+
     // Early return if not allowed to zoom outside bounds
     if (!_shouldAllowScale(desiredScale)) {
       // Clamp the overall scale
       final double clampedTotalScale =
-          clampDouble(desiredScale, _effectiveMinScale, cropRotateEditorConfigs.maxScale);
+          clampDouble(desiredScale, _effectiveMinScale, effectiveMaxScale);
       final double clampedScale = clampedTotalScale / currentScale;
 
       return clampedScale;
@@ -2232,7 +2298,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
     final double incrementalScale = currentScale * scaleRatio;
 
     if (((desiredScale < _effectiveMinScale) ||
-        (desiredScale > cropRotateEditorConfigs.maxScale))) {
+        (desiredScale > effectiveMaxScale))) {
       final contentSize = _renderedImgConstraints.biggest;
 
       // Compute current and desired absolute scale
@@ -2245,8 +2311,8 @@ class CropRotateEditorState extends State<CropRotateEditor>
       final ScrollMetrics metricsX = FixedScrollMetrics(
         pixels: contentWidth,
         minScrollExtent: contentSize.width * _effectiveMinScale,
-        maxScrollExtent: contentSize.width * cropRotateEditorConfigs.maxScale,
-        viewportDimension: contentSize.width * cropRotateEditorConfigs.maxScale,
+        maxScrollExtent: contentSize.width * effectiveMaxScale,
+        viewportDimension: contentSize.width * effectiveMaxScale,
         axisDirection: AxisDirection.right,
         devicePixelRatio: 1.0,
       );
@@ -2254,9 +2320,9 @@ class CropRotateEditorState extends State<CropRotateEditor>
       final ScrollMetrics metricsY = FixedScrollMetrics(
         pixels: contentHeight,
         minScrollExtent: contentSize.height * _effectiveMinScale,
-        maxScrollExtent: contentSize.height * cropRotateEditorConfigs.maxScale,
+        maxScrollExtent: contentSize.height * effectiveMaxScale,
         viewportDimension:
-            contentSize.height * cropRotateEditorConfigs.maxScale,
+            contentSize.height * effectiveMaxScale,
         axisDirection: AxisDirection.down,
         devicePixelRatio: 1.0,
       );
@@ -2283,7 +2349,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
       return factor;
     } else {
       final double clampedTotalScale =
-          clampDouble(desiredScale, 1, cropRotateEditorConfigs.maxScale);
+          clampDouble(desiredScale, 1, effectiveMaxScale);
 
       final double clampedScale = clampedTotalScale / currentScale;
 
@@ -2303,10 +2369,12 @@ class CropRotateEditorState extends State<CropRotateEditor>
     final double contentHeight = contentSize.height * currentScale;
     final double desiredContentHeight = contentSize.height * proposedScale;
 
+    final double effectiveMaxScale = _effectiveMaxScale;
+
     final ScrollMetrics metricsX = FixedScrollMetrics(
       pixels: contentWidth,
       minScrollExtent: contentSize.width * _effectiveMinScale,
-      maxScrollExtent: contentSize.width * cropRotateEditorConfigs.maxScale,
+      maxScrollExtent: contentSize.width * effectiveMaxScale,
       viewportDimension: _viewRect.width,
       axisDirection: AxisDirection.right,
       devicePixelRatio: 1.0,
@@ -2315,7 +2383,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
     final ScrollMetrics metricsY = FixedScrollMetrics(
       pixels: contentHeight,
       minScrollExtent: contentSize.height * _effectiveMinScale,
-      maxScrollExtent: contentSize.height * cropRotateEditorConfigs.maxScale,
+      maxScrollExtent: contentSize.height * effectiveMaxScale,
       viewportDimension: _viewRect.height,
       axisDirection: AxisDirection.down,
       devicePixelRatio: 1.0,
@@ -2468,7 +2536,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
       addHistory();
 
       final double minScale = _effectiveMinScale;
-      final double maxScale = cropRotateEditorConfigs.maxScale;
+      final double maxScale = _effectiveMaxScale;
 
       final ScrollMetrics scaleMetrics = FixedScrollMetrics(
         pixels: userScaleFactor * 1000,
@@ -2484,7 +2552,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
       final Offset adjustedOffset = translate * -1;
       final double targetScale =
-          userScaleFactor.clamp(_effectiveMinScale, cropRotateEditorConfigs.maxScale);
+          userScaleFactor.clamp(_effectiveMinScale, maxScale);
       final double currentScale = userScaleFactor;
 
       final double flingVelocityX = math.min(
@@ -2586,7 +2654,6 @@ class CropRotateEditorState extends State<CropRotateEditor>
     Offset linearMax = _getMaxOffset(scale);
 
     if (_straightenAngle == 0 && perspectiveX == 0 && perspectiveY == 0) {
-      // Wenn alles "flach" ist, nutze die alte exakte Mathematik
       return Rect.fromLTRB(
         -max(0.0, linearMax.dx),
         -max(0.0, linearMax.dy),
@@ -2644,7 +2711,9 @@ class CropRotateEditorState extends State<CropRotateEditor>
         double currentW = m30 * (v.x + testTranslate.dx) * currentScale +
             m31 * (v.y + testTranslate.dy) * currentScale +
             1.0;
-        if (currentW < 0.05) return false;
+        if (currentW < 0.0101) {
+          return false;
+        }
       }
 
       final transformedCorners = imgCorners.map((v) {
@@ -2666,41 +2735,58 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
       final screenShift =
           (viewportPoly.boundingBox.center - resultAabb.center).offset;
-      return screenShift.distanceSquared < 4.0;
+      
+      // The solver's acceptable error margin must grow relative to the zoom
+      // otherwise high zooms get falsely rejected due to floating point drift.
+      final double allowedDistanceSquared = 4.0 * max(1.0, currentScale);
+      return screenShift.distanceSquared < allowedDistanceSquared;
     }
 
     var validCenter = _clampTranslateWithPerspective(
         proposedTranslate: translate, scale: scale);
 
     if (!isValid(validCenter)) {
-      debugPrint('--- _panBoundaries Start ---');
-      debugPrint(
-          '  [ERROR] current validCenter $validCenter is NOT VALID! Fallback returned.');
-
-      // If the current translate is completely invalid, try to use (0,0) as a fallback
-      // bounding box origin. If that isn't valid either, use the completely original one
-      // just so the physics engine doesn't crash on empty boundary returns.
-      if (isValid(Offset.zero)) {
-        validCenter = Offset.zero;
-      } else if (isValid(translate)) {
-        // Sometimes during extreme swings validCenter fails but current position actually qualifies as valid.
-        validCenter = translate;
+      // If validCenter is invalid, it means the player has panned/zoomed out of bounds
+      // AND the solver failed to perfectly snap it back.
+      // We must gradually ease it towards Offset.zero until it's barely valid.
+      bool found = false;
+      for (double f = 0.95; f >= 0.0; f -= 0.05) {
+        if (isValid(validCenter * f)) {
+          validCenter = validCenter * f;
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        if (isValid(Offset.zero)) {
+          validCenter = Offset.zero;
+        } else if (isValid(translate)) {
+          validCenter = translate;
+        }
       }
     }
 
-    double searchBoundary(Offset start, Offset dir, String directionName) {
-      double maxDist = 50.0;
-      // Exponential search to find an upper bound
-      for (int limit = 0; limit < 15; limit++) {
+    double searchBoundary(Offset start, Offset dir) {
+      double maxDist = 1.0 / currentScale;
+      // Exponential search to find an upper bound that is INVALID
+      bool foundInvalid = false;
+      for (int limit = 0; limit < 20; limit++) {
         if (!isValid(start + dir * maxDist)) {
+          foundInvalid = true;
           break;
         }
         maxDist *= 2.0;
       }
 
-      // Binary search for exact boundary
-      double low = 0.0;
+      // If even the smallest step is invalid, we can't move in this direction
+      if (foundInvalid && maxDist <= 1.0 / currentScale) {
+        return 0.0;
+      }
+
+      // Binary search between a known valid point (low) and a known invalid point (high)
+      double low = foundInvalid ? maxDist / 2.0 : 0.0;
       double high = maxDist;
+      
       for (int i = 0; i < 15; i++) {
         double mid = (low + high) / 2;
         if (isValid(start + dir * mid)) {
@@ -2709,28 +2795,25 @@ class CropRotateEditorState extends State<CropRotateEditor>
           high = mid;
         }
       }
+
       return low;
     }
 
-    double maxX = validCenter.dx +
-        searchBoundary(validCenter, const Offset(1, 0), "Right");
-    double minX = validCenter.dx -
-        searchBoundary(validCenter, const Offset(-1, 0), "Left");
-    double maxY = validCenter.dy +
-        searchBoundary(validCenter, const Offset(0, 1), "Bottom");
-    double minY = validCenter.dy -
-        searchBoundary(validCenter, const Offset(0, -1), "Top");
+    final rightDist = searchBoundary(validCenter, const Offset(1, 0));
+    final leftDist = searchBoundary(validCenter, const Offset(-1, 0));
+    final bottomDist = searchBoundary(validCenter, const Offset(0, 1));
+    final topDist = searchBoundary(validCenter, const Offset(0, -1));
+
+    double minX = validCenter.dx - leftDist;
+    double minY = validCenter.dy - topDist;
+    double maxX = validCenter.dx + rightDist;
+    double maxY = validCenter.dy + bottomDist;
 
     final bounds = Rect.fromLTRB(minX, minY, maxX, maxY);
 
-    if (!bounds.contains(translate)) {
-      debugPrint('--- _panBoundaries ALERT ---');
-      debugPrint(
-          '  [ALERT] Bounds calculated, but current translate is OUTSIDE!');
-      debugPrint('  Current Translate: $translate');
-      debugPrint('  Valid Center Used: $validCenter');
-      debugPrint('  Returned Bounds: $bounds');
-    }
+    debugPrint('--- _panBoundaries ---');
+    debugPrint('ValidCenter: $validCenter');
+    debugPrint('Bounds: $bounds');
 
     return bounds;
   }

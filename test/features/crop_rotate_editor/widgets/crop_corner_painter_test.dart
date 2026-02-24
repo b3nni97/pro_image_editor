@@ -24,6 +24,7 @@ void main() {
         fadeInOpacity: 0.5,
         rotationScaleFactor: 1.0,
         scaleFactor: 1.0,
+        background: Colors.transparent,
       );
 
       final painter2 = CropCornerPainter(
@@ -37,6 +38,7 @@ void main() {
         interactionOpacity: 0,
         rotationScaleFactor: 1.0,
         scaleFactor: 1.0,
+        background: Colors.transparent,
       );
 
       expect(painter1.shouldRepaint(painter2), isTrue);
