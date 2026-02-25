@@ -1326,63 +1326,80 @@ class CropRotateEditorState extends State<CropRotateEditor>
     _applyPerspectiveSolver();
   }
 
+  /// Calculates and applies the optimal scale and translation bounds for the current 3D perspective.
+  /// Solves iteratively to guarantee the image continuously covers the viewport polygon, mutating the internal state to clamp manual user interactions and prevent out-of-bounds rendering.
   void _applyPerspectiveSolver() {
-    final Size imgSize = Size(
+    final Size imageSize = Size(
       _renderedImgConstraints.maxWidth,
       _renderedImgConstraints.maxHeight,
     );
 
-    if (_viewRect.isEmpty || imgSize.isEmpty || imgSize.isInfinite) {
+    if (_viewRect.isEmpty || imageSize.isEmpty || imageSize.isInfinite) {
       return;
     }
 
+    final bool isAutoScaled =
+        (userScaleFactor - _perspectiveMinScale).abs() < 0.001;
+
     final Offset viewCenter = _viewRect.center;
-    final Offset imageCenter = imgSize.center(Offset.zero);
+    final Offset imageCenter = imageSize.center(Offset.zero);
     final Offset viewOffset = viewCenter - imageCenter;
 
-    final double imgHalfWidth = imgSize.width / 2.0;
-    final double imgHalfHeight = imgSize.height / 2.0;
+    final double imageHalfWidth = imageSize.width / 2.0;
+    final double imageHalfHeight = imageSize.height / 2.0;
 
-    final List<vector_math.Vector3> imgCorners = [
-      vector_math.Vector3(-imgHalfWidth, -imgHalfHeight, 0.0),
-      vector_math.Vector3(imgHalfWidth, -imgHalfHeight, 0.0),
-      vector_math.Vector3(imgHalfWidth, imgHalfHeight, 0.0),
-      vector_math.Vector3(-imgHalfWidth, imgHalfHeight, 0.0),
+    final List<vector_math.Vector3> imageCorners = <vector_math.Vector3>[
+      vector_math.Vector3(-imageHalfWidth, -imageHalfHeight, 0.0),
+      vector_math.Vector3(imageHalfWidth, -imageHalfHeight, 0.0),
+      vector_math.Vector3(imageHalfWidth, imageHalfHeight, 0.0),
+      vector_math.Vector3(-imageHalfWidth, imageHalfHeight, 0.0),
     ];
 
     final double viewWidth = _viewRect.width;
     final double viewHeight = _viewRect.height;
+    final double viewHalfWidth = viewWidth / 2.0;
+    final double viewHalfHeight = viewHeight / 2.0;
 
-    final Polygon2 viewportPoly = Polygon2([
+    final Polygon2 viewportPolygon = Polygon2(<vector_math.Vector2>[
       vector_math.Vector2(
-          -viewWidth / 2.0 + viewOffset.dx, -viewHeight / 2.0 + viewOffset.dy),
+          -viewHalfWidth + viewOffset.dx, -viewHalfHeight + viewOffset.dy),
       vector_math.Vector2(
-          viewWidth / 2.0 + viewOffset.dx, -viewHeight / 2.0 + viewOffset.dy),
+          viewHalfWidth + viewOffset.dx, -viewHalfHeight + viewOffset.dy),
       vector_math.Vector2(
-          viewWidth / 2.0 + viewOffset.dx, viewHeight / 2.0 + viewOffset.dy),
+          viewHalfWidth + viewOffset.dx, viewHalfHeight + viewOffset.dy),
       vector_math.Vector2(
-          -viewWidth / 2.0 + viewOffset.dx, viewHeight / 2.0 + viewOffset.dy),
+          -viewHalfWidth + viewOffset.dx, viewHalfHeight + viewOffset.dy),
     ]);
 
-    double currentScale = userScaleFactor * _straightenScale;
-    Offset currentTranslate = translate;
+    double solverScale = userScaleFactor * _straightenScale;
+    Offset solverTranslate = translate;
 
-    if (currentScale <= 0.0) currentScale = 1.0;
+    if (solverScale <= 0.0) {
+      solverScale = 1.0;
+    }
+
+    final Matrix4 perspectiveMatrix = _calculateStraightenAndPerspectiveMatrix(
+      angle: _straightenAngle,
+      perspectiveX: perspectiveX,
+      perspectiveY: perspectiveY,
+    );
 
     for (int i = 0; i < 5; i++) {
-      final Matrix4 prMatrix = _calculateStraightenAndPerspectiveMatrix(
-        angle: _straightenAngle,
-        perspectiveX: perspectiveX,
-        perspectiveY: perspectiveY,
-      );
+      final List<vector_math.Vector3> transformedCorners = imageCorners.map(
+        (vector_math.Vector3 vertex) {
+          final vector_math.Vector3 translatedVertex = vertex +
+              vector_math.Vector3(
+                solverTranslate.dx,
+                solverTranslate.dy,
+                0.0,
+              );
 
-      final List<vector_math.Vector3> transformedCorners =
-          imgCorners.map((vector_math.Vector3 v) {
-        final vector_math.Vector3 vTranslated = v +
-            vector_math.Vector3(currentTranslate.dx, currentTranslate.dy, 0.0);
-        final vector_math.Vector3 vScaled = vTranslated * currentScale;
-        return prMatrix.perspectiveTransform(vScaled);
-      }).toList();
+          final vector_math.Vector3 scaledVertex =
+              translatedVertex * solverScale;
+
+          return perspectiveMatrix.perspectiveTransform(scaledVertex);
+        },
+      ).toList();
 
       final Quad2 imageQuad = Quad2(
         transformedCorners[0].vector2,
@@ -1391,14 +1408,17 @@ class CropRotateEditorState extends State<CropRotateEditor>
         transformedCorners[3].vector2,
       );
 
-      final vector_math.Aabb2 resultAabb = FitPolygonInQuadSolver.solve(
-          viewportPoly, imageQuad,
-          enableResize: true);
+      final vector_math.Aabb2 resultBoundingBox = FitPolygonInQuadSolver.solve(
+        viewportPolygon,
+        imageQuad,
+        enableResize: true,
+      );
 
-      final double scaleCorrection = viewWidth / resultAabb.width;
+      final double scaleCorrection = viewWidth / resultBoundingBox.width;
       final Offset screenShift =
-          (viewportPoly.boundingBox.center - resultAabb.center).offset;
-      final Offset translateCorrection = screenShift / currentScale;
+          (viewportPolygon.boundingBox.center - resultBoundingBox.center)
+              .offset;
+      final Offset translateCorrection = screenShift / solverScale;
 
       if (scaleCorrection.isNaN ||
           translateCorrection.dx.isNaN ||
@@ -1406,14 +1426,32 @@ class CropRotateEditorState extends State<CropRotateEditor>
         break;
       }
 
-      currentScale *= scaleCorrection;
-      currentTranslate += translateCorrection;
+      solverScale *= scaleCorrection;
+      solverTranslate += translateCorrection;
     }
 
+    final double newMinimumScale = solverScale / _straightenScale;
+
     setState(() {
-      userScaleFactor = currentScale / _straightenScale;
-      translate = currentTranslate;
-      _perspectiveMinScale = userScaleFactor;
+      _perspectiveMinScale = newMinimumScale;
+
+      if (isAutoScaled) {
+        // Applies the calculated optimal fit automatically since the user has not manually adjusted the scale.
+        userScaleFactor = newMinimumScale;
+        translate = solverTranslate;
+      } else {
+        // Preserves the user's manual zoom and pan adjustments.
+        if (userScaleFactor < newMinimumScale) {
+          // Enforces the minimum scale threshold to prevent the image from revealing empty background borders.
+          userScaleFactor = newMinimumScale;
+        }
+
+        // Retains the user's manual translation while clamping it to the newly calculated perspective boundaries.
+        translate = _clampTranslateWithPerspective(
+          proposedTranslate: translate,
+          scale: userScaleFactor,
+        );
+      }
     });
   }
 
