@@ -411,6 +411,14 @@ class CropRotateEditorState extends State<CropRotateEditor>
   /// Defines which crop-rotate tools are available in the editor.
   late List<CropRotateTool> tools = [...cropRotateEditorConfigs.tools];
 
+  /// Cached pan boundaries for perspective mode to avoid per-frame jitter.
+  Rect? _cachedPerspectiveBounds;
+
+  /// Invalidate cached bounds when perspective/straighten params change.
+  double _cachedBoundsPerspectiveX = 0;
+  double _cachedBoundsPerspectiveY = 0;
+  double _cachedBoundsStraightenAngle = 0;
+
   @override
   void initState() {
     super.initState();
@@ -1042,6 +1050,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
     // Calculate required zoom to fill viewport at this angle
     _straightenScale = _calculateStraightenScale(clampedAngle);
+    _invalidatePerspectiveBoundsCache();
     _setOffsetLimits();
     _updateAllStates();
     addHistory(scaleRotation: oldScaleFactor, straightenAngle: clampedAngle);
@@ -1065,6 +1074,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
     if (perspectiveX == x && perspectiveY == y) return;
     perspectiveX = x;
     perspectiveY = y;
+    _invalidatePerspectiveBoundsCache();
     _fitToScreen();
   }
 
@@ -1087,7 +1097,6 @@ class CropRotateEditorState extends State<CropRotateEditor>
   double get _effectiveMinScale => _hasPerspective ? _perspectiveMinScale : 1.0;
 
   void _applyPerspectiveSolver() {
-
     final Size imgSize = Size(
       _renderedImgConstraints.maxWidth,
       _renderedImgConstraints.maxHeight,
@@ -1261,7 +1270,6 @@ class CropRotateEditorState extends State<CropRotateEditor>
         if (lenSq > 1e-6) {
           double shiftK = Wdiff / (lenSq * currentScale);
           currentTranslate += Offset(m30 * shiftK, m31 * shiftK);
-
         }
       }
     }
@@ -1316,7 +1324,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
         solverFailed = true;
         break;
       }
-      
+
       // If correction is growing instead of shrinking, the solver has diverged
       final corrDist = translateCorrection.distance;
       if (i > 0 && corrDist > prevCorrectionDist * 1.5 && corrDist > 1.0) {
@@ -1890,14 +1898,14 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
       translate += zoomDelta;
 
-      if (_hasPerspective) {
-        translate = _clampTranslateWithPerspective(
-          proposedTranslate: translate + panDelta,
-          scale: newZoom,
-        );
-      } else {
-        translate += _getPhysicsAppliedDelta(panDelta);
-      }
+      // if (_hasPerspective) {
+      //   translate = _clampTranslateWithPerspective(
+      //     proposedTranslate: translate + panDelta,
+      //     scale: newZoom,
+      //   );
+      // } else {
+      translate += _getPhysicsAppliedDelta(panDelta);
+      // }
 
       userScaleFactor = newZoom;
       _lastFocal = details.focalPoint;
@@ -2151,19 +2159,9 @@ class CropRotateEditorState extends State<CropRotateEditor>
                 scaleFactor *
                 (cropRotateEditorConfigs.invertDragDirection ? -1 : 1);
 
-        // if (_hasPerspective) {
-        //   translate = _clampTranslateWithPerspective(
-        //     proposedTranslate: translate + delta,
-        //     scale: userScaleFactor,
-        //   );
+        // Physics-basiertes Drag mit gecachten Boundaries
         Offset physicsDelta = _getPhysicsAppliedDelta(delta);
-        debugPrint('--- _onScaleUpdate ---');
-        debugPrint('Translate Before: $translate');
-        debugPrint('Delta input: $delta');
-        debugPrint('Physics applied delta: $physicsDelta');
         translate += physicsDelta;
-        debugPrint('Translate After: $translate');
-        // }
 
         cropRotateEditorCallbacks?.handleMove();
         cropPainterKey.currentState!.update(foregroundPainter: cropPainter);
@@ -2266,7 +2264,8 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
     double minAllowedUserScale = (B + 0.9899) / A;
 
-    return max(_effectiveMinScale, min(maxUserConfigScale, minAllowedUserScale));
+    return max(
+        _effectiveMinScale, min(maxUserConfigScale, minAllowedUserScale));
   }
 
   double _applyScaleChange(double scale) {
@@ -2321,8 +2320,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
         pixels: contentHeight,
         minScrollExtent: contentSize.height * _effectiveMinScale,
         maxScrollExtent: contentSize.height * effectiveMaxScale,
-        viewportDimension:
-            contentSize.height * effectiveMaxScale,
+        viewportDimension: contentSize.height * effectiveMaxScale,
         axisDirection: AxisDirection.down,
         devicePixelRatio: 1.0,
       );
@@ -2533,6 +2531,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
     if (details.pointerCount <= 0) {
       _stopAllAnimations();
+      _invalidatePerspectiveBoundsCache();
       addHistory();
 
       final double minScale = _effectiveMinScale;
@@ -2565,12 +2564,12 @@ class CropRotateEditorState extends State<CropRotateEditor>
               cropRotateEditorConfigs.scrollPhysics.maxFlingVelocity) *
           details.velocity.pixelsPerSecond.dy.sign;
 
-      final ScrollMetrics metricsX =
-          _calculateScrollMetrics(adjustedOffset.dx, AxisDirection.right,
-              scale: targetScale);
-      final ScrollMetrics metricsY =
-          _calculateScrollMetrics(adjustedOffset.dy, AxisDirection.down,
-              scale: targetScale);
+      final ScrollMetrics metricsX = _calculateScrollMetrics(
+          adjustedOffset.dx, AxisDirection.right,
+          scale: targetScale);
+      final ScrollMetrics metricsY = _calculateScrollMetrics(
+          adjustedOffset.dy, AxisDirection.down,
+          scale: targetScale);
 
       _simulationX = cropRotateEditorConfigs.scrollPhysics
           .createBallisticSimulation(metricsX, -flingVelocityX);
@@ -2735,7 +2734,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
       final screenShift =
           (viewportPoly.boundingBox.center - resultAabb.center).offset;
-      
+
       // The solver's acceptable error margin must grow relative to the zoom
       // otherwise high zooms get falsely rejected due to floating point drift.
       final double allowedDistanceSquared = 4.0 * max(1.0, currentScale);
@@ -2786,7 +2785,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
       // Binary search between a known valid point (low) and a known invalid point (high)
       double low = foundInvalid ? maxDist / 2.0 : 0.0;
       double high = maxDist;
-      
+
       for (int i = 0; i < 15; i++) {
         double mid = (low + high) / 2;
         if (isValid(start + dir * mid)) {
@@ -2811,11 +2810,39 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
     final bounds = Rect.fromLTRB(minX, minY, maxX, maxY);
 
-    debugPrint('--- _panBoundaries ---');
-    debugPrint('ValidCenter: $validCenter');
-    debugPrint('Bounds: $bounds');
+    // debugPrint('--- _panBoundaries ---');
+    // debugPrint('ValidCenter: $validCenter');
+    // debugPrint('Bounds: $bounds');
 
     return bounds;
+  }
+
+  /// Returns cached perspective pan boundaries, only recomputing when
+  /// the input parameters have changed significantly.
+  Rect _getPerspectivePanBoundaries(double scale) {
+    final bool perspectiveChanged = _cachedBoundsPerspectiveX != perspectiveX ||
+        _cachedBoundsPerspectiveY != perspectiveY ||
+        _cachedBoundsStraightenAngle != _straightenAngle;
+
+    if (_cachedPerspectiveBounds != null && !perspectiveChanged) {
+      return _cachedPerspectiveBounds!;
+    }
+
+    final bounds = _panBoundaries(scale);
+
+    _cachedPerspectiveBounds = bounds;
+    _cachedBoundsPerspectiveX = perspectiveX;
+    _cachedBoundsPerspectiveY = perspectiveY;
+    _cachedBoundsStraightenAngle = _straightenAngle;
+
+    return bounds;
+  }
+
+  /// Invalidates the cached perspective bounds. Call this after
+  /// setPerspective, setStraightenAngle, or any operation that
+  /// changes the perspective transform.
+  void _invalidatePerspectiveBoundsCache() {
+    _cachedPerspectiveBounds = null;
   }
 
   /// Build scroll metrics for applying [ScrollPhysics].
@@ -2824,13 +2851,18 @@ class CropRotateEditorState extends State<CropRotateEditor>
     AxisDirection axisDirection, {
     double? scale,
   }) {
-    final Rect bounds = _panBoundaries(scale ?? userScaleFactor);
+    final double effectiveScale = scale ?? userScaleFactor;
+
+    // Bei Perspektive: gecachte Boundaries verwenden
+    final Rect bounds = _hasPerspective
+        ? _getPerspectivePanBoundaries(effectiveScale)
+        : _panBoundaries(effectiveScale);
+
     final Axis axis = (axisDirection == AxisDirection.left ||
             axisDirection == AxisDirection.right)
         ? Axis.horizontal
         : Axis.vertical;
 
-    // Ensure min and max extents are always correctly ordered
     final double rawMinExtent =
         axis == Axis.horizontal ? -bounds.right : -bounds.bottom;
     final double rawMaxExtent =
@@ -2905,8 +2937,9 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
     bool zoomInside = userScaleFactor <= _effectiveMinScale;
     double startZoom = userScaleFactor;
-    double targetZoom =
-        zoomInside ? cropRotateEditorConfigs.doubleTapScaleFactor : _effectiveMinScale;
+    double targetZoom = zoomInside
+        ? cropRotateEditorConfigs.doubleTapScaleFactor
+        : _effectiveMinScale;
 
     Offset startOffset = translate;
     Offset targetOffset = zoomInside
