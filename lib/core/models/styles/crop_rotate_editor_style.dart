@@ -65,6 +65,8 @@ class CropRotateEditorStyle {
     this.aspectRatioSheetBackgroundColor = const Color(0xFF303030),
     this.aspectRatioSheetForegroundColor = const Color(0xFFFAFAFA),
     this.cropCornerLength = 36,
+    this.cropMiddleEdgeLength = 42,
+    this.cropCornerOutlineThickness = 1,
     this.cropCornerThickness = 6,
     this.cropOverlayOpacity = 0.7,
     this.cropOverlayInteractionOpacity = 0.25,
@@ -116,6 +118,12 @@ class CropRotateEditorStyle {
   /// The length of the crop corner.
   final double cropCornerLength;
 
+  /// The length of the middle edge handle.
+  final double cropMiddleEdgeLength;
+
+  /// The thickness of the crop area outline.
+  final double cropCornerOutlineThickness;
+
   /// The thickness of the crop corner.
   final double cropCornerThickness;
 
@@ -157,6 +165,8 @@ class CropRotateEditorStyle {
     Color? helperLineColor,
     Color? cropOverlayColor,
     double? cropCornerLength,
+    double? cropMiddleEdgeLength,
+    double? cropCornerOutlineThickness,
     double? cropCornerThickness,
     double? cropOverlayOpacity,
     double? cropOverlayInteractionOpacity,
@@ -176,6 +186,9 @@ class CropRotateEditorStyle {
       helperLineColor: helperLineColor ?? this.helperLineColor,
       cropOverlayColor: cropOverlayColor ?? this.cropOverlayColor,
       cropCornerLength: cropCornerLength ?? this.cropCornerLength,
+      cropMiddleEdgeLength: cropMiddleEdgeLength ?? this.cropMiddleEdgeLength,
+      cropCornerOutlineThickness:
+          cropCornerOutlineThickness ?? this.cropCornerOutlineThickness,
       cropCornerThickness: cropCornerThickness ?? this.cropCornerThickness,
       cropOverlayOpacity: cropOverlayOpacity ?? this.cropOverlayOpacity,
       cropOverlayInteractionOpacity:
