@@ -11,6 +11,7 @@ abstract class ZoomConfigs {
     this.editorMinScale = 1,
     this.editorMaxScale = 5,
     this.boundaryMargin = EdgeInsets.zero,
+    this.initialTransform,
     this.enableDoubleTapZoom = true,
     this.doubleTapZoomFactor = 2,
     this.doubleTapZoomDuration = const Duration(milliseconds: 180),
@@ -67,6 +68,17 @@ abstract class ZoomConfigs {
   /// Defaults to [EdgeInsets.zero], which results in boundaries that are the
   /// exact same size and position as the [child].
   final EdgeInsets boundaryMargin;
+
+  /// The initial transformation matrix applied to the viewport.
+  ///
+  /// This acts as the starting camera position and scale. Unlike [boundaryMargin],
+  /// which defines the physical limits of the scrollable area, this matrix
+  /// explicitly dictates exactly where the camera should look when the editor
+  /// renders its very first frame.
+  ///
+  /// If left null, the underlying viewer will fallback to its default
+  /// auto-centering behavior.
+  final Matrix4? initialTransform;
 
   /// Whether double-tap to zoom is enabled.
   ///

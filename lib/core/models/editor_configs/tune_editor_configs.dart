@@ -40,6 +40,7 @@ class TuneEditorConfigs extends ZoomConfigs implements BaseSubEditorConfigs {
     super.doubleTapZoomDuration,
     super.doubleTapZoomCurve,
     super.boundaryMargin,
+    super.initialTransform,
     this.enabled = true,
     this.showLayers = true,
     this.tuneAdjustmentOptions,

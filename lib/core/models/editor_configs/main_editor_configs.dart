@@ -26,6 +26,7 @@ class MainEditorConfigs extends ZoomConfigs {
     super.doubleTapZoomDuration,
     super.doubleTapZoomCurve,
     super.boundaryMargin,
+    super.initialTransform,
     super.invertTrackpadDirection,
     this.transformSetup,
     this.enableCloseButton = true,

@@ -45,6 +45,7 @@ class PaintEditorConfigs extends ZoomConfigs
     super.doubleTapZoomDuration,
     super.doubleTapZoomCurve,
     super.boundaryMargin,
+    super.initialTransform,
     super.invertTrackpadDirection,
     this.layerFractionalOffset = const Offset(-0.5, -0.5),
     this.enableGesturePop = true,

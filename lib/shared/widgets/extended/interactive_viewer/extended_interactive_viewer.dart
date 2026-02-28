@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart' hide TransformationController;
-import '../interactive_viewer_scroll_physics.dart';
+
 import '/core/models/editor_configs/utils/zoom_configs.dart';
+import '../interactive_viewer_scroll_physics.dart';
 import 'extended_raw_interactive_viewer.dart';
 
 /// A widget that provides interactive viewing capabilities with zoom and pan
@@ -135,17 +136,11 @@ class ExtendedInteractiveViewerState extends State<ExtendedInteractiveViewer>
   @override
   void initState() {
     super.initState();
+    final initialTransformation =
+        (widget.initialMatrix4 ?? widget.zoomConfigs.initialTransform);
 
-    _transformCtrl = TransformationController(
-      (widget.initialMatrix4 ?? Matrix4.identity())
-        ..scale(
-          widget.zoomConfigs.editorMinScale,
-        )
-        ..translate(
-          widget.zoomConfigs.boundaryMargin.left,
-          widget.zoomConfigs.boundaryMargin.top,
-        ),
-    )..addListener(() {
+    _transformCtrl = TransformationController(initialTransformation)
+      ..addListener(() {
         widget.onMatrix4Change?.call(_transformCtrl.value);
       });
     _animationCtrl = AnimationController(
@@ -330,7 +325,7 @@ class ExtendedInteractiveViewerState extends State<ExtendedInteractiveViewer>
       maxScale: widget.zoomConfigs.editorMaxScale,
       onInteractionStart: widget.onInteractionStart,
       onInteractionUpdate: widget.onInteractionUpdate,
-      // onInteractionEnd: widget.onInteractionEnd,
+      onInteractionEnd: widget.onInteractionEnd,
       // enableExternalGestureDetector: widget.enableExternalGestureDetector,
       // invertTrackpadDirection: widget.zoomConfigs.invertTrackpadDirection,
       scrollPhysics: const BouncingScrollPhysics(),

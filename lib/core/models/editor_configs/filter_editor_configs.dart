@@ -47,6 +47,7 @@ class FilterEditorConfigs extends ZoomConfigs implements BaseSubEditorConfigs {
     super.doubleTapZoomDuration,
     super.doubleTapZoomCurve,
     super.boundaryMargin,
+    super.initialTransform,
     this.enabled = true,
     this.showLayers = true,
     this.enableMultiSelection = true,
