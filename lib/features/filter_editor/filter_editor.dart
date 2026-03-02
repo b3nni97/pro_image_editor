@@ -199,8 +199,9 @@ class FilterEditorState extends State<FilterEditor>
   /// The opacity of the last changed filter.
   double lastChangedFilterOpacity = 1;
 
-  // /// The opacity of the selected filter.
-  // double filterOpacity = 1;
+  /// Stores the opacity value per filter (keyed by filter name) so that
+  /// switching between filters preserves each filter's individual opacity.
+  final Map<String, double> _filterOpacityMap = {};
 
   @override
   void initState() {
@@ -283,14 +284,19 @@ class FilterEditorState extends State<FilterEditor>
   }
 
   /// Set the current filter.
+  ///
+  /// Automatically restores the previously saved opacity for this filter
+  /// (defaults to 1.0 if no opacity was saved).
   void setFilter(FilterModel filter) {
     _selectedFilter = filter;
+    _filterOpacity = _filterOpacityMap[filter.name] ?? 1.0;
     _uiFilterStream.add(null);
   }
 
   /// Set the current filter opacity.
   void setFilterOpacity(double value) {
     _filterOpacity = value.clamp(0, 1);
+    _filterOpacityMap[selectedFilter.name] = _filterOpacity;
     _uiFilterStream.add(null);
     lastChangedFilterNotifier.value = selectedFilter;
     lastChangedFilterOpacity = filterOpacity;
@@ -483,14 +489,7 @@ class FilterEditorState extends State<FilterEditor>
         selectedFilter: selectedFilter.filters,
         previewImageSize: const Size(52, 52),
         onSelectFilter: (filter) {
-          if (filter == lastChangedFilterNotifier.value) {
-            filterOpacity = lastChangedFilterOpacity;
-          } else {
-            filterOpacity = 1.0;
-          }
-
-          selectedFilter = filter;
-          _uiFilterStream.add(null);
+          setFilter(filter);
           setStateFilterList(() {});
           filterEditorCallbacks?.handleFilterChanged(filter);
           WidgetsBinding.instance.addPostFrameCallback((_) async {

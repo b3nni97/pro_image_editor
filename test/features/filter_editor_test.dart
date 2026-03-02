@@ -182,5 +182,49 @@ void main() {
       expect(editor.selectedFilter.name, filter.name);
       expect(editor.selectedFilter.filters, filter.filters);
     });
+
+    testWidgets('should persist opacity per filter when switching',
+        (tester) async {
+      await pumpEditor(tester);
+
+      final editor = key.currentState!;
+      final filter1 = PresetFilters.addictiveBlue;
+      final filter2 = PresetFilters.amaro;
+      final filter3 = PresetFilters.aden;
+
+      // Select filter1 and set opacity to 0.7
+      editor.setFilter(filter1);
+      editor.setFilterOpacity(0.7);
+      expect(editor.filterOpacity, 0.7);
+
+      // Switch to filter2 → opacity should default to 1.0
+      editor.setFilter(filter2);
+      expect(editor.filterOpacity, 1.0);
+
+      // Set filter2 opacity to 0.5
+      editor.setFilterOpacity(0.5);
+      expect(editor.filterOpacity, 0.5);
+
+      // Switch back to filter1 → opacity should be restored to 0.7
+      editor.setFilter(filter1);
+      expect(editor.filterOpacity, 0.7);
+
+      // Switch to filter3 (untouched) → should be 1.0
+      editor.setFilter(filter3);
+      expect(editor.filterOpacity, 1.0);
+
+      // Set filter3 opacity to 0.3
+      editor.setFilterOpacity(0.3);
+
+      // Verify all stored opacities by cycling through
+      editor.setFilter(filter1);
+      expect(editor.filterOpacity, 0.7);
+
+      editor.setFilter(filter2);
+      expect(editor.filterOpacity, 0.5);
+
+      editor.setFilter(filter3);
+      expect(editor.filterOpacity, 0.3);
+    });
   });
 }
