@@ -928,7 +928,11 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
     _straightenScale = _calculateStraightenScale(clampedAngle);
     _invalidatePerspectiveBoundsCache();
-    _setOffsetLimits();
+    if (_hasPerspective) {
+      _fitToScreen();
+    } else {
+      _setOffsetLimits();
+    }
     _updateAllStates();
     addHistory(scaleRotation: oldScaleFactor);
   }
