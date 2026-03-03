@@ -282,9 +282,6 @@ class CropRotateEditorState extends State<CropRotateEditor>
   /// Tracks the rotation scale factor to compensate for boundary constraints during rotation.
   double _rotationScaleFactor = 1.0;
 
-  /// Defines the current straightening angle applied via the slider (-π/4 to +π/4).
-  double _straightenAngle = 0.0;
-
   /// Calculates the scale required to hide empty spaces caused by straightening.
   double _straightenScale = 1.0;
 
@@ -483,7 +480,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
     final double imgHalfHeight = imgSize.height / 2;
 
     final Matrix4 prMatrix = _calculateStraightenAndPerspectiveMatrix(
-      angle: _straightenAngle,
+      angle: straightenAngle,
       perspectiveX: perspectiveX,
       perspectiveY: perspectiveY,
     );
@@ -550,6 +547,15 @@ class CropRotateEditorState extends State<CropRotateEditor>
         : null;
   }
 
+  /// The straightening angle applied via the slider
+  double get straightenValue => straightenAngle;
+
+  /// The horizontal perspective applied to the image.
+  double get perspectiveXValue => perspectiveX;
+
+  /// The vertical perspective applied to the image.
+  double get perspectiveYValue => perspectiveY;
+
   @override
   void initState() {
     super.initState();
@@ -599,8 +605,8 @@ class CropRotateEditorState extends State<CropRotateEditor>
     scaleAnimation =
         Tween<double>(begin: initScale, end: initScale).animate(scaleCtrl);
 
-    _straightenAngle = initialTransformConfigs?.straightenAngle ?? 0.0;
-    _straightenScale = _calculateStraightenScale(_straightenAngle);
+    straightenAngle = initialTransformConfigs?.straightenAngle ?? 0.0;
+    _straightenScale = _calculateStraightenScale(straightenAngle);
 
     aspectRatio =
         cropRotateEditorConfigs.initAspectRatio ?? CropAspectRatios.custom;
@@ -771,7 +777,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
           rotationCount = 0;
           rotateAnimation =
               Tween<double>(begin: 0.0, end: 0.0).animate(rotateCtrl);
-          _straightenAngle = 0.0;
+          straightenAngle = 0.0;
           _straightenScale = 1.0;
           perspectiveX = 0.0;
           perspectiveY = 0.0;
@@ -918,13 +924,13 @@ class CropRotateEditorState extends State<CropRotateEditor>
   void setStraightenAngle(double angle) {
     const double maxAngle = pi / 4.0;
     final double clampedAngle = angle.clamp(-maxAngle, maxAngle);
-    _straightenAngle = clampedAngle;
+    straightenAngle = clampedAngle;
 
     _straightenScale = _calculateStraightenScale(clampedAngle);
     _invalidatePerspectiveBoundsCache();
     _setOffsetLimits();
     _updateAllStates();
-    addHistory(scaleRotation: oldScaleFactor, straightenAngle: clampedAngle);
+    addHistory(scaleRotation: oldScaleFactor);
   }
 
   /// Toggles the user interface to display the manual straightening widget.
@@ -950,8 +956,10 @@ class CropRotateEditorState extends State<CropRotateEditor>
   /// Triggers heavy polygon intersection calculations to revalidate frame fit.
   void setPerspective(double x, double y) {
     if (perspectiveX == x && perspectiveY == y) return;
-    perspectiveX = x;
-    perspectiveY = y;
+    const double maxAngle = pi / 6.0;
+
+    perspectiveX = x.clamp(-maxAngle, maxAngle);
+    perspectiveY = y.clamp(-maxAngle, maxAngle);
     _invalidatePerspectiveBoundsCache();
     _fitToScreen();
   }
@@ -1379,7 +1387,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
     }
 
     final Matrix4 perspectiveMatrix = _calculateStraightenAndPerspectiveMatrix(
-      angle: _straightenAngle,
+      angle: straightenAngle,
       perspectiveX: perspectiveX,
       perspectiveY: perspectiveY,
     );
@@ -1500,7 +1508,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
     if (currentScale <= 0.0) currentScale = 1.0;
 
     final Matrix4 prMatrix = _calculateStraightenAndPerspectiveMatrix(
-      angle: _straightenAngle,
+      angle: straightenAngle,
       perspectiveX: perspectiveX,
       perspectiveY: perspectiveY,
     );
@@ -1531,7 +1539,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
     for (int i = 0; i < 10; i++) {
       final Matrix4 iterationMatrix = _calculateStraightenAndPerspectiveMatrix(
-        angle: _straightenAngle,
+        angle: straightenAngle,
         perspectiveX: perspectiveX,
         perspectiveY: perspectiveY,
       );
@@ -1559,8 +1567,8 @@ class CropRotateEditorState extends State<CropRotateEditor>
       final Offset screenShift =
           (viewportPoly.boundingBox.center - resultAabb.center).offset;
 
-      final double cosA = cos(-_straightenAngle);
-      final double sinA = sin(-_straightenAngle);
+      final double cosA = cos(-straightenAngle);
+      final double sinA = sin(-straightenAngle);
       final double localDx = screenShift.dx * cosA - screenShift.dy * sinA;
       final double localDy = screenShift.dx * sinA + screenShift.dy * cosA;
 
@@ -2500,7 +2508,6 @@ class CropRotateEditorState extends State<CropRotateEditor>
     final Rect r = viewRect ?? _viewRect;
 
     final double straightenScale = _straightenScale;
-    final double straightenAngle = _straightenAngle;
 
     final double cosAngle = cos(straightenAngle);
     final double sinAngle = sin(straightenAngle);
@@ -2526,7 +2533,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
   Rect _panBoundaries(double scale) {
     final Offset linearMax = _getMaxOffset(scale);
 
-    if (_straightenAngle == 0.0 && perspectiveX == 0.0 && perspectiveY == 0.0) {
+    if (straightenAngle == 0.0 && perspectiveX == 0.0 && perspectiveY == 0.0) {
       return Rect.fromLTRB(
         -max(0.0, linearMax.dx),
         -max(0.0, linearMax.dy),
@@ -2570,7 +2577,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
     if (currentScale <= 0.0) currentScale = 1.0;
 
     final Matrix4 prMatrix = _calculateStraightenAndPerspectiveMatrix(
-      angle: _straightenAngle,
+      angle: straightenAngle,
       perspectiveX: perspectiveX,
       perspectiveY: perspectiveY,
     );
@@ -2682,7 +2689,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
   Rect _getPerspectivePanBoundaries(double scale) {
     final bool perspectiveChanged = _cachedBoundsPerspectiveX != perspectiveX ||
         _cachedBoundsPerspectiveY != perspectiveY ||
-        _cachedBoundsStraightenAngle != _straightenAngle;
+        _cachedBoundsStraightenAngle != straightenAngle;
 
     if (_cachedPerspectiveBounds != null && !perspectiveChanged) {
       return _cachedPerspectiveBounds!;
@@ -2693,7 +2700,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
     _cachedPerspectiveBounds = bounds;
     _cachedBoundsPerspectiveX = perspectiveX;
     _cachedBoundsPerspectiveY = perspectiveY;
-    _cachedBoundsStraightenAngle = _straightenAngle;
+    _cachedBoundsStraightenAngle = straightenAngle;
 
     return bounds;
   }
@@ -3211,7 +3218,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
             theme: theme,
             tools: tools,
             isStraightenModeActive: _isStraightenModeActive,
-            straightenAngle: _straightenAngle,
+            straightenAngle: straightenAngle,
             rebuildController: rebuildController,
             editorState: this,
             onRotate: rotate,
@@ -3520,13 +3527,13 @@ class CropRotateEditorState extends State<CropRotateEditor>
   ///
   /// Skips transformation computations entirely if properties are inactive.
   Widget _buildStraightenAndPerspectiveTransform({required Widget child}) {
-    if (_straightenAngle == 0.0 && perspectiveX == 0.0 && perspectiveY == 0.0) {
+    if (straightenAngle == 0.0 && perspectiveX == 0.0 && perspectiveY == 0.0) {
       return child;
     }
 
     return Transform(
       transform: _calculateStraightenAndPerspectiveMatrix(
-        angle: _straightenAngle,
+        angle: straightenAngle,
         perspectiveX: perspectiveX,
         perspectiveY: perspectiveY,
       ),

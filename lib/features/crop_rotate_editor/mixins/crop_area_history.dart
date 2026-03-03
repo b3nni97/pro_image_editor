@@ -177,6 +177,10 @@ mixin CropAreaHistory
   @protected
   bool flipY = false;
 
+  /// Defines the current straightening angle applied via the slider (-π/4 to +π/4).
+  @protected
+  double straightenAngle = 0.0;
+
   /// The horizontal perspective applied to the image.
   @protected
   double perspectiveX = 0.0;
@@ -292,7 +296,6 @@ mixin CropAreaHistory
   void addHistory({
     double? scaleRotation,
     double? angle,
-    double? straightenAngle,
   }) {
     if (!initialized) return;
     cleanForwardChanges();
@@ -309,7 +312,7 @@ mixin CropAreaHistory
         flipY: flipY,
         offset: translate,
         cropMode: cropMode,
-        straightenAngle: straightenAngle ?? 0.0,
+        straightenAngle: straightenAngle,
         perspectiveX: perspectiveX,
         perspectiveY: perspectiveY,
       ),
