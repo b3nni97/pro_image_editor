@@ -530,7 +530,9 @@ class CropRotateEditorState extends State<CropRotateEditor>
             offset: translate,
             cropRect: cropRect,
             viewRect: _viewRect,
-            scaleFactor: userScaleFactor,
+            scaleFactor: userScaleFactor *
+                max(1.0, _straightenScale) *
+                max(1.0, _perspectiveMinScale),
             rotationScaleFactor: _rotationScaleFactor,
             interactionOpacity: _interactionOpacityProgress,
             screenSize: Size(
@@ -1429,10 +1431,10 @@ class CropRotateEditorState extends State<CropRotateEditor>
       final double sMinX = (maxP - minP) / imageSize.width;
       final double sMinY = (maxQ - minQ) / imageSize.height;
       final double sMin = max(sMinX, sMinY);
-      
+
       newMinimumScale = sMin / _straightenScale;
     } else {
-      newMinimumScale = max(100.0, userScaleFactor); 
+      newMinimumScale = max(100.0, userScaleFactor);
     }
 
     setState(() {
@@ -1442,7 +1444,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
         userScaleFactor = newMinimumScale;
       } else {
         if (userScaleFactor < newMinimumScale) {
-           userScaleFactor = newMinimumScale;
+          userScaleFactor = newMinimumScale;
         }
       }
 

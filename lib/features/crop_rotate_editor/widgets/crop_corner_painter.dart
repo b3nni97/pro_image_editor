@@ -164,52 +164,47 @@ class CropCornerPainter extends CustomPainter {
     double cropWidth = _cropOffsetRight - _cropOffsetLeft;
     double cropHeight = _cropOffsetBottom - _cropOffsetTop;
 
-    Path path = Path()
-      // FillType "evenOdd" is important for the canvas web renderer
-      ..fillType = PathFillType.evenOdd
-      ..addRect(Rect.fromCenter(
-        center: Offset(
-          size.width / 2 + offset.dx * scaleFactor,
-          size.height / 2 + offset.dy * scaleFactor,
-        ),
-        width: size.width * scaleFactor,
-        height: size.height * scaleFactor,
-      ));
+    Path path = Path()..fillType = PathFillType.evenOdd;
+
     if (drawCircle) {
-      /// Create a path for the current rectangle
-      Path circlePath = Path()
-        ..addOval(
-          Rect.fromCenter(
-            center: Offset(
-              cropWidth / 2 + _cropOffsetLeft,
-              cropHeight / 2 + _cropOffsetTop,
-            ),
-            width: cropWidth,
-            height: cropHeight,
+      /// Create a path for the circular clip
+      path.addOval(
+        Rect.fromCenter(
+          center: Offset(
+            cropWidth / 2 + _cropOffsetLeft,
+            cropHeight / 2 + _cropOffsetTop,
           ),
-        );
-
-      /// Subtract the area of the current rectangle from the path for the
-      /// entire canvas
-      path = Path.combine(PathOperation.difference, path, circlePath);
+          width: cropWidth,
+          height: cropHeight,
+        ),
+      );
     } else {
-      /// Create a path for the current rectangle
-      Path rectPath = Path()
-        ..addRect(
-          Rect.fromCenter(
-            center: Offset(
-              cropWidth / 2 + _cropOffsetLeft,
-              cropHeight / 2 + _cropOffsetTop,
-            ),
-            width: cropWidth,
-            height: cropHeight,
+      /// Create a path for the rectangular clip
+      path.addRect(
+        Rect.fromCenter(
+          center: Offset(
+            cropWidth / 2 + _cropOffsetLeft,
+            cropHeight / 2 + _cropOffsetTop,
           ),
-        );
-
-      /// Subtract the area of the current rectangle from the path for the
-      /// entire canvas
-      path = Path.combine(PathOperation.difference, path, rectPath);
+          width: cropWidth,
+          height: cropHeight,
+        ),
+      );
     }
+
+    final double maxDimension = max(
+      max(size.width, screenSize.width),
+      max(size.height, screenSize.height),
+    );
+
+    path.addRect(Rect.fromCenter(
+      center: Offset(
+        size.width / 2 + offset.dx * scaleFactor,
+        size.height / 2 + offset.dy * scaleFactor,
+      ),
+      width: maxDimension * 100,
+      height: maxDimension * 100,
+    ));
 
     Color interpolatedColor = Color.lerp(
       background,
