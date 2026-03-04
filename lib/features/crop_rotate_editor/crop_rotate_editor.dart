@@ -1559,8 +1559,8 @@ class CropRotateEditorState extends State<CropRotateEditor>
       final Offset screenShift =
           (viewportPoly.boundingBox.center - resultAabb.center).offset;
 
-      final double cosA = cos(-straightenAngle);
-      final double sinA = sin(-straightenAngle);
+      final double cosA = cos(straightenAngle);
+      final double sinA = sin(straightenAngle);
       final double localDx = screenShift.dx * cosA - screenShift.dy * sinA;
       final double localDy = screenShift.dx * sinA + screenShift.dy * cosA;
 
@@ -3510,9 +3510,9 @@ class CropRotateEditorState extends State<CropRotateEditor>
   }) {
     return Matrix4.identity()
       ..setEntry(3, 2, _perspectiveDepth)
-      ..rotateX(perspectiveX)
+      ..rotateX(-perspectiveX)
       ..rotateY(perspectiveY)
-      ..rotateZ(angle);
+      ..rotateZ(-angle);
   }
 
   /// Conditionally applies complex straightening and perspective mapping matrices.

@@ -181,9 +181,9 @@ class TransformedContentGenerator extends StatelessWidget {
 
     final matrix = Matrix4.identity()
       ..setEntry(3, 2, perspectiveDepth)
-      ..rotateX(_transformConfigs.perspectiveX)
+      ..rotateX(-_transformConfigs.perspectiveX)
       ..rotateY(_transformConfigs.perspectiveY)
-      ..rotateZ(_transformConfigs.straightenAngle);
+      ..rotateZ(-_transformConfigs.straightenAngle);
 
     final straightenScale =
         _calculateStraightenScale(_transformConfigs.straightenAngle);
