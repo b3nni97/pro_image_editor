@@ -1641,10 +1641,20 @@ class CropRotateEditorState extends State<CropRotateEditor>
     }
   }
 
-  CropAreaPart _determineCropAreaPart(Offset localPosition) {
-    final Offset offset =
-        _getRealHitPoint(zoom: userScaleFactor, position: localPosition) +
-            translate * userScaleFactor;
+  Offset _getCropHandleHitOffset(Offset globalPosition) {
+    if (cropPainterKey.currentContext == null) return Offset.zero;
+    final RenderObject? renderObject =
+        cropPainterKey.currentContext!.findRenderObject();
+    if (renderObject is! RenderBox) return Offset.zero;
+
+    final Offset localPos = renderObject.globalToLocal(globalPosition);
+    final Offset center =
+        Offset(renderObject.size.width / 2.0, renderObject.size.height / 2.0);
+    return localPos - center;
+  }
+
+  CropAreaPart _determineCropAreaPart(Offset globalPosition) {
+    final Offset offset = _getCropHandleHitOffset(globalPosition);
 
     final double dx = offset.dx;
     final double dy = offset.dy;
@@ -1690,7 +1700,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
     }
 
     final Rect rect = Rect.fromCenter(
-      center: cropRect.center - translate,
+      center: Offset.zero,
       width: cropRect.width + _interactiveCornerArea,
       height: cropRect.height + _interactiveCornerArea,
     );
@@ -1707,7 +1717,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
     final bool nearTopEdge = top.abs() <= _interactiveCornerArea;
     final bool nearBottomEdge = bottom.abs() <= _interactiveCornerArea;
 
-    if (rect.contains(localPosition)) {
+    if (rect.contains(offset)) {
       if (nearLeftEdge && nearTopEdge) return CropAreaPart.topLeft;
       if (nearRightEdge && nearTopEdge) return CropAreaPart.topRight;
       if (nearLeftEdge && nearBottomEdge) return CropAreaPart.bottomLeft;
@@ -1794,7 +1804,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
     if (!_scaleStarted) {
       if (!isDesktop) {
-        _currentCropAreaPart = _determineCropAreaPart(details.localFocalPoint);
+        _currentCropAreaPart = _determineCropAreaPart(details.focalPoint);
       }
 
       loopWithTransitionTiming(
@@ -1869,11 +1879,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
     } else {
       if (_currentCropAreaPart != CropAreaPart.none &&
           _currentCropAreaPart != CropAreaPart.inside) {
-        final Offset offset = _getRealHitPoint(
-              zoom: _startingPinchScale,
-              position: details.localFocalPoint,
-            ) +
-            _startingTranslate * _startingPinchScale;
+        final Offset offset = _getCropHandleHitOffset(details.focalPoint);
 
         final double imgW = _renderedImgConstraints.maxWidth;
         final double imgH = _renderedImgConstraints.maxHeight;
@@ -1910,9 +1916,9 @@ class CropRotateEditorState extends State<CropRotateEditor>
             offset.dy + halfViewRectH + halfSpaceVertical + circleGapY;
 
         final double maxRight =
-            cropRect.right + margin.right - minCornerDistance;
+            cropRect.right - minCornerDistance;
         final double maxBottom =
-            cropRect.bottom + margin.bottom - minCornerDistance;
+            cropRect.bottom - minCornerDistance;
 
         double minLeft = halfSpaceHorizontal;
         double minRight = imgW - halfSpaceHorizontal;
@@ -3374,8 +3380,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
       onPointerSignal: isDesktop ? _mouseScroll : null,
       onPointerHover: isDesktop
           ? (PointerHoverEvent event) {
-              final CropAreaPart area =
-                  _determineCropAreaPart(event.localPosition);
+              final CropAreaPart area = _determineCropAreaPart(event.position);
               if (area != _currentCropAreaPart) {
                 _currentCropAreaPart = area;
                 _setMouseCursor();
