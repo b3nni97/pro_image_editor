@@ -1357,22 +1357,12 @@ class CropRotateEditorState extends State<CropRotateEditor>
     final Offset imageCenter = imageSize.center(Offset.zero);
     final Offset viewOffset = viewCenter - imageCenter;
 
-    final double imageHalfWidth = imageSize.width / 2.0;
-    final double imageHalfHeight = imageSize.height / 2.0;
-
-    final List<vector_math.Vector3> imageCorners = <vector_math.Vector3>[
-      vector_math.Vector3(-imageHalfWidth, -imageHalfHeight, 0.0),
-      vector_math.Vector3(imageHalfWidth, -imageHalfHeight, 0.0),
-      vector_math.Vector3(imageHalfWidth, imageHalfHeight, 0.0),
-      vector_math.Vector3(-imageHalfWidth, imageHalfHeight, 0.0),
-    ];
-
     final double viewWidth = _viewRect.width;
     final double viewHeight = _viewRect.height;
     final double viewHalfWidth = viewWidth / 2.0;
     final double viewHalfHeight = viewHeight / 2.0;
 
-    final Polygon2 viewportPolygon = Polygon2(<vector_math.Vector2>[
+    final List<vector_math.Vector2> viewportVertices = <vector_math.Vector2>[
       vector_math.Vector2(
           -viewHalfWidth + viewOffset.dx, -viewHalfHeight + viewOffset.dy),
       vector_math.Vector2(
@@ -1381,14 +1371,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
           viewHalfWidth + viewOffset.dx, viewHalfHeight + viewOffset.dy),
       vector_math.Vector2(
           -viewHalfWidth + viewOffset.dx, viewHalfHeight + viewOffset.dy),
-    ]);
-
-    double solverScale = userScaleFactor * _straightenScale;
-    Offset solverTranslate = translate;
-
-    if (solverScale <= 0.0) {
-      solverScale = 1.0;
-    }
+    ];
 
     final Matrix4 perspectiveMatrix = _calculateStraightenAndPerspectiveMatrix(
       angle: straightenAngle,
@@ -1396,74 +1379,77 @@ class CropRotateEditorState extends State<CropRotateEditor>
       perspectiveY: perspectiveY,
     );
 
-    for (int i = 0; i < 5; i++) {
-      final List<vector_math.Vector3> transformedCorners = imageCorners.map(
-        (vector_math.Vector3 vertex) {
-          final vector_math.Vector3 translatedVertex = vertex +
-              vector_math.Vector3(
-                solverTranslate.dx,
-                solverTranslate.dy,
-                0.0,
-              );
+    final double m00 = perspectiveMatrix.storage[0];
+    final double m10 = perspectiveMatrix.storage[1];
+    final double m30 = perspectiveMatrix.storage[3];
+    final double m01 = perspectiveMatrix.storage[4];
+    final double m11 = perspectiveMatrix.storage[5];
+    final double m31 = perspectiveMatrix.storage[7];
 
-          final vector_math.Vector3 scaledVertex =
-              translatedVertex * solverScale;
+    double minP = double.infinity;
+    double maxP = double.negativeInfinity;
+    double minQ = double.infinity;
+    double maxQ = double.negativeInfinity;
 
-          return perspectiveMatrix.perspectiveTransform(scaledVertex);
-        },
-      ).toList();
+    bool wIsNegative = false;
 
-      final Quad2 imageQuad = Quad2(
-        transformedCorners[0].vector2,
-        transformedCorners[1].vector2,
-        transformedCorners[2].vector2,
-        transformedCorners[3].vector2,
-      );
+    for (final v in viewportVertices) {
+      final double u = v.x;
+      final double y_v = v.y; // 'v' coordinate in (u,v)
 
-      final vector_math.Aabb2 resultBoundingBox = FitPolygonInQuadSolver.solve(
-        viewportPolygon,
-        imageQuad,
-        enableResize: true,
-      );
+      final double M11 = m00 - u * m30;
+      final double M12 = m01 - u * m31;
+      final double M21 = m10 - y_v * m30;
+      final double M22 = m11 - y_v * m31;
 
-      final double scaleCorrection = viewWidth / resultBoundingBox.width;
-      final Offset screenShift =
-          (viewportPolygon.boundingBox.center - resultBoundingBox.center)
-              .offset;
-      final Offset translateCorrection = screenShift / solverScale;
-
-      if (scaleCorrection.isNaN ||
-          translateCorrection.dx.isNaN ||
-          translateCorrection.dy.isNaN) {
+      final double D = M11 * M22 - M12 * M21;
+      if (D.abs() < 1e-6) {
+        wIsNegative = true;
         break;
       }
 
-      solverScale *= scaleCorrection;
-      solverTranslate += translateCorrection;
+      final double P = (M22 * u - M12 * y_v) / D;
+      final double Q = (-M21 * u + M11 * y_v) / D;
+
+      final double w = m30 * P + m31 * Q + 1.0;
+      if (w <= 0.0001) {
+        wIsNegative = true;
+        break;
+      }
+
+      if (P < minP) minP = P;
+      if (P > maxP) maxP = P;
+      if (Q < minQ) minQ = Q;
+      if (Q > maxQ) maxQ = Q;
     }
 
-    final double newMinimumScale = solverScale / _straightenScale;
+    double newMinimumScale = 0.01;
+
+    if (!wIsNegative) {
+      final double sMinX = (maxP - minP) / imageSize.width;
+      final double sMinY = (maxQ - minQ) / imageSize.height;
+      final double sMin = max(sMinX, sMinY);
+      
+      newMinimumScale = sMin / _straightenScale;
+    } else {
+      newMinimumScale = max(100.0, userScaleFactor); 
+    }
 
     setState(() {
       _perspectiveMinScale = newMinimumScale;
 
       if (isAutoScaled) {
-        // Applies the calculated optimal fit automatically since the user has not manually adjusted the scale.
         userScaleFactor = newMinimumScale;
-        translate = solverTranslate;
       } else {
-        // Preserves the user's manual zoom and pan adjustments.
         if (userScaleFactor < newMinimumScale) {
-          // Enforces the minimum scale threshold to prevent the image from revealing empty background borders.
-          userScaleFactor = newMinimumScale;
+           userScaleFactor = newMinimumScale;
         }
-
-        // Retains the user's manual translation while clamping it to the newly calculated perspective boundaries.
-        translate = _clampTranslateWithPerspective(
-          proposedTranslate: translate,
-          scale: userScaleFactor,
-        );
       }
+
+      translate = _clampTranslateWithPerspective(
+        proposedTranslate: translate,
+        scale: userScaleFactor,
+      );
     });
   }
 

@@ -127,7 +127,13 @@ class CropCornerPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (size.isInfinite) return;
+    if (size.isInfinite ||
+        !scaleFactor.isFinite ||
+        !(size.width * scaleFactor).isFinite ||
+        cropRect.hasNaN ||
+        !cropRect.isFinite) {
+      return;
+    }
     _drawDarkenOutside(canvas: canvas, size: size);
     _drawCropOutline(canvas: canvas);
     if (fadeInOpacity > 0) _drawHelperAreas(canvas: canvas, size: size);
