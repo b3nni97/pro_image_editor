@@ -978,6 +978,10 @@ class CropRotateEditorState extends State<CropRotateEditor>
   }) {
     if (!animated) scaleCtrl.duration = Duration.zero;
 
+    debugPrint('==== calcFitToScreen CALLED ====');
+    debugPrint('  animated: $animated');
+    debugPrint('  current oldScaleFactor: $oldScaleFactor');
+
     final EdgeInsets margin = cropRotateEditorConfigs.boundaryMargin;
 
     final Size contentSize = Size(
@@ -993,13 +997,22 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
     final Size renderedSize = imageSize ?? _renderedImgSize;
 
-    final double scaleX =
-        contentSize.width / (renderedSize.width - activeCropSpaceHorizontal);
+    double boxWidth = renderedSize.width - activeCropSpaceHorizontal;
+    double boxHeight = renderedSize.height - activeCropSpaceVertical;
 
-    final double scaleY =
-        contentSize.height / (renderedSize.height - activeCropSpaceVertical);
+    final double scaleX = contentSize.width / boxWidth;
+    final double scaleY = contentSize.height / boxHeight;
 
     final double scale = min(scaleX, scaleY);
+
+    debugPrint('  renderedSize: $renderedSize');
+    debugPrint('  contentSize: $contentSize');
+    debugPrint('  activeCropSpaceHorizontal: $activeCropSpaceHorizontal');
+    debugPrint('  activeCropSpaceVertical: $activeCropSpaceVertical');
+    debugPrint('  scaleX: $scaleX');
+    debugPrint('  scaleY: $scaleY');
+    debugPrint('  FINAL scale: $scale');
+    debugPrint('================================');
 
     scaleAnimation = Tween<double>(begin: oldScaleFactor, end: scale).animate(
       CurvedAnimation(
@@ -1440,18 +1453,44 @@ class CropRotateEditorState extends State<CropRotateEditor>
     setState(() {
       _perspectiveMinScale = newMinimumScale;
 
-      if (isAutoScaled) {
-        userScaleFactor = newMinimumScale;
-      } else {
-        if (userScaleFactor < newMinimumScale) {
+      if (!_interactionActive &&
+          !_scaleStarted &&
+          !scaleCtrl.isAnimating &&
+          !_blockInteraction) {
+        final double oldUserScale = userScaleFactor;
+        final Offset oldTranslate = translate;
+
+        if (isAutoScaled) {
           userScaleFactor = newMinimumScale;
+        } else {
+          if (userScaleFactor < newMinimumScale) {
+            userScaleFactor = newMinimumScale;
+          }
+        }
+
+        translate = _clampTranslateWithPerspective(
+          proposedTranslate: translate,
+          scale: userScaleFactor,
+        );
+
+        if (oldUserScale != userScaleFactor || oldTranslate != translate) {
+          debugPrint('==== _applyPerspectiveSolver JUMP DETECTED ====');
+          debugPrint('  wIsNegative: $wIsNegative');
+          debugPrint('  imageSize: $imageSize');
+          debugPrint('  viewWidth: $viewWidth, viewHeight: $viewHeight');
+          debugPrint('  viewOffset: $viewOffset');
+          debugPrint('  minP: $minP, maxP: $maxP');
+          debugPrint('  minQ: $minQ, maxQ: $maxQ');
+          // debugPrint('  sMinX: $sMinX, sMinY: $sMinY');
+          debugPrint('  _straightenScale: $_straightenScale');
+          debugPrint('  old userScaleFactor: $oldUserScale');
+          debugPrint('  newMinimumScale: $newMinimumScale');
+          debugPrint('  FINAL userScaleFactor: $userScaleFactor');
+          debugPrint('  old translate: $oldTranslate');
+          debugPrint('  FINAL translate: $translate');
+          debugPrint('===============================================');
         }
       }
-
-      translate = _clampTranslateWithPerspective(
-        proposedTranslate: translate,
-        scale: userScaleFactor,
-      );
     });
   }
 
@@ -1850,6 +1889,48 @@ class CropRotateEditorState extends State<CropRotateEditor>
     _gestureType ??=
         details.scale == 1.0 ? _GestureType.pan : _GestureType.scale;
 
+    final bool isTouchingCropHandle =
+        _currentCropAreaPart != CropAreaPart.none &&
+            _currentCropAreaPart != CropAreaPart.inside;
+
+    if (!isTouchingCropHandle) {
+      bool handledPerspectiveOrStraighten = false;
+      if (_isStraightenModeActive) {
+        final Offset delta = details.focalPoint - _lastFocal;
+        _lastFocal = details.focalPoint;
+
+        final double distance = editorBodySize.width;
+        double newAngle = straightenAngle + delta.dx / distance * pi / 1.5;
+
+        // Limiting angle to +/- 45 degrees
+        double maxAngle = pi / 4;
+        newAngle = newAngle.clamp(-maxAngle, maxAngle);
+
+        setStraightenAngle(newAngle);
+        handledPerspectiveOrStraighten = true;
+      }
+      if (_isPerspectiveModeActive) {
+        final Offset delta = details.focalPoint - _lastFocal;
+        _lastFocal = details.focalPoint;
+
+        final double distanceX = editorBodySize.width;
+        final double distanceY = editorBodySize.height;
+
+        double newX = perspectiveX + delta.dx / distanceX * pi / 1.5;
+        double newY = perspectiveY + delta.dy / distanceY * pi / 1.5;
+
+        // Limit angle to +/- 30 degrees
+        double maxAngle = pi / 6;
+        newX = newX.clamp(-maxAngle, maxAngle);
+        newY = newY.clamp(-maxAngle, maxAngle);
+
+        setPerspective(newX, newY);
+        handledPerspectiveOrStraighten = true;
+      }
+
+      if (handledPerspectiveOrStraighten) return;
+    }
+
     if (details.pointerCount == 2) {
       final double desiredScale = _scaleStart! * details.scale;
 
@@ -1915,10 +1996,8 @@ class CropRotateEditorState extends State<CropRotateEditor>
         final double dy =
             offset.dy + halfViewRectH + halfSpaceVertical + circleGapY;
 
-        final double maxRight =
-            cropRect.right - minCornerDistance;
-        final double maxBottom =
-            cropRect.bottom - minCornerDistance;
+        final double maxRight = cropRect.right - minCornerDistance;
+        final double maxBottom = cropRect.bottom - minCornerDistance;
 
         double minLeft = halfSpaceHorizontal;
         double minRight = imgW - halfSpaceHorizontal;
@@ -1949,7 +2028,48 @@ class CropRotateEditorState extends State<CropRotateEditor>
                   _viewRect.height / 2.0 -
                   halfSpaceVertical +
                   translate.dy * userScaleFactor);
+
+          minLeft = max(
+              -(editorBodySize.width / 2.0) / userScaleFactor +
+                  _viewRect.width / 2.0 +
+                  halfSpaceHorizontal +
+                  translate.dx,
+              minLeft);
+          minRight = min(
+              (editorBodySize.width / 2.0) / userScaleFactor +
+                  _viewRect.width / 2.0 +
+                  halfSpaceHorizontal +
+                  translate.dx,
+              minRight);
+          minTop = max(
+              -(editorBodySize.height / 2.0) / userScaleFactor +
+                  _viewRect.height / 2.0 +
+                  halfSpaceVertical +
+                  translate.dy,
+              minTop);
+          minBottom = min(
+              (editorBodySize.height / 2.0) / userScaleFactor +
+                  _viewRect.height / 2.0 +
+                  halfSpaceVertical +
+                  translate.dy,
+              minBottom);
         }
+
+        final EdgeInsets dragMargin = cropRotateEditorConfigs.boundaryMargin;
+
+        final double availableHeight = editorBodySize.height - margin.vertical;
+        final double availableWidth = editorBodySize.width - margin.horizontal;
+
+        final double topOffset = margin.top + (availableHeight - imgH) / 2.0;
+        final double bottomOffset =
+            margin.bottom + (availableHeight - imgH) / 2.0;
+        final double leftOffset = margin.left + (availableWidth - imgW) / 2.0;
+        final double rightOffset = margin.right + (availableWidth - imgW) / 2.0;
+
+        minTop = max(minTop, dragMargin.top - topOffset);
+        minBottom = min(minBottom, imgH - (dragMargin.bottom - bottomOffset));
+        minLeft = max(minLeft, dragMargin.left - leftOffset);
+        minRight = min(minRight, imgW - (dragMargin.right - rightOffset));
 
         Size realViewRectSize = _viewRect.size * scaleAnimation.value;
 
@@ -2306,14 +2426,16 @@ class CropRotateEditorState extends State<CropRotateEditor>
       if (_activePointers <= 0) {
         _scaleStarted = false;
 
-        loopWithTransitionTiming(
-          (double curveT) {
-            _interactionOpacityProgress = 1.0 - 1.0 * curveT;
-            cropPainterKey.currentState!.setForegroundPainter(cropPainter);
-          },
-          mounted: mounted,
-          duration: cropRotateEditorConfigs.opacityOutsideCropAreaDuration,
-        );
+        if (cropRect == _viewRect) {
+          loopWithTransitionTiming(
+            (double curveT) {
+              _interactionOpacityProgress = 1.0 - 1.0 * curveT;
+              cropPainterKey.currentState!.setForegroundPainter(cropPainter);
+            },
+            mounted: mounted,
+            duration: cropRotateEditorConfigs.opacityOutsideCropAreaDuration,
+          );
+        }
       }
     });
 
@@ -2350,60 +2472,129 @@ class CropRotateEditorState extends State<CropRotateEditor>
           onlyViewRect: true,
           newRatio: 1.0 / cropRect.size.aspectRatio,
         );
-
-        scaleCtrl.duration = animationDuration;
-        calcFitToScreen(curve: animationCurve);
-        scaleCtrl.duration = cropRotateEditorConfigs.animationDuration;
       }
 
       final Rect startCropRect = cropRect;
       final Rect targetCropRect = _viewRect;
       final double startZoom = userScaleFactor;
-      final double targetZoom = min(
-        userScaleFactor *
-            targetCropRect.size.longestSide /
-            startCropRect.size.longestSide,
-        cropRotateEditorConfigs.maxScale,
+
+      final Offset C = Offset(
+        _renderedImgConstraints.maxWidth / 2.0,
+        _renderedImgConstraints.maxHeight / 2.0,
+      );
+
+      final Matrix4 perspectiveMatrix =
+          _calculateStraightenAndPerspectiveMatrix(
+        angle: straightenAngle,
+        perspectiveX: perspectiveX,
+        perspectiveY: perspectiveY,
+      );
+
+      final Matrix4 inversePerspective =
+          Matrix4.tryInvert(perspectiveMatrix) ?? Matrix4.identity();
+
+      Offset unprojectPoint(Offset p) {
+        final vector_math.Vector3 p3 =
+            vector_math.Vector3(p.dx - C.dx, p.dy - C.dy, 0.0);
+        final vector_math.Vector3 unp =
+            inversePerspective.perspectiveTransform(p3);
+        return Offset(unp.x, unp.y);
+      }
+
+      double getUnprojectedWidth(Rect rect) {
+        final Offset topLeft = unprojectPoint(rect.topLeft);
+        final Offset topRight = unprojectPoint(rect.topRight);
+        final Offset bottomLeft = unprojectPoint(rect.bottomLeft);
+        final Offset bottomRight = unprojectPoint(rect.bottomRight);
+        final double topW = (topRight - topLeft).distance;
+        final double bottomW = (bottomRight - bottomLeft).distance;
+        return max(topW, bottomW);
+      }
+
+      double getUnprojectedHeight(Rect rect) {
+        final Offset topLeft = unprojectPoint(rect.topLeft);
+        final Offset topRight = unprojectPoint(rect.topRight);
+        final Offset bottomLeft = unprojectPoint(rect.bottomLeft);
+        final Offset bottomRight = unprojectPoint(rect.bottomRight);
+        final double leftH = (bottomLeft - topLeft).distance;
+        final double rightH = (bottomRight - topRight).distance;
+        return max(leftH, rightH);
+      }
+
+      final double unpStartW = getUnprojectedWidth(startCropRect);
+      final double unpStartH = getUnprojectedHeight(startCropRect);
+      final double unpTargetW = getUnprojectedWidth(targetCropRect);
+      final double unpTargetH = getUnprojectedHeight(targetCropRect);
+
+      final double scaleRatio = max(
+        unpTargetW / max(1.0, unpStartW),
+        unpTargetH / max(1.0, unpStartH),
+      );
+
+      final double targetZoom = max(
+        _perspectiveMinScale,
+        min(
+          startZoom * scaleRatio,
+          cropRotateEditorConfigs.maxScale,
+        ),
       );
 
       final Offset startOffset = translate;
-      final Offset targetOffset = startOffset -
-          Offset(
-                (startCropRect.left -
-                    (targetCropRect.right - startCropRect.right) -
-                    _cropSpaceHorizontal / 2.0),
-                (startCropRect.top -
-                    (targetCropRect.bottom - startCropRect.bottom) -
-                    _cropSpaceVertical / 2.0),
-              ) /
-              startZoom /
-              2.0;
+      final Offset startCenterUnp = unprojectPoint(startCropRect.center);
+      final Offset targetCenterUnp = unprojectPoint(targetCropRect.center);
 
-      loopWithTransitionTiming(
-        (double curveT) {
-          userScaleFactor = ui.lerpDouble(startZoom, targetZoom, curveT)!;
-          translate = Offset.lerp(startOffset, targetOffset, curveT)!;
-          cropRect = interpolatedRect(startCropRect, targetCropRect, curveT);
+      final Offset unclampedTargetOffset = startOffset +
+          targetCenterUnp / (_straightenScale * targetZoom) -
+          startCenterUnp / (_straightenScale * startZoom);
 
-          _setOffsetLimits(
-            rect: _ratio < 0.0
-                ? interpolatedRect(initRect, targetCropRect, curveT)
-                : null,
-          );
-        },
-        mounted: mounted,
-        duration: animationDuration,
-        transitionFunction: animationCurve.transform,
-      ).whenComplete(() {
-        cropRect = targetCropRect;
-        translate = targetOffset;
-        userScaleFactor = targetZoom;
+      final Offset targetOffset = _clampTranslateWithPerspective(
+        proposedTranslate: unclampedTargetOffset,
+        scale: targetZoom,
+      );
 
-        _setOffsetLimits();
-        calcFitToScreen();
-        cropRotateEditorCallbacks?.handleResize();
-        addHistory();
-        _blockInteraction = false;
+      final Offset clampDelta = targetOffset - unclampedTargetOffset;
+
+      debugPrint('==== _onScaleEnd DEBUG ====');
+      debugPrint('  startCropRect: $startCropRect');
+      debugPrint('  targetCropRect: $targetCropRect');
+      debugPrint('  startZoom: $startZoom');
+      debugPrint('  targetZoom: $targetZoom');
+      debugPrint('  startTranslate: $startOffset');
+      debugPrint('  targetOffset: $targetOffset');
+      debugPrint('===========================');
+
+      Future.delayed(cropRotateEditorConfigs.cropDragOutOfBoundsDelay, () {
+        if (!mounted) return;
+
+        loopWithTransitionTiming(
+          (double curveT) {
+            _interactionOpacityProgress = 1.0 - 1.0 * curveT;
+            userScaleFactor = ui.lerpDouble(startZoom, targetZoom, curveT)!;
+            cropRect = interpolatedRect(startCropRect, targetCropRect, curveT);
+
+            // Force the translation to map directly to the unprojected crop box focal point at this exact frame, eliminating drift.
+            final Offset currentCenterUnp = unprojectPoint(cropRect.center);
+            final Offset unclampedTranslate = startOffset +
+                currentCenterUnp / (_straightenScale * userScaleFactor) -
+                startCenterUnp / (_straightenScale * startZoom);
+
+            translate = unclampedTranslate + clampDelta * curveT;
+
+            cropPainterKey.currentState!.setForegroundPainter(cropPainter);
+          },
+          mounted: mounted,
+          duration: animationDuration,
+          transitionFunction: animationCurve.transform,
+        ).whenComplete(() {
+          cropRect = targetCropRect;
+          translate = targetOffset;
+          userScaleFactor = targetZoom;
+
+          _setOffsetLimits();
+          cropRotateEditorCallbacks?.handleResize();
+          addHistory();
+          _blockInteraction = false;
+        });
       });
 
       return;

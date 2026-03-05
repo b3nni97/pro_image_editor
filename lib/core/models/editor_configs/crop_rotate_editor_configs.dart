@@ -96,6 +96,7 @@ class CropRotateEditorConfigs extends ZoomConfigs
     this.fadeInOutsideCropAreaAnimationDuration =
         const Duration(milliseconds: 350),
     this.cropDragAnimationDuration = const Duration(milliseconds: 400),
+    this.cropDragOutOfBoundsDelay = const Duration(milliseconds: 350),
     this.maxScale = 7,
     this.mouseScaleFactor = 0.1,
     this.doubleTapScaleFactor = 2,
@@ -246,6 +247,9 @@ class CropRotateEditorConfigs extends ZoomConfigs
   /// The duration of drag-crop animations.
   final Duration cropDragAnimationDuration;
 
+  /// The delay before the snapback animation plays when the crop area is out of bounds.
+  final Duration cropDragOutOfBoundsDelay;
+
   /// Fade in animation from content outside the crop area.
   final Duration fadeInOutsideCropAreaAnimationDuration;
 
@@ -326,6 +330,7 @@ class CropRotateEditorConfigs extends ZoomConfigs
     List<AspectRatioItem>? aspectRatios,
     Duration? animationDuration,
     Duration? cropDragAnimationDuration,
+    Duration? cropDragOutOfBoundsDelay,
     Duration? fadeInOutsideCropAreaAnimationDuration,
     Duration? opacityOutsideCropAreaDuration,
     Curve? rotateAnimationCurve,
@@ -369,6 +374,8 @@ class CropRotateEditorConfigs extends ZoomConfigs
       animationDuration: animationDuration ?? this.animationDuration,
       cropDragAnimationDuration:
           cropDragAnimationDuration ?? this.cropDragAnimationDuration,
+      cropDragOutOfBoundsDelay:
+          cropDragOutOfBoundsDelay ?? this.cropDragOutOfBoundsDelay,
       fadeInOutsideCropAreaAnimationDuration:
           fadeInOutsideCropAreaAnimationDuration ??
               this.fadeInOutsideCropAreaAnimationDuration,
