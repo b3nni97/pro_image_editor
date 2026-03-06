@@ -300,6 +300,9 @@ class CropRotateEditorState extends State<CropRotateEditor>
   /// Tracks the interaction progress applied to opacity transitions.
   double _interactionOpacityProgress = 0.0;
 
+  /// Tracks the blur interaction opacity (only fades when crop handles are dragged).
+  double _blurInteractionOpacity = 0.0;
+
   /// Stores the initial scale value before a pinch gesture begins.
   double _startingPinchScale = 1.0;
 
@@ -1862,9 +1865,16 @@ class CropRotateEditorState extends State<CropRotateEditor>
         _currentCropAreaPart = _determineCropAreaPart(details.focalPoint);
       }
 
+      final bool isTouchingHandle =
+          _currentCropAreaPart != CropAreaPart.none &&
+              _currentCropAreaPart != CropAreaPart.inside;
+
       loopWithTransitionTiming(
         (double curveT) {
           _interactionOpacityProgress = 1.0 * curveT;
+          if (isTouchingHandle) {
+            _blurInteractionOpacity = 1.0 * curveT;
+          }
           _setCropPainter();
         },
         mounted: mounted,
@@ -2446,6 +2456,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
           loopWithTransitionTiming(
             (double curveT) {
               _interactionOpacityProgress = 1.0 - 1.0 * curveT;
+              _blurInteractionOpacity = 0.0;
               _setCropPainter();
             },
             mounted: mounted,
@@ -2570,21 +2581,13 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
       final Offset clampDelta = targetOffset - unclampedTargetOffset;
 
-      debugPrint('==== _onScaleEnd DEBUG ====');
-      debugPrint('  startCropRect: $startCropRect');
-      debugPrint('  targetCropRect: $targetCropRect');
-      debugPrint('  startZoom: $startZoom');
-      debugPrint('  targetZoom: $targetZoom');
-      debugPrint('  startTranslate: $startOffset');
-      debugPrint('  targetOffset: $targetOffset');
-      debugPrint('===========================');
-
       Future.delayed(cropRotateEditorConfigs.cropDragOutOfBoundsDelay, () {
         if (!mounted) return;
 
         loopWithTransitionTiming(
           (double curveT) {
             _interactionOpacityProgress = 1.0 - 1.0 * curveT;
+            _blurInteractionOpacity = 1.0 - 1.0 * curveT;
             userScaleFactor = ui.lerpDouble(startZoom, targetZoom, curveT)!;
             cropRect = interpolatedRect(startCropRect, targetCropRect, curveT);
 
@@ -3767,16 +3770,19 @@ class CropRotateEditorState extends State<CropRotateEditor>
                 if (painter == null || painter.style.cropOverlayBlur <= 0) {
                   return const SizedBox.shrink();
                 }
-                return IgnorePointer(
-                  child: ClipPath(
-                    clipper: CropOverlayClipper(painter),
-                    child: BackdropFilter(
-                      filter: ui.ImageFilter.blur(
-                        sigmaX: painter.style.cropOverlayBlur,
-                        sigmaY: painter.style.cropOverlayBlur,
-                        bounds: Offset.zero & editorBodySize,
+                return Opacity(
+                  opacity: (1.0 - _blurInteractionOpacity).clamp(0.0, 1.0),
+                  child: IgnorePointer(
+                    child: ClipPath(
+                      clipper: CropOverlayClipper(painter),
+                      child: BackdropFilter(
+                        filter: ui.ImageFilter.blur(
+                          sigmaX: painter.style.cropOverlayBlur,
+                          sigmaY: painter.style.cropOverlayBlur,
+                          bounds: Offset.zero & editorBodySize,
+                        ),
+                        child: const SizedBox.expand(),
                       ),
-                      child: const SizedBox.expand(),
                     ),
                   ),
                 );
