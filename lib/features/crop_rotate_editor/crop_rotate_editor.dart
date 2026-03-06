@@ -215,6 +215,9 @@ class CropRotateEditorState extends State<CropRotateEditor>
   final GlobalKey<ExtendedRebuildMouseRegionState> _mouseCursorsKey =
       GlobalKey<ExtendedRebuildMouseRegionState>();
 
+  /// Notifies listeners of crop painter updates.
+  late final ValueNotifier<CropCornerPainter?> _cropPainterNotifier;
+
   /// Identifies the crop rotate gesture detector to control raw gesture states.
   final GlobalKey<CropRotateGestureDetectorState> _gestureKey =
       GlobalKey<CropRotateGestureDetectorState>();
@@ -581,6 +584,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
     _imageNeedDecode = mainImageSize == null;
     _imageSizeIsDecoded = !_imageNeedDecode;
     _layers = initConfigs.layers ?? [];
+    _cropPainterNotifier = ValueNotifier(null);
     _setRawLayers();
 
     final double initAngle = initialTransformConfigs?.angle ?? 0.0;
@@ -1029,7 +1033,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
     final double targetRotateFactor = scale;
     oldScaleFactor = scale;
 
-    cropPainterKey.currentState?.setForegroundPainter(cropPainter);
+    _setCropPainter();
 
     if (!startRotateFactor.isInfinite &&
         !startRotateFactor.isNaN &&
@@ -1040,7 +1044,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
           _rotationScaleFactor =
               ui.lerpDouble(startRotateFactor, targetRotateFactor, curveT)!;
 
-          cropPainterKey.currentState?.setForegroundPainter(cropPainter);
+          _setCropPainter();
         },
         mounted: mounted,
         duration: cropRotateEditorConfigs.animationDuration,
@@ -1143,7 +1147,23 @@ class CropRotateEditorState extends State<CropRotateEditor>
     }
 
     _viewRect = Rect.fromLTWH(left, top, realImgW, realImgH);
-    cropPainterKey.currentState?.setForegroundPainter(cropPainter);
+    _setCropPainter();
+  }
+
+  void _setCropPainter() {
+    final painter = cropPainter;
+    _cropPainterNotifier.value = painter;
+    cropPainterKey.currentState?.setForegroundPainter(painter);
+  }
+
+  void _updateCropPainter() {
+    final painter = cropPainter;
+    _cropPainterNotifier.value = painter;
+    cropPainterKey.currentState?.update(
+      foregroundPainter: painter,
+      isComplex: showWidgets,
+      willChange: showWidgets,
+    );
   }
 
   void _setRawLayers({bool refit = false}) {
@@ -1164,11 +1184,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
   void _updateAllStates() {
     userScaleKey.currentState?.setScale(userScaleFactor);
-    cropPainterKey.currentState?.update(
-      foregroundPainter: cropPainter,
-      isComplex: showWidgets,
-      willChange: showWidgets,
-    );
+    _updateCropPainter();
     translateKey.currentState?.setOffset(translate);
     setState(() {});
   }
@@ -1246,7 +1262,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
     loopWithTransitionTiming(
       (double curveT) {
         _painterOpacity = 1.0 * curveT;
-        cropPainterKey.currentState?.update(foregroundPainter: cropPainter);
+        _updateCropPainter();
       },
       mounted: mounted,
       transitionFunction:
@@ -1849,7 +1865,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
       loopWithTransitionTiming(
         (double curveT) {
           _interactionOpacityProgress = 1.0 * curveT;
-          cropPainterKey.currentState!.setForegroundPainter(cropPainter);
+          _setCropPainter();
         },
         mounted: mounted,
         transitionFunction: Curves.decelerate.transform,
@@ -2234,7 +2250,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
           }
         }
 
-        cropPainterKey.currentState!.update(foregroundPainter: cropPainter);
+        _updateCropPainter();
       } else {
         final double scaleFactor = userScaleFactor / _scaleStartZoomHelper;
 
@@ -2247,7 +2263,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
         translate += physicsDelta;
 
         cropRotateEditorCallbacks?.handleMove();
-        cropPainterKey.currentState!.update(foregroundPainter: cropPainter);
+        _updateCropPainter();
       }
     }
 
@@ -2430,7 +2446,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
           loopWithTransitionTiming(
             (double curveT) {
               _interactionOpacityProgress = 1.0 - 1.0 * curveT;
-              cropPainterKey.currentState!.setForegroundPainter(cropPainter);
+              _setCropPainter();
             },
             mounted: mounted,
             duration: cropRotateEditorConfigs.opacityOutsideCropAreaDuration,
@@ -2580,7 +2596,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
             translate = unclampedTranslate + clampDelta * curveT;
 
-            cropPainterKey.currentState!.setForegroundPainter(cropPainter);
+            _setCropPainter();
           },
           mounted: mounted,
           duration: animationDuration,
@@ -3101,7 +3117,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
       _scrollHistoryDebounce(() {
         addHistory();
         cropRotateEditorCallbacks?.handleScale();
-        cropPainterKey.currentState!.setForegroundPainter(cropPainter);
+        _setCropPainter();
       });
     }
   }
@@ -3308,6 +3324,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
   @override
   void dispose() {
+    _cropPainterNotifier.dispose();
     _onScaleEndDebounce.dispose();
     _onScaleAllowUpdateDebounce.dispose();
     _bottomBarScrollCtrl.dispose();
@@ -3456,7 +3473,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
           if (editorBodySize != event.newContentSize) {
             editorBodySize = event.newContentSize;
-            cropPainterKey.currentState?.setForegroundPainter(cropPainter);
+            _setCropPainter();
           }
 
           final EdgeInsets margin = cropRotateEditorConfigs.boundaryMargin;
@@ -3739,7 +3756,35 @@ class CropRotateEditorState extends State<CropRotateEditor>
       initIsComplex: showWidgets,
       initWillChange: showWidgets,
       initForegroundPainter: cropPainter?.copy(),
-      child: child,
+      child: Stack(
+        fit: StackFit.passthrough,
+        children: [
+          child,
+          Positioned.fill(
+            child: ValueListenableBuilder<CropCornerPainter?>(
+              valueListenable: _cropPainterNotifier,
+              builder: (context, painter, _) {
+                if (painter == null || painter.style.cropOverlayBlur <= 0) {
+                  return const SizedBox.shrink();
+                }
+                return IgnorePointer(
+                  child: ClipPath(
+                    clipper: CropOverlayClipper(painter),
+                    child: BackdropFilter(
+                      filter: ui.ImageFilter.blur(
+                        sigmaX: painter.style.cropOverlayBlur,
+                        sigmaY: painter.style.cropOverlayBlur,
+                        bounds: Offset.zero & editorBodySize,
+                      ),
+                      child: const SizedBox.expand(),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
     );
   }
 

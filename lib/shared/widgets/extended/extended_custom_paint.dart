@@ -60,13 +60,25 @@ class ExtendedCustomPaintState extends State<ExtendedCustomPaint> {
   /// The painter used for drawing on the background.
   late CustomPainter? painter;
 
+  /// Exposes the foregroundPainter as a ValueNotifier to allow external
+  /// widgets to listen to changes without rebuilding the whole widget tree.
+  final ValueNotifier<CustomPainter?> foregroundPainterNotifier =
+      ValueNotifier<CustomPainter?>(null);
+
   @override
   void initState() {
     super.initState();
     isComplex = widget.initIsComplex;
     willChange = widget.initWillChange;
     foregroundPainter = widget.initForegroundPainter;
+    foregroundPainterNotifier.value = foregroundPainter;
     painter = widget.initPainter;
+  }
+
+  @override
+  void dispose() {
+    foregroundPainterNotifier.dispose();
+    super.dispose();
   }
 
   @override
@@ -96,7 +108,10 @@ class ExtendedCustomPaintState extends State<ExtendedCustomPaint> {
     setState(() {
       if (isComplex != null) this.isComplex = isComplex;
       if (willChange != null) this.willChange = willChange;
-      if (foregroundPainter != null) this.foregroundPainter = foregroundPainter;
+      if (foregroundPainter != null) {
+        this.foregroundPainter = foregroundPainter;
+        foregroundPainterNotifier.value = foregroundPainter;
+      }
       if (painter != null) this.painter = painter;
     });
   }
@@ -128,6 +143,7 @@ class ExtendedCustomPaintState extends State<ExtendedCustomPaint> {
   void setForegroundPainter(CustomPainter? value) {
     setState(() {
       foregroundPainter = value;
+      foregroundPainterNotifier.value = value;
     });
   }
 
@@ -141,3 +157,4 @@ class ExtendedCustomPaintState extends State<ExtendedCustomPaint> {
     });
   }
 }
+

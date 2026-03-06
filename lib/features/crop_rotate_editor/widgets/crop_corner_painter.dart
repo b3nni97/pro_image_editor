@@ -1,5 +1,6 @@
 // Dart imports:
 import 'dart:math';
+import 'dart:ui' as ui;
 
 // Flutter imports:
 import 'package:flutter/material.dart';
@@ -156,11 +157,8 @@ class CropCornerPainter extends CustomPainter {
     }
   }
 
-  void _drawDarkenOutside({
-    required Canvas canvas,
-    required Size size,
-  }) {
-    /// Draw outline darken layers
+  /// Returns the path used to clip the overlay and blur effects.
+  Path getClipPath(Size size) {
     double cropWidth = _cropOffsetRight - _cropOffsetLeft;
     double cropHeight = _cropOffsetBottom - _cropOffsetTop;
 
@@ -206,6 +204,16 @@ class CropCornerPainter extends CustomPainter {
       height: maxDimension * 100,
     ));
 
+    return path;
+  }
+
+  void _drawDarkenOutside({
+    required Canvas canvas,
+    required Size size,
+  }) {
+    /// Draw outline darken layers
+    Path path = getClipPath(size);
+
     Color interpolatedColor = Color.lerp(
       background,
       style.cropOverlayColor,
@@ -216,6 +224,8 @@ class CropCornerPainter extends CustomPainter {
         style.cropOverlayInteractionOpacity * interactionOpacity;
 
     double fadeInFactor = (1 - opacity) * (1 - fadeInOpacity);
+
+    // Old saveLayer based blur has been removed from here.
 
     /// Draw the darkened area
     canvas.drawPath(
@@ -470,5 +480,28 @@ class CropCornerPainter extends CustomPainter {
       rotationScaleFactor: rotationScaleFactor,
       background: background,
     );
+  }
+}
+
+/// A custom clipper that uses the CropCornerPainter's clip path logic.
+///
+/// This is used to apply effects like backdrop blur exclusively to the overlay
+/// area (the space outside the crop bounds) in the crop/rotate editor.
+class CropOverlayClipper extends CustomClipper<Path> {
+  /// Reference to the current state of the crop painter.
+  final CropCornerPainter painter;
+
+  /// Creates a [CropOverlayClipper].
+  CropOverlayClipper(this.painter);
+
+  @override
+  Path getClip(Size size) {
+    return painter.getClipPath(size);
+  }
+
+  @override
+  bool shouldReclip(CustomClipper<Path> oldClipper) {
+    if (oldClipper is! CropOverlayClipper) return true;
+    return painter.shouldRepaint(oldClipper.painter);
   }
 }

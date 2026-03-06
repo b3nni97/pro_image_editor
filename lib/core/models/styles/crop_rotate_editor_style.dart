@@ -70,6 +70,7 @@ class CropRotateEditorStyle {
     this.cropCornerThickness = 6,
     this.cropOverlayOpacity = 0.7,
     this.cropOverlayInteractionOpacity = 0.25,
+    this.cropOverlayBlur = 0,
     this.uiOverlayStyle = kImageEditorUiOverlayStyle,
   })  : assert(cropOverlayOpacity >= 0.0 && cropOverlayOpacity <= 1.0,
             'cropOverlayOpacity must be between 0.0 and 1.0'),
@@ -144,6 +145,11 @@ class CropRotateEditorStyle {
   /// the real opacity during interaction will be 0.45 (0.7 - 0.25).
   final double cropOverlayInteractionOpacity;
 
+  /// The amount of blur applied to the crop overlay area.
+  ///
+  /// A value of `0.0` means no blur.
+  final double cropOverlayBlur;
+
   /// UI overlay style, defining the appearance of system status bars.
   final SystemUiOverlayStyle uiOverlayStyle;
 
@@ -170,6 +176,7 @@ class CropRotateEditorStyle {
     double? cropCornerThickness,
     double? cropOverlayOpacity,
     double? cropOverlayInteractionOpacity,
+    double? cropOverlayBlur,
     SystemUiOverlayStyle? uiOverlayStyle,
   }) {
     return CropRotateEditorStyle(
@@ -193,6 +200,7 @@ class CropRotateEditorStyle {
       cropOverlayOpacity: cropOverlayOpacity ?? this.cropOverlayOpacity,
       cropOverlayInteractionOpacity:
           cropOverlayInteractionOpacity ?? this.cropOverlayInteractionOpacity,
+      cropOverlayBlur: cropOverlayBlur ?? this.cropOverlayBlur,
       uiOverlayStyle: uiOverlayStyle ?? this.uiOverlayStyle,
     );
   }
