@@ -1865,9 +1865,8 @@ class CropRotateEditorState extends State<CropRotateEditor>
         _currentCropAreaPart = _determineCropAreaPart(details.focalPoint);
       }
 
-      final bool isTouchingHandle =
-          _currentCropAreaPart != CropAreaPart.none &&
-              _currentCropAreaPart != CropAreaPart.inside;
+      final bool isTouchingHandle = _currentCropAreaPart != CropAreaPart.none &&
+          _currentCropAreaPart != CropAreaPart.inside;
 
       loopWithTransitionTiming(
         (double curveT) {
@@ -2054,31 +2053,6 @@ class CropRotateEditorState extends State<CropRotateEditor>
                   _viewRect.height / 2.0 -
                   halfSpaceVertical +
                   translate.dy * userScaleFactor);
-
-          minLeft = max(
-              -(editorBodySize.width / 2.0) / userScaleFactor +
-                  _viewRect.width / 2.0 +
-                  halfSpaceHorizontal +
-                  translate.dx,
-              minLeft);
-          minRight = min(
-              (editorBodySize.width / 2.0) / userScaleFactor +
-                  _viewRect.width / 2.0 +
-                  halfSpaceHorizontal +
-                  translate.dx,
-              minRight);
-          minTop = max(
-              -(editorBodySize.height / 2.0) / userScaleFactor +
-                  _viewRect.height / 2.0 +
-                  halfSpaceVertical +
-                  translate.dy,
-              minTop);
-          minBottom = min(
-              (editorBodySize.height / 2.0) / userScaleFactor +
-                  _viewRect.height / 2.0 +
-                  halfSpaceVertical +
-                  translate.dy,
-              minBottom);
         }
 
         final EdgeInsets dragMargin = cropRotateEditorConfigs.boundaryMargin;
