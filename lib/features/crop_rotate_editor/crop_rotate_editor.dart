@@ -3744,6 +3744,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
                 if (painter == null || painter.style.cropOverlayBlur <= 0) {
                   return const SizedBox.shrink();
                 }
+
                 return Opacity(
                   opacity: (1.0 - _blurInteractionOpacity).clamp(0.0, 1.0),
                   child: IgnorePointer(
@@ -3754,6 +3755,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
                           sigmaX: painter.style.cropOverlayBlur,
                           sigmaY: painter.style.cropOverlayBlur,
                           bounds: Offset.zero & editorBodySize,
+                          tileMode: TileMode.decal,
                         ),
                         child: const SizedBox.expand(),
                       ),
