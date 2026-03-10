@@ -53,6 +53,7 @@ class CropCornerPainter extends CustomPainter {
     required this.cropCornerColor,
     required this.cropOverlayColor,
     required this.renderedImageSize,
+    this.drawDarken = true,
   });
 
   /// The rectangle defining the crop area.
@@ -136,6 +137,9 @@ class CropCornerPainter extends CustomPainter {
   /// The full rendered image size (not affected by crop aspect ratio).
   final Size renderedImageSize;
 
+  /// Whether to draw the darken overlay. Defaults to true.
+  final bool drawDarken;
+
   double get _cropOffsetLeft => cropRect.left;
   double get _cropOffsetRight => cropRect.right;
   double get _cropOffsetTop => cropRect.top;
@@ -150,7 +154,7 @@ class CropCornerPainter extends CustomPainter {
         !cropRect.isFinite) {
       return;
     }
-    _drawDarkenOutside(canvas: canvas, size: size);
+    if (drawDarken) _drawDarkenOutside(canvas: canvas, size: size);
     _drawCropOutline(canvas: canvas);
     if (fadeInOpacity > 0) _drawHelperAreas(canvas: canvas, size: size);
     _drawCorners(canvas: canvas, size: size);
@@ -217,6 +221,32 @@ class CropCornerPainter extends CustomPainter {
     Path imagePath = Path()..addRect(imageRect);
 
     return Path.combine(PathOperation.difference, imagePath, cropPath);
+  }
+
+  /// Returns the path used to clip the blur effect.
+  ///
+  /// Clips away the crop rect area so everything else gets blurred,
+  /// including areas beyond the image bounds up to the screen edges.
+  Path getBlurClipPath(Size size) {
+    Path path = Path()..fillType = PathFillType.evenOdd;
+
+    if (drawCircle) {
+      path.addOval(cropRect);
+    } else {
+      path.addRect(cropRect);
+    }
+
+    // Use a rect large enough to cover the full screen area,
+    // centered on the widget so blur extends beyond image bounds.
+    final double outerW = max(size.width, screenSize.width) * 3;
+    final double outerH = max(size.height, screenSize.height) * 3;
+    path.addRect(Rect.fromCenter(
+      center: Offset(size.width / 2, size.height / 2),
+      width: outerW,
+      height: outerH,
+    ));
+
+    return path;
   }
 
   void _drawDarkenOutside({
@@ -478,11 +508,12 @@ class CropCornerPainter extends CustomPainter {
         oldDelegate.helperLineColor != helperLineColor ||
         oldDelegate.cropCornerColor != cropCornerColor ||
         oldDelegate.cropOverlayColor != cropOverlayColor ||
-        oldDelegate.renderedImageSize != renderedImageSize;
+        oldDelegate.renderedImageSize != renderedImageSize ||
+        oldDelegate.drawDarken != drawDarken;
   }
 
   /// Create a copy of the [CropCornerPainter].
-  CropCornerPainter copy() {
+  CropCornerPainter copy({bool? drawDarken}) {
     return CropCornerPainter(
       drawCircle: drawCircle,
       offset: offset,
@@ -499,6 +530,7 @@ class CropCornerPainter extends CustomPainter {
       cropCornerColor: cropCornerColor,
       cropOverlayColor: cropOverlayColor,
       renderedImageSize: renderedImageSize,
+      drawDarken: drawDarken ?? this.drawDarken,
     );
   }
 }
@@ -516,7 +548,7 @@ class CropOverlayClipper extends CustomClipper<Path> {
 
   @override
   Path getClip(Size size) {
-    return painter.getClipPath(size);
+    return painter.getBlurClipPath(size);
   }
 
   @override

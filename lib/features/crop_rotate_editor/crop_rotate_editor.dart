@@ -3540,6 +3540,34 @@ class CropRotateEditorState extends State<CropRotateEditor>
                 ),
               ),
             ),
+            _buildBlurOverlay(),
+            // Crop handles above blur so they're not blurred
+            ValueListenableBuilder<CropCornerPainter?>(
+              valueListenable: _cropPainterNotifier,
+              builder: (context, painter, _) {
+                if (painter == null) return const SizedBox.shrink();
+                final EdgeInsets margin =
+                    cropRotateEditorConfigs.boundaryMargin;
+                final Size imgSize = _renderedImgSize;
+                final Size bodySize = editorBodySize;
+                final double imgOriginX = margin.left +
+                    (bodySize.width - margin.horizontal - imgSize.width) / 2;
+                final double imgOriginY = margin.top +
+                    (bodySize.height - margin.vertical - imgSize.height) / 2;
+                return Positioned(
+                  left: imgOriginX,
+                  top: imgOriginY,
+                  width: imgSize.width,
+                  height: imgSize.height,
+                  child: IgnorePointer(
+                    child: CustomPaint(
+                      painter: painter.copy(drawDarken: false),
+                      child: const SizedBox.expand(),
+                    ),
+                  ),
+                );
+              },
+            ),
             if (cropRotateEditorConfigs.widgets.bodyItems != null)
               ...cropRotateEditorConfigs.widgets.bodyItems!(
                   this, rebuildController.stream),
@@ -3755,39 +3783,50 @@ class CropRotateEditorState extends State<CropRotateEditor>
       initIsComplex: showWidgets,
       initWillChange: showWidgets,
       initForegroundPainter: cropPainter?.copy(),
-      child: Stack(
-        fit: StackFit.passthrough,
-        children: [
-          child,
-          Positioned.fill(
-            child: ValueListenableBuilder<CropCornerPainter?>(
-              valueListenable: _cropPainterNotifier,
-              builder: (context, painter, _) {
-                if (painter == null || painter.style.cropOverlayBlur <= 0) {
-                  return const SizedBox.shrink();
-                }
+      child: child,
+    );
+  }
 
-                return Opacity(
-                  opacity: (1.0 - _blurInteractionOpacity).clamp(0.0, 1.0),
-                  child: IgnorePointer(
-                    child: ClipPath(
-                      clipper: CropOverlayClipper(painter),
-                      child: BackdropFilter(
-                        filter: ui.ImageFilter.blur(
-                          sigmaX: painter.style.cropOverlayBlur,
-                          sigmaY: painter.style.cropOverlayBlur,
-                          bounds: Offset.zero & editorBodySize,
-                          tileMode: TileMode.decal,
-                        ),
-                        child: const SizedBox.expand(),
-                      ),
-                    ),
+  Widget _buildBlurOverlay() {
+    return Positioned.fill(
+      child: ValueListenableBuilder<CropCornerPainter?>(
+        valueListenable: _cropPainterNotifier,
+        builder: (context, painter, _) {
+          if (painter == null || painter.style.cropOverlayBlur <= 0) {
+            return const SizedBox.shrink();
+          }
+
+          final EdgeInsets margin = cropRotateEditorConfigs.boundaryMargin;
+          final Size imgSize = _renderedImgSize;
+          final Size bodySize = editorBodySize;
+
+          // Compute image origin in body coordinates
+          final double imgOriginX = margin.left +
+              (bodySize.width - margin.horizontal - imgSize.width) / 2;
+          final double imgOriginY = margin.top +
+              (bodySize.height - margin.vertical - imgSize.height) / 2;
+
+          return Opacity(
+            opacity: (1.0 - _blurInteractionOpacity).clamp(0.0, 1.0),
+            child: IgnorePointer(
+              child: ClipPath(
+                clipper: _CropBlurClipper(
+                  cropRect: painter.cropRect,
+                  drawCircle: painter.drawCircle,
+                  imageOffset: Offset(imgOriginX, imgOriginY),
+                ),
+                child: BackdropFilter(
+                  filter: ui.ImageFilter.blur(
+                    sigmaX: painter.style.cropOverlayBlur,
+                    sigmaY: painter.style.cropOverlayBlur,
+                    tileMode: TileMode.clamp,
                   ),
-                );
-              },
+                  child: const SizedBox.expand(),
+                ),
+              ),
             ),
-          ),
-        ],
+          );
+        },
       ),
     );
   }
@@ -3955,5 +3994,44 @@ class CropRotateEditorState extends State<CropRotateEditor>
         ),
       ),
     );
+  }
+}
+
+/// Clips the blur effect to everything outside the crop rect,
+/// mapping crop rect coordinates from image space to body space.
+class _CropBlurClipper extends CustomClipper<Path> {
+  final Rect cropRect;
+  final bool drawCircle;
+  final Offset imageOffset;
+
+  _CropBlurClipper({
+    required this.cropRect,
+    required this.drawCircle,
+    required this.imageOffset,
+  });
+
+  @override
+  Path getClip(Size size) {
+    // Map crop rect from image coords to body coords
+    final Rect bodyCropRect = cropRect.translate(imageOffset.dx, imageOffset.dy);
+
+    Path path = Path()..fillType = PathFillType.evenOdd;
+
+    if (drawCircle) {
+      path.addOval(bodyCropRect);
+    } else {
+      path.addRect(bodyCropRect);
+    }
+
+    path.addRect(Offset.zero & size);
+
+    return path;
+  }
+
+  @override
+  bool shouldReclip(covariant _CropBlurClipper oldClipper) {
+    return oldClipper.cropRect != cropRect ||
+        oldClipper.drawCircle != drawCircle ||
+        oldClipper.imageOffset != imageOffset;
   }
 }
