@@ -1982,6 +1982,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
       _lastFocal = details.focalPoint;
 
       cropRotateEditorCallbacks?.handleScale();
+      _updateCropPainter();
     } else {
       if (_currentCropAreaPart != CropAreaPart.none &&
           _currentCropAreaPart != CropAreaPart.inside) {
@@ -2415,6 +2416,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
       final double scale = simulatedScrollPos / 1000.0;
       userScaleFactor = scale;
     }
+    _updateCropPainter();
   }
 
   void _onScaleEnd(ScaleEndDetails details) {
@@ -2950,6 +2952,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
     final double y = _simulationY != null ? -_simulationY!.x(t) : translate.dy;
 
     translate = Offset(x, y);
+    _updateCropPainter();
   }
 
   void _stopFlingAnimation() {
