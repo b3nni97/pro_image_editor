@@ -25,6 +25,10 @@ void main() {
         rotationScaleFactor: 1.0,
         scaleFactor: 1.0,
         background: Colors.transparent,
+        helperLineColor: Colors.black,
+        cropCornerColor: Colors.blue,
+        cropOverlayColor: Colors.black,
+        renderedImageSize: const Size(400, 400),
       );
 
       final painter2 = CropCornerPainter(
@@ -39,6 +43,10 @@ void main() {
         rotationScaleFactor: 1.0,
         scaleFactor: 1.0,
         background: Colors.transparent,
+        helperLineColor: Colors.black,
+        cropCornerColor: Colors.blue,
+        cropOverlayColor: Colors.black,
+        renderedImageSize: const Size(400, 400),
       );
 
       expect(painter1.shouldRepaint(painter2), isTrue);

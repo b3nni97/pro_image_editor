@@ -551,6 +551,16 @@ class CropRotateEditorState extends State<CropRotateEditor>
             background:
                 cropRotateEditorConfigs.style.background?.call(context) ??
                     kImageEditorBackground,
+            helperLineColor:
+                cropRotateEditorConfigs.style.helperLineColor?.call(context) ??
+                    const Color(0xFF000000),
+            cropCornerColor:
+                cropRotateEditorConfigs.style.cropCornerColor?.call(context) ??
+                    kImageEditorPrimaryColor,
+            cropOverlayColor:
+                cropRotateEditorConfigs.style.cropOverlayColor?.call(context) ??
+                    const Color(0xFF000000),
+            renderedImageSize: _renderedImgSize,
           )
         : null;
   }
@@ -696,6 +706,12 @@ class CropRotateEditorState extends State<CropRotateEditor>
         });
       }
     });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _setCropPainter();
   }
 
   @override
@@ -3559,6 +3575,9 @@ class CropRotateEditorState extends State<CropRotateEditor>
         _stopFlingAnimation();
       },
       onPointerUp: (PointerUpEvent event) {
+        _activePointers--;
+      },
+      onPointerCancel: (PointerCancelEvent event) {
         _activePointers--;
       },
       onPointerPanZoomStart: (PointerPanZoomStartEvent event) {

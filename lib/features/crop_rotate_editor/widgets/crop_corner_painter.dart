@@ -1,6 +1,5 @@
 // Dart imports:
 import 'dart:math';
-import 'dart:ui' as ui;
 
 // Flutter imports:
 import 'package:flutter/material.dart';
@@ -50,6 +49,10 @@ class CropCornerPainter extends CustomPainter {
     required this.style,
     required this.rotationScaleFactor,
     required this.background,
+    required this.helperLineColor,
+    required this.cropCornerColor,
+    required this.cropOverlayColor,
+    required this.renderedImageSize,
   });
 
   /// The rectangle defining the crop area.
@@ -121,6 +124,18 @@ class CropCornerPainter extends CustomPainter {
   /// The background color
   final Color background;
 
+  /// The resolved helper line color.
+  final Color helperLineColor;
+
+  /// The resolved crop corner color.
+  final Color cropCornerColor;
+
+  /// The resolved crop overlay color.
+  final Color cropOverlayColor;
+
+  /// The full rendered image size (not affected by crop aspect ratio).
+  final Size renderedImageSize;
+
   double get _cropOffsetLeft => cropRect.left;
   double get _cropOffsetRight => cropRect.right;
   double get _cropOffsetTop => cropRect.top;
@@ -146,7 +161,7 @@ class CropCornerPainter extends CustomPainter {
     if (fadeInOpacity <= 0) return;
 
     final paint = Paint()
-      ..color = style.helperLineColor.withValues(alpha: fadeInOpacity)
+      ..color = helperLineColor.withValues(alpha: fadeInOpacity)
       ..strokeWidth = style.cropCornerOutlineThickness
       ..style = PaintingStyle.stroke;
 
@@ -195,8 +210,8 @@ class CropCornerPainter extends CustomPainter {
         size.width / 2 + offset.dx * scaleFactor,
         size.height / 2 + offset.dy * scaleFactor,
       ),
-      width: viewRect.width * scaleFactor,
-      height: viewRect.height * scaleFactor,
+      width: renderedImageSize.width * scaleFactor,
+      height: renderedImageSize.height * scaleFactor,
     );
     
     Path imagePath = Path()..addRect(imageRect);
@@ -213,7 +228,7 @@ class CropCornerPainter extends CustomPainter {
 
     Color interpolatedColor = Color.lerp(
       background,
-      style.cropOverlayColor,
+      cropOverlayColor,
       fadeInOpacity,
     )!;
 
@@ -272,7 +287,7 @@ class CropCornerPainter extends CustomPainter {
       canvas.drawPath(
         path,
         Paint()
-          ..color = style.cropCornerColor.withValues(alpha: fadeInOpacity)
+          ..color = cropCornerColor.withValues(alpha: fadeInOpacity)
           ..style = PaintingStyle.fill,
       );
     } else {
@@ -332,7 +347,7 @@ class CropCornerPainter extends CustomPainter {
       canvas.drawPath(
         path,
         Paint()
-          ..color = style.cropCornerColor.withValues(alpha: fadeInOpacity)
+          ..color = cropCornerColor.withValues(alpha: fadeInOpacity)
           ..strokeWidth = width
           ..strokeCap = StrokeCap.round
           ..style = PaintingStyle.stroke,
@@ -391,7 +406,7 @@ class CropCornerPainter extends CustomPainter {
     canvas.drawPath(
       path,
       Paint()
-        ..color = style.cropCornerColor.withValues(alpha: fadeInOpacity)
+        ..color = cropCornerColor.withValues(alpha: fadeInOpacity)
         ..style = PaintingStyle.fill,
     );
   }
@@ -440,7 +455,7 @@ class CropCornerPainter extends CustomPainter {
     }
 
     final cornerPaint = Paint()
-      ..color = style.helperLineColor
+      ..color = helperLineColor
           .withValues(alpha: fadeInOpacity * interactionOpacity)
       ..style = PaintingStyle.fill;
     canvas.drawPath(path, cornerPaint);
@@ -459,7 +474,11 @@ class CropCornerPainter extends CustomPainter {
         oldDelegate.scaleFactor != scaleFactor ||
         oldDelegate.style != style ||
         oldDelegate.rotationScaleFactor != rotationScaleFactor ||
-        oldDelegate.background != background;
+        oldDelegate.background != background ||
+        oldDelegate.helperLineColor != helperLineColor ||
+        oldDelegate.cropCornerColor != cropCornerColor ||
+        oldDelegate.cropOverlayColor != cropOverlayColor ||
+        oldDelegate.renderedImageSize != renderedImageSize;
   }
 
   /// Create a copy of the [CropCornerPainter].
@@ -476,6 +495,10 @@ class CropCornerPainter extends CustomPainter {
       style: style,
       rotationScaleFactor: rotationScaleFactor,
       background: background,
+      helperLineColor: helperLineColor,
+      cropCornerColor: cropCornerColor,
+      cropOverlayColor: cropOverlayColor,
+      renderedImageSize: renderedImageSize,
     );
   }
 }

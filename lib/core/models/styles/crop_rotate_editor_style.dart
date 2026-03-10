@@ -56,10 +56,10 @@ class CropRotateEditorStyle {
   const CropRotateEditorStyle({
     this.appBarBackground = kImageEditorAppBarBackground,
     this.appBarColor = kImageEditorAppBarColor,
-    this.helperLineColor = const Color(0xFF000000),
+    this.helperLineColor,
     this.background,
-    this.cropCornerColor = kImageEditorPrimaryColor,
-    this.cropOverlayColor = const Color(0xFF000000),
+    this.cropCornerColor,
+    this.cropOverlayColor,
     this.bottomBarBackground = kImageEditorAppBarBackground,
     this.bottomBarColor = kImageEditorAppBarColor,
     this.aspectRatioSheetBackgroundColor = const Color(0xFF303030),
@@ -104,17 +104,17 @@ class CropRotateEditorStyle {
   final ResolveColor? background;
 
   /// Color of the crop corners.
-  final Color cropCornerColor;
+  final ResolveColor? cropCornerColor;
 
   /// Color from the helper lines when moving the image.
-  final Color helperLineColor;
+  final ResolveColor? helperLineColor;
 
   /// This refers to the overlay area atop the image when the cropping area is
   /// smaller than the image.
   ///
   /// The opacity of this area is 0.7 when no interaction is active and 0.45
   /// when an interaction is active.
-  final Color cropOverlayColor;
+  final ResolveColor? cropOverlayColor;
 
   /// The length of the crop corner.
   final double cropCornerLength;
@@ -167,9 +167,9 @@ class CropRotateEditorStyle {
     Color? aspectRatioSheetBackgroundColor,
     Color? aspectRatioSheetForegroundColor,
     ResolveColor? background,
-    Color? cropCornerColor,
-    Color? helperLineColor,
-    Color? cropOverlayColor,
+    ResolveColor? cropCornerColor,
+    ResolveColor? helperLineColor,
+    ResolveColor? cropOverlayColor,
     double? cropCornerLength,
     double? cropMiddleEdgeLength,
     double? cropCornerOutlineThickness,
