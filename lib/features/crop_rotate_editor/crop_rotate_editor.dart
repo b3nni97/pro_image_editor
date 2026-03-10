@@ -390,6 +390,9 @@ class CropRotateEditorState extends State<CropRotateEditor>
   /// Tracks whether the underlying video player has finalized its initialization.
   bool _isVideoPlayerReady = true;
 
+  /// Tracks whether the blur is currently faded out for straighten/perspective adjustment.
+  bool _isAdjustmentBlurActive = false;
+
   /// Determines if the image layout tightly conforms to the screen width.
   ///
   /// Required to calculate correct bounding offsets during layout shifts.
@@ -530,7 +533,8 @@ class CropRotateEditorState extends State<CropRotateEditor>
   set cropMode(CropMode value) => setCropMode(value);
 
   @override
-  CropCornerPainter? get cropPainter {
+  CropCornerPainter? get backgroundCropPainter {
+    print(_interactionOpacityProgress);
     return showWidgets
         ? CropCornerPainter(
             offset: translate,
@@ -561,6 +565,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
                 cropRotateEditorConfigs.style.cropOverlayColor?.call(context) ??
                     const Color(0xFF000000),
             renderedImageSize: _renderedImgSize,
+            drawCropOverlay: false,
           )
         : null;
   }
@@ -947,6 +952,8 @@ class CropRotateEditorState extends State<CropRotateEditor>
   ///
   /// Clamps boundaries against layout clipping to maintain an edge-to-edge frame.
   void setStraightenAngle(double angle) {
+    fadeOutBlur();
+
     const double maxAngle = pi / 4.0;
     final double clampedAngle = angle.clamp(-maxAngle, maxAngle);
     straightenAngle = clampedAngle;
@@ -985,12 +992,43 @@ class CropRotateEditorState extends State<CropRotateEditor>
   /// Triggers heavy polygon intersection calculations to revalidate frame fit.
   void setPerspective(double x, double y) {
     if (perspectiveX == x && perspectiveY == y) return;
+    fadeOutBlur();
+
     const double maxAngle = pi / 6.0;
 
     perspectiveX = x.clamp(-maxAngle, maxAngle);
     perspectiveY = y.clamp(-maxAngle, maxAngle);
     _invalidatePerspectiveBoundsCache();
     _fitToScreen();
+  }
+
+  void fadeOutBlur() {
+    if (_isAdjustmentBlurActive) return;
+    _isAdjustmentBlurActive = true;
+    loopWithTransitionTiming(
+      (double curveT) {
+        _blurInteractionOpacity = 1.0 * curveT;
+        _setCropPainter();
+      },
+      mounted: mounted,
+      transitionFunction: Curves.decelerate.transform,
+      duration: cropRotateEditorConfigs.opacityOutsideCropAreaDuration,
+    );
+  }
+
+  void fadeInBlur() {
+    _isAdjustmentBlurActive = false;
+    Future.delayed(cropRotateEditorConfigs.cropDragOutOfBoundsDelay, () {
+      if (!mounted) return;
+      loopWithTransitionTiming(
+        (double curveT) {
+          _blurInteractionOpacity = 1.0 - 1.0 * curveT;
+          _setCropPainter();
+        },
+        mounted: mounted,
+        duration: cropRotateEditorConfigs.opacityOutsideCropAreaDuration,
+      );
+    });
   }
 
   @override
@@ -1170,13 +1208,13 @@ class CropRotateEditorState extends State<CropRotateEditor>
   }
 
   void _setCropPainter() {
-    final painter = cropPainter;
+    final painter = backgroundCropPainter;
     _cropPainterNotifier.value = painter;
     cropPainterKey.currentState?.setForegroundPainter(painter);
   }
 
   void _updateCropPainter() {
-    final painter = cropPainter;
+    final painter = backgroundCropPainter;
     _cropPainterNotifier.value = painter;
     cropPainterKey.currentState?.update(
       foregroundPainter: painter,
@@ -1887,15 +1925,16 @@ class CropRotateEditorState extends State<CropRotateEditor>
       loopWithTransitionTiming(
         (double curveT) {
           _interactionOpacityProgress = 1.0 * curveT;
-          if (isTouchingHandle) {
-            _blurInteractionOpacity = 1.0 * curveT;
-          }
           _setCropPainter();
         },
         mounted: mounted,
         transitionFunction: Curves.decelerate.transform,
         duration: cropRotateEditorConfigs.opacityOutsideCropAreaDuration,
       );
+
+      if (isTouchingHandle) {
+        fadeOutBlur();
+      }
     }
 
     _scaleAllowUpdateHelper = false;
@@ -2448,12 +2487,12 @@ class CropRotateEditorState extends State<CropRotateEditor>
           loopWithTransitionTiming(
             (double curveT) {
               _interactionOpacityProgress = 1.0 - 1.0 * curveT;
-              _blurInteractionOpacity = 0.0;
               _setCropPainter();
             },
             mounted: mounted,
             duration: cropRotateEditorConfigs.opacityOutsideCropAreaDuration,
           );
+          // fadeInBlur();
         }
       }
     });
@@ -2605,6 +2644,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
           cropRotateEditorCallbacks?.handleResize();
           addHistory();
           _blockInteraction = false;
+          _isAdjustmentBlurActive = false;
         });
       });
 
@@ -3434,6 +3474,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
             onStraightenChangeEnd: (double angle) {
               setStraightenAngle(angle);
               addHistory();
+              fadeInBlur();
             },
             isPerspectiveModeActive: _isPerspectiveModeActive,
             perspectiveX: perspectiveX,
@@ -3445,6 +3486,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
             onPerspectiveChangeEnd: (double x, double y) {
               setPerspective(x, y);
               addHistory();
+              fadeInBlur();
             },
           )
         : null;
@@ -3515,7 +3557,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
                       child: _buildFlipTransform(
                         child: _buildRotationScaleTransform(
                           child: _buildPaintContainer(
-                            child: _buildCropPainter(
+                            child: _buildBackgroundCropPainter(
                               child: _buildStraightenAndPerspectiveTransform(
                                 child: _buildStraightenScaleTransform(
                                   child: _buildUserScaleTransform(
@@ -3561,7 +3603,8 @@ class CropRotateEditorState extends State<CropRotateEditor>
                   height: imgSize.height,
                   child: IgnorePointer(
                     child: CustomPaint(
-                      painter: painter.copy(drawDarken: false),
+                      painter: painter.copy(
+                          drawCropOverlay: true, drawDarken: false),
                       child: const SizedBox.expand(),
                     ),
                   ),
@@ -3774,15 +3817,13 @@ class CropRotateEditorState extends State<CropRotateEditor>
     );
   }
 
-  /// Overlays the crop boundary UI elements using custom painter patterns.
-  ///
-  /// Observes visibility states dynamically to reduce overhead logic loops.
-  Widget _buildCropPainter({required Widget child}) {
+  /// Darkens the areas of the image that are outside the crop rect.
+  Widget _buildBackgroundCropPainter({required Widget child}) {
     return ExtendedCustomPaint(
       key: cropPainterKey,
       initIsComplex: showWidgets,
       initWillChange: showWidgets,
-      initForegroundPainter: cropPainter?.copy(),
+      initForegroundPainter: backgroundCropPainter?.copy(),
       child: child,
     );
   }
@@ -3819,7 +3860,9 @@ class CropRotateEditorState extends State<CropRotateEditor>
                   filter: ui.ImageFilter.blur(
                     sigmaX: painter.style.cropOverlayBlur,
                     sigmaY: painter.style.cropOverlayBlur,
-                    tileMode: TileMode.clamp,
+                    // tileMode: TileMode.clamp,
+                    bounds: Offset.zero & editorBodySize,
+                    tileMode: TileMode.decal,
                   ),
                   child: const SizedBox.expand(),
                 ),
@@ -4013,7 +4056,8 @@ class _CropBlurClipper extends CustomClipper<Path> {
   @override
   Path getClip(Size size) {
     // Map crop rect from image coords to body coords
-    final Rect bodyCropRect = cropRect.translate(imageOffset.dx, imageOffset.dy);
+    final Rect bodyCropRect =
+        cropRect.translate(imageOffset.dx, imageOffset.dy);
 
     Path path = Path()..fillType = PathFillType.evenOdd;
 

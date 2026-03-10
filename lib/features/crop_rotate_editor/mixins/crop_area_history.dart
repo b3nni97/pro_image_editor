@@ -102,7 +102,7 @@ mixin CropAreaHistory
     _userScaleFactor = value;
     userScaleKey.currentState?.setScale(userScaleFactor);
     cropPainterKey.currentState?.update(
-      foregroundPainter: cropPainter,
+      foregroundPainter: backgroundCropPainter,
       isComplex: showWidgets,
       willChange: showWidgets,
     );
@@ -121,7 +121,7 @@ mixin CropAreaHistory
   set translate(Offset value) {
     _translate = value;
     translateKey.currentState?.setOffset(translate);
-    cropPainterKey.currentState?.setForegroundPainter(cropPainter);
+    cropPainterKey.currentState?.setForegroundPainter(backgroundCropPainter);
   }
 
   /// The painter for rendering crop corners and boundaries.
@@ -129,7 +129,7 @@ mixin CropAreaHistory
   /// This getter provides access to the painter used for displaying crop
   /// boundaries, which can be overridden for custom behavior.
   @protected
-  CropCornerPainter? get cropPainter => null;
+  CropCornerPainter? get backgroundCropPainter => null;
 
   /// Indicates whether to show additional widgets during editing.
   ///
@@ -205,7 +205,7 @@ mixin CropAreaHistory
 
   set cropRect(Rect value) {
     _cropRect = value;
-    cropPainterKey.currentState?.setForegroundPainter(cropPainter);
+    cropPainterKey.currentState?.setForegroundPainter(backgroundCropPainter);
   }
 
   Rect _cropRect = Rect.zero;

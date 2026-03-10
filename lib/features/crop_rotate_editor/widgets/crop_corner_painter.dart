@@ -54,6 +54,7 @@ class CropCornerPainter extends CustomPainter {
     required this.cropOverlayColor,
     required this.renderedImageSize,
     this.drawDarken = true,
+    this.drawCropOverlay = true,
   });
 
   /// The rectangle defining the crop area.
@@ -140,6 +141,9 @@ class CropCornerPainter extends CustomPainter {
   /// Whether to draw the darken overlay. Defaults to true.
   final bool drawDarken;
 
+  /// Wether to draw the crop corners and the helper areas. Defaults to true.
+  final bool drawCropOverlay;
+
   double get _cropOffsetLeft => cropRect.left;
   double get _cropOffsetRight => cropRect.right;
   double get _cropOffsetTop => cropRect.top;
@@ -155,10 +159,12 @@ class CropCornerPainter extends CustomPainter {
       return;
     }
     if (drawDarken) _drawDarkenOutside(canvas: canvas, size: size);
-    _drawCropOutline(canvas: canvas);
-    if (fadeInOpacity > 0) _drawHelperAreas(canvas: canvas, size: size);
-    _drawCorners(canvas: canvas, size: size);
-    _drawEdgeHandles(canvas: canvas, size: size);
+    if (drawCropOverlay) _drawCropOutline(canvas: canvas);
+    if (drawCropOverlay && fadeInOpacity > 0) {
+      _drawHelperAreas(canvas: canvas, size: size);
+    }
+    if (drawCropOverlay) _drawCorners(canvas: canvas, size: size);
+    if (drawCropOverlay) _drawEdgeHandles(canvas: canvas, size: size);
   }
 
   void _drawCropOutline({required Canvas canvas}) {
@@ -217,7 +223,7 @@ class CropCornerPainter extends CustomPainter {
       width: renderedImageSize.width * scaleFactor,
       height: renderedImageSize.height * scaleFactor,
     );
-    
+
     Path imagePath = Path()..addRect(imageRect);
 
     return Path.combine(PathOperation.difference, imagePath, cropPath);
@@ -485,8 +491,8 @@ class CropCornerPainter extends CustomPainter {
     }
 
     final cornerPaint = Paint()
-      ..color = helperLineColor
-          .withValues(alpha: fadeInOpacity * interactionOpacity)
+      ..color =
+          helperLineColor.withValues(alpha: fadeInOpacity * interactionOpacity)
       ..style = PaintingStyle.fill;
     canvas.drawPath(path, cornerPaint);
   }
@@ -509,11 +515,12 @@ class CropCornerPainter extends CustomPainter {
         oldDelegate.cropCornerColor != cropCornerColor ||
         oldDelegate.cropOverlayColor != cropOverlayColor ||
         oldDelegate.renderedImageSize != renderedImageSize ||
-        oldDelegate.drawDarken != drawDarken;
+        oldDelegate.drawDarken != drawDarken ||
+        oldDelegate.drawCropOverlay != drawCropOverlay;
   }
 
   /// Create a copy of the [CropCornerPainter].
-  CropCornerPainter copy({bool? drawDarken}) {
+  CropCornerPainter copy({bool? drawDarken, bool? drawCropOverlay}) {
     return CropCornerPainter(
       drawCircle: drawCircle,
       offset: offset,
@@ -531,6 +538,7 @@ class CropCornerPainter extends CustomPainter {
       cropOverlayColor: cropOverlayColor,
       renderedImageSize: renderedImageSize,
       drawDarken: drawDarken ?? this.drawDarken,
+      drawCropOverlay: drawCropOverlay ?? this.drawCropOverlay,
     );
   }
 }
