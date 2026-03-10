@@ -162,11 +162,11 @@ class CropCornerPainter extends CustomPainter {
     double cropWidth = _cropOffsetRight - _cropOffsetLeft;
     double cropHeight = _cropOffsetBottom - _cropOffsetTop;
 
-    Path path = Path()..fillType = PathFillType.evenOdd;
+    Path cropPath = Path();
 
     if (drawCircle) {
       /// Create a path for the circular clip
-      path.addOval(
+      cropPath.addOval(
         Rect.fromCenter(
           center: Offset(
             cropWidth / 2 + _cropOffsetLeft,
@@ -178,7 +178,7 @@ class CropCornerPainter extends CustomPainter {
       );
     } else {
       /// Create a path for the rectangular clip
-      path.addRect(
+      cropPath.addRect(
         Rect.fromCenter(
           center: Offset(
             cropWidth / 2 + _cropOffsetLeft,
@@ -190,21 +190,18 @@ class CropCornerPainter extends CustomPainter {
       );
     }
 
-    final double maxDimension = max(
-      max(size.width, screenSize.width),
-      max(size.height, screenSize.height),
-    );
-
-    path.addRect(Rect.fromCenter(
+    final Rect imageRect = Rect.fromCenter(
       center: Offset(
         size.width / 2 + offset.dx * scaleFactor,
         size.height / 2 + offset.dy * scaleFactor,
       ),
-      width: maxDimension * 100,
-      height: maxDimension * 100,
-    ));
+      width: viewRect.width * scaleFactor,
+      height: viewRect.height * scaleFactor,
+    );
+    
+    Path imagePath = Path()..addRect(imageRect);
 
-    return path;
+    return Path.combine(PathOperation.difference, imagePath, cropPath);
   }
 
   void _drawDarkenOutside({
