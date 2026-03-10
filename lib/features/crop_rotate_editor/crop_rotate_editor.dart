@@ -534,7 +534,6 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
   @override
   CropCornerPainter? get backgroundCropPainter {
-    print(_interactionOpacityProgress);
     return showWidgets
         ? CropCornerPainter(
             offset: translate,
@@ -565,6 +564,11 @@ class CropRotateEditorState extends State<CropRotateEditor>
                 cropRotateEditorConfigs.style.cropOverlayColor?.call(context) ??
                     const Color(0xFF000000),
             renderedImageSize: _renderedImgSize,
+            straightenAngle: straightenAngle,
+            perspectiveX: perspectiveX,
+            perspectiveY: perspectiveY,
+            perspectiveDepth: _perspectiveDepth,
+            straightenScale: _straightenScale,
             drawCropOverlay: false,
           )
         : null;

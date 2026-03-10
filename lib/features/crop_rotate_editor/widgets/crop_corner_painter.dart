@@ -53,6 +53,11 @@ class CropCornerPainter extends CustomPainter {
     required this.cropCornerColor,
     required this.cropOverlayColor,
     required this.renderedImageSize,
+    this.straightenAngle = 0.0,
+    this.perspectiveX = 0.0,
+    this.perspectiveY = 0.0,
+    this.perspectiveDepth = 0.001,
+    this.straightenScale = 1.0,
     this.drawDarken = true,
     this.drawCropOverlay = true,
   });
@@ -137,6 +142,21 @@ class CropCornerPainter extends CustomPainter {
 
   /// The full rendered image size (not affected by crop aspect ratio).
   final Size renderedImageSize;
+
+  /// The straighten angle in radians applied to the image.
+  final double straightenAngle;
+
+  /// The horizontal perspective value applied to the image.
+  final double perspectiveX;
+
+  /// The vertical perspective value applied to the image.
+  final double perspectiveY;
+
+  /// The perspective depth factor.
+  final double perspectiveDepth;
+
+  /// The scale applied to compensate for straighten rotation.
+  final double straightenScale;
 
   /// Whether to draw the darken overlay. Defaults to true.
   final bool drawDarken;
@@ -225,6 +245,31 @@ class CropCornerPainter extends CustomPainter {
     );
 
     Path imagePath = Path()..addRect(imageRect);
+
+    // Apply straighten/perspective transform to the image path so the
+    // darken area follows the visual transformation of the image.
+    if (straightenAngle != 0.0 || perspectiveX != 0.0 || perspectiveY != 0.0) {
+      final double cx = imageRect.center.dx;
+      final double cy = imageRect.center.dy;
+
+      // Build the same matrix used by _buildStraightenAndPerspectiveTransform,
+      // but centered on the image rect.
+      // ignore: deprecated_member_use
+      final Matrix4 m = Matrix4.identity()
+        // ignore: deprecated_member_use
+        ..translate(cx, cy)
+        ..multiply(Matrix4.identity()
+          ..setEntry(3, 2, perspectiveDepth)
+          ..rotateX(-perspectiveX)
+          ..rotateY(perspectiveY)
+          ..rotateZ(-straightenAngle)
+          // ignore: deprecated_member_use
+          ..scale(straightenScale, straightenScale))
+        // ignore: deprecated_member_use
+        ..translate(-cx, -cy);
+
+      imagePath = imagePath.transform(m.storage);
+    }
 
     return Path.combine(PathOperation.difference, imagePath, cropPath);
   }
@@ -515,6 +560,11 @@ class CropCornerPainter extends CustomPainter {
         oldDelegate.cropCornerColor != cropCornerColor ||
         oldDelegate.cropOverlayColor != cropOverlayColor ||
         oldDelegate.renderedImageSize != renderedImageSize ||
+        oldDelegate.straightenAngle != straightenAngle ||
+        oldDelegate.perspectiveX != perspectiveX ||
+        oldDelegate.perspectiveY != perspectiveY ||
+        oldDelegate.perspectiveDepth != perspectiveDepth ||
+        oldDelegate.straightenScale != straightenScale ||
         oldDelegate.drawDarken != drawDarken ||
         oldDelegate.drawCropOverlay != drawCropOverlay;
   }
@@ -537,6 +587,11 @@ class CropCornerPainter extends CustomPainter {
       cropCornerColor: cropCornerColor,
       cropOverlayColor: cropOverlayColor,
       renderedImageSize: renderedImageSize,
+      straightenAngle: straightenAngle,
+      perspectiveX: perspectiveX,
+      perspectiveY: perspectiveY,
+      perspectiveDepth: perspectiveDepth,
+      straightenScale: straightenScale,
       drawDarken: drawDarken ?? this.drawDarken,
       drawCropOverlay: drawCropOverlay ?? this.drawCropOverlay,
     );
