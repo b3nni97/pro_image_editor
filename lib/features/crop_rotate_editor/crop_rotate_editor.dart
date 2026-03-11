@@ -2300,23 +2300,40 @@ class CropRotateEditorState extends State<CropRotateEditor>
                 height: cropRect.height,
               );
             } else if (_currentCropAreaPart == CropAreaPart.topLeft ||
-                _currentCropAreaPart == CropAreaPart.topRight) {
-              final double gapBottom = _viewRect.height - cropRect.bottom;
-
-              cropRect = Rect.fromLTRB(
-                cropRect.left,
-                _viewRect.height - gapBottom - cropRect.width * targetRatio,
-                cropRect.right,
-                cropRect.bottom,
-              );
-            } else if (_currentCropAreaPart == CropAreaPart.bottomLeft ||
+                _currentCropAreaPart == CropAreaPart.topRight ||
+                _currentCropAreaPart == CropAreaPart.bottomLeft ||
                 _currentCropAreaPart == CropAreaPart.bottomRight) {
-              cropRect = Rect.fromLTRB(
-                cropRect.left,
-                cropRect.top,
-                cropRect.right,
-                cropRect.width * targetRatio + cropRect.top,
-              );
+              final double newWidth = (cropRect.width + cropRect.height / targetRatio) / 2;
+
+              if (_currentCropAreaPart == CropAreaPart.topLeft) {
+                cropRect = Rect.fromLTRB(
+                  cropRect.right - newWidth,
+                  cropRect.bottom - newWidth * targetRatio,
+                  cropRect.right,
+                  cropRect.bottom,
+                );
+              } else if (_currentCropAreaPart == CropAreaPart.topRight) {
+                cropRect = Rect.fromLTRB(
+                  cropRect.left,
+                  cropRect.bottom - newWidth * targetRatio,
+                  cropRect.left + newWidth,
+                  cropRect.bottom,
+                );
+              } else if (_currentCropAreaPart == CropAreaPart.bottomLeft) {
+                cropRect = Rect.fromLTRB(
+                  cropRect.right - newWidth,
+                  cropRect.top,
+                  cropRect.right,
+                  cropRect.top + newWidth * targetRatio,
+                );
+              } else if (_currentCropAreaPart == CropAreaPart.bottomRight) {
+                cropRect = Rect.fromLTRB(
+                  cropRect.left,
+                  cropRect.top,
+                  cropRect.left + newWidth,
+                  cropRect.top + newWidth * targetRatio,
+                );
+              }
             }
           }
         }
