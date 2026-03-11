@@ -693,10 +693,15 @@ class CropRotateEditorState extends State<CropRotateEditor>
           initialTransformConfigs!.isNotEmpty &&
           initialTransformConfigs!.aspectRatio < 0.0) {
         aspectRatio = initialTransformConfigs!.cropRect.size.aspectRatio;
+        _clampInitialFreeAspectRatio();
         calcCropRect(onlyViewRect: initialTransformConfigs?.isEmpty == false);
         aspectRatio = -1.0;
       } else {
+        if (aspectRatio < 0.0) _clampInitialFreeAspectRatio();
         calcCropRect(onlyViewRect: initialTransformConfigs?.isEmpty == false);
+        if (aspectRatio != -1.0 && cropRotateEditorConfigs.initAspectRatio == null || cropRotateEditorConfigs.initAspectRatio == -1.0) {
+          aspectRatio = -1.0;
+        }
       }
 
       if (!enableFakeHero) hideFakeHero();
@@ -715,6 +720,17 @@ class CropRotateEditorState extends State<CropRotateEditor>
         });
       }
     });
+  }
+
+  void _clampInitialFreeAspectRatio() {
+    if (aspectRatio < 0.0 && _mainImageSize.width > 0 && _mainImageSize.height > 0) {
+      final double actRatio = _mainImageSize.aspectRatio;
+      if (cropRotateEditorConfigs.minAspectRatio != null && actRatio < cropRotateEditorConfigs.minAspectRatio!) {
+        aspectRatio = cropRotateEditorConfigs.minAspectRatio!;
+      } else if (cropRotateEditorConfigs.maxAspectRatio != null && actRatio > cropRotateEditorConfigs.maxAspectRatio!) {
+        aspectRatio = cropRotateEditorConfigs.maxAspectRatio!;
+      }
+    }
   }
 
   @override
@@ -2257,19 +2273,30 @@ class CropRotateEditorState extends State<CropRotateEditor>
               break;
           }
 
-          if (_ratio >= 0.0 && cropRect.size.aspectRatio != _ratio) {
+          double targetRatio = _ratio;
+          
+          if (isFreeAspectRatio) {
+            final double currentRectRatio = cropRect.size.aspectRatio;
+            if (cropRotateEditorConfigs.minAspectRatio != null && currentRectRatio < cropRotateEditorConfigs.minAspectRatio!) {
+              targetRatio = 1.0 / cropRotateEditorConfigs.minAspectRatio!;
+            } else if (cropRotateEditorConfigs.maxAspectRatio != null && currentRectRatio > cropRotateEditorConfigs.maxAspectRatio!) {
+              targetRatio = 1.0 / cropRotateEditorConfigs.maxAspectRatio!;
+            }
+          }
+
+          if (targetRatio >= 0.0 && cropRect.size.aspectRatio != targetRatio) {
             if (_currentCropAreaPart == CropAreaPart.left ||
                 _currentCropAreaPart == CropAreaPart.right) {
               cropRect = Rect.fromCenter(
                 center: cropRect.center,
                 width: cropRect.width,
-                height: cropRect.width * _ratio,
+                height: cropRect.width * targetRatio,
               );
             } else if (_currentCropAreaPart == CropAreaPart.top ||
                 _currentCropAreaPart == CropAreaPart.bottom) {
               cropRect = Rect.fromCenter(
                 center: cropRect.center,
-                width: cropRect.height / _ratio,
+                width: cropRect.height / targetRatio,
                 height: cropRect.height,
               );
             } else if (_currentCropAreaPart == CropAreaPart.topLeft ||
@@ -2278,7 +2305,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
               cropRect = Rect.fromLTRB(
                 cropRect.left,
-                _viewRect.height - gapBottom - cropRect.width * _ratio,
+                _viewRect.height - gapBottom - cropRect.width * targetRatio,
                 cropRect.right,
                 cropRect.bottom,
               );
@@ -2288,7 +2315,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
                 cropRect.left,
                 cropRect.top,
                 cropRect.right,
-                cropRect.width * _ratio + cropRect.top,
+                cropRect.width * targetRatio + cropRect.top,
               );
             }
           }

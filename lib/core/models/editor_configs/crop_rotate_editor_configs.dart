@@ -100,6 +100,8 @@ class CropRotateEditorConfigs extends ZoomConfigs
     this.maxScale = 7,
     this.mouseScaleFactor = 0.1,
     this.doubleTapScaleFactor = 2,
+    this.minAspectRatio,
+    this.maxAspectRatio,
     this.aspectRatios = const [
       AspectRatioItem(text: 'Free', value: -1),
       AspectRatioItem(text: 'Original', value: 0.0),
@@ -208,6 +210,12 @@ class CropRotateEditorConfigs extends ZoomConfigs
   ///
   /// For free aspect ratio use `-1` and for original aspect ratio use `0.0`.
   final double? initAspectRatio;
+
+  /// The minimum aspect ratio for cropping in free mode.
+  final double? minAspectRatio;
+
+  /// The maximum aspect ratio for cropping in free mode.
+  final double? maxAspectRatio;
 
   /// The maximum scale allowed for the view.
   final double maxScale;
@@ -323,6 +331,8 @@ class CropRotateEditorConfigs extends ZoomConfigs
     CropMode? initialCropMode,
     bool? enableProvideImageInfos,
     double? initAspectRatio,
+    double? minAspectRatio,
+    double? maxAspectRatio,
     double? maxScale,
     double? mouseScaleFactor,
     double? doubleTapScaleFactor,
@@ -366,6 +376,8 @@ class CropRotateEditorConfigs extends ZoomConfigs
       enableProvideImageInfos:
           enableProvideImageInfos ?? this.enableProvideImageInfos,
       initAspectRatio: initAspectRatio ?? this.initAspectRatio,
+      minAspectRatio: minAspectRatio ?? this.minAspectRatio,
+      maxAspectRatio: maxAspectRatio ?? this.maxAspectRatio,
       maxScale: maxScale ?? this.maxScale,
       mouseScaleFactor: mouseScaleFactor ?? this.mouseScaleFactor,
       doubleTapScaleFactor: doubleTapScaleFactor ?? this.doubleTapScaleFactor,
