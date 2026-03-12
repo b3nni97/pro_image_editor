@@ -699,7 +699,9 @@ class CropRotateEditorState extends State<CropRotateEditor>
       } else {
         if (aspectRatio < 0.0) _clampInitialFreeAspectRatio();
         calcCropRect(onlyViewRect: initialTransformConfigs?.isEmpty == false);
-        if (aspectRatio != -1.0 && cropRotateEditorConfigs.initAspectRatio == null || cropRotateEditorConfigs.initAspectRatio == -1.0) {
+        if (aspectRatio != -1.0 &&
+                cropRotateEditorConfigs.initAspectRatio == null ||
+            cropRotateEditorConfigs.initAspectRatio == -1.0) {
           aspectRatio = -1.0;
         }
       }
@@ -723,11 +725,15 @@ class CropRotateEditorState extends State<CropRotateEditor>
   }
 
   void _clampInitialFreeAspectRatio() {
-    if (aspectRatio < 0.0 && _mainImageSize.width > 0 && _mainImageSize.height > 0) {
+    if (aspectRatio < 0.0 &&
+        _mainImageSize.width > 0 &&
+        _mainImageSize.height > 0) {
       final double actRatio = _mainImageSize.aspectRatio;
-      if (cropRotateEditorConfigs.minAspectRatio != null && actRatio < cropRotateEditorConfigs.minAspectRatio!) {
+      if (cropRotateEditorConfigs.minAspectRatio != null &&
+          actRatio < cropRotateEditorConfigs.minAspectRatio!) {
         aspectRatio = cropRotateEditorConfigs.minAspectRatio!;
-      } else if (cropRotateEditorConfigs.maxAspectRatio != null && actRatio > cropRotateEditorConfigs.maxAspectRatio!) {
+      } else if (cropRotateEditorConfigs.maxAspectRatio != null &&
+          actRatio > cropRotateEditorConfigs.maxAspectRatio!) {
         aspectRatio = cropRotateEditorConfigs.maxAspectRatio!;
       }
     }
@@ -1063,7 +1069,8 @@ class CropRotateEditorState extends State<CropRotateEditor>
     debugPrint('  animated: $animated');
     debugPrint('  current oldScaleFactor: $oldScaleFactor');
 
-    final EdgeInsets margin = cropRotateEditorConfigs.boundaryMargin;
+    final EdgeInsets margin = cropRotateEditorConfigs.viewPadding ??
+        cropRotateEditorConfigs.boundaryMargin;
 
     final Size contentSize = Size(
       editorBodySize.width - margin.horizontal,
@@ -2069,7 +2076,8 @@ class CropRotateEditorState extends State<CropRotateEditor>
         final double halfSpaceHorizontal = _cropSpaceHorizontal / 2.0;
         final double halfSpaceVertical = _cropSpaceVertical / 2.0;
 
-        final EdgeInsets margin = cropRotateEditorConfigs.boundaryMargin;
+        final EdgeInsets margin = cropRotateEditorConfigs.viewPadding ??
+            cropRotateEditorConfigs.boundaryMargin;
         final double cornerGap =
             cropRotateEditorConfigs.style.cropCornerLength * 2.25;
         final double minCornerDistance = cornerGap;
@@ -2131,7 +2139,8 @@ class CropRotateEditorState extends State<CropRotateEditor>
                   translate.dy * userScaleFactor);
         }
 
-        final EdgeInsets dragMargin = cropRotateEditorConfigs.boundaryMargin;
+        final EdgeInsets dragMargin = cropRotateEditorConfigs.viewPadding ??
+            cropRotateEditorConfigs.boundaryMargin;
 
         final double availableHeight = editorBodySize.height - margin.vertical;
         final double availableWidth = editorBodySize.width - margin.horizontal;
@@ -2274,12 +2283,14 @@ class CropRotateEditorState extends State<CropRotateEditor>
           }
 
           double targetRatio = _ratio;
-          
+
           if (isFreeAspectRatio) {
             final double currentRectRatio = cropRect.size.aspectRatio;
-            if (cropRotateEditorConfigs.minAspectRatio != null && currentRectRatio < cropRotateEditorConfigs.minAspectRatio!) {
+            if (cropRotateEditorConfigs.minAspectRatio != null &&
+                currentRectRatio < cropRotateEditorConfigs.minAspectRatio!) {
               targetRatio = 1.0 / cropRotateEditorConfigs.minAspectRatio!;
-            } else if (cropRotateEditorConfigs.maxAspectRatio != null && currentRectRatio > cropRotateEditorConfigs.maxAspectRatio!) {
+            } else if (cropRotateEditorConfigs.maxAspectRatio != null &&
+                currentRectRatio > cropRotateEditorConfigs.maxAspectRatio!) {
               targetRatio = 1.0 / cropRotateEditorConfigs.maxAspectRatio!;
             }
           }
@@ -2303,7 +2314,8 @@ class CropRotateEditorState extends State<CropRotateEditor>
                 _currentCropAreaPart == CropAreaPart.topRight ||
                 _currentCropAreaPart == CropAreaPart.bottomLeft ||
                 _currentCropAreaPart == CropAreaPart.bottomRight) {
-              final double newWidth = (cropRect.width + cropRect.height / targetRatio) / 2;
+              final double newWidth =
+                  (cropRect.width + cropRect.height / targetRatio) / 2;
 
               if (_currentCropAreaPart == CropAreaPart.topLeft) {
                 cropRect = Rect.fromLTRB(
@@ -3562,7 +3574,8 @@ class CropRotateEditorState extends State<CropRotateEditor>
             _setCropPainter();
           }
 
-          final EdgeInsets margin = cropRotateEditorConfigs.boundaryMargin;
+          final EdgeInsets margin = cropRotateEditorConfigs.viewPadding ??
+              cropRotateEditorConfigs.boundaryMargin;
 
           cropEditorScreenRatio = Size(
             editorBodySize.width - margin.horizontal,
@@ -3645,7 +3658,8 @@ class CropRotateEditorState extends State<CropRotateEditor>
                   builder: (context, painter, _) {
                     if (painter == null) return const SizedBox.shrink();
                     final EdgeInsets margin =
-                        cropRotateEditorConfigs.boundaryMargin;
+                        cropRotateEditorConfigs.viewPadding ??
+                            cropRotateEditorConfigs.boundaryMargin;
                     final Size imgSize = _renderedImgSize;
                     final Size bodySize = editorBodySize;
                     final double imgOriginX = margin.left +
@@ -3908,7 +3922,8 @@ class CropRotateEditorState extends State<CropRotateEditor>
               return const SizedBox.shrink();
             }
 
-            final EdgeInsets margin = cropRotateEditorConfigs.boundaryMargin;
+            final EdgeInsets margin = cropRotateEditorConfigs.viewPadding ??
+                cropRotateEditorConfigs.boundaryMargin;
             final Size imgSize = _renderedImgSize;
             final Size bodySize = editorBodySize;
 
@@ -3953,7 +3968,8 @@ class CropRotateEditorState extends State<CropRotateEditor>
     return Align(
       alignment: Alignment.center,
       child: Padding(
-        padding: cropRotateEditorConfigs.boundaryMargin,
+        padding: cropRotateEditorConfigs.viewPadding ??
+            cropRotateEditorConfigs.boundaryMargin,
         child: child,
       ),
     );
@@ -3963,7 +3979,8 @@ class CropRotateEditorState extends State<CropRotateEditor>
   ///
   /// Filters layout layers and bounds against structural constraints.
   Widget _buildImage() {
-    final EdgeInsets margin = cropRotateEditorConfigs.boundaryMargin;
+    final EdgeInsets margin = cropRotateEditorConfigs.viewPadding ??
+        cropRotateEditorConfigs.boundaryMargin;
     final double availableHeight = editorBodySize.height - margin.vertical;
     final double availableWidth = editorBodySize.width - margin.horizontal;
 
@@ -4028,7 +4045,8 @@ class CropRotateEditorState extends State<CropRotateEditor>
   /// Allows seamless transition animations before unlocking the editor interaction grid.
   Widget _buildFakeHero() {
     return Padding(
-      padding: cropRotateEditorConfigs.boundaryMargin,
+      padding: cropRotateEditorConfigs.boundaryMargin *
+          cropRotateEditorConfigs.editorMinScale,
       child: LayoutBuilder(
         builder: (BuildContext context, BoxConstraints constraints) {
           return Stack(

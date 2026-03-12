@@ -52,6 +52,7 @@ class CropRotateEditorConfigs extends ZoomConfigs
     super.doubleTapZoomDuration,
     super.doubleTapZoomCurve,
     super.boundaryMargin,
+    this.viewPadding,
     this.desktopCornerDragArea = 7,
     this.mobileCornerDragArea = kMinInteractiveDimension,
     this.enableGesturePop = true,
@@ -179,6 +180,9 @@ class CropRotateEditorConfigs extends ZoomConfigs
   /// This determines the default cropping behavior or aspect ratio that will be
   /// presented to the user before any manual adjustments are made.
   final CropMode initialCropMode;
+
+  /// Defines the padding for the view outside the image boundaries.
+  final EdgeInsets? viewPadding;
 
   /// Defines which crop-rotate tools are available in the editor.
   ///
@@ -322,6 +326,7 @@ class CropRotateEditorConfigs extends ZoomConfigs
     @Deprecated('Use tools instead, e.g. tools: [CropRotateTool.reset]')
     bool? showResetButton,
     List<CropRotateTool>? tools,
+    EdgeInsets? viewPadding,
     bool? showLayers,
     bool? enableTransformLayers,
     bool? enableDoubleTap,
@@ -365,6 +370,7 @@ class CropRotateEditorConfigs extends ZoomConfigs
           showAspectRatioButton ?? this.showAspectRatioButton,
       showResetButton: showResetButton ?? this.showResetButton,
       tools: tools ?? this.tools,
+      viewPadding: viewPadding ?? this.viewPadding,
       showLayers: showLayers ?? this.showLayers,
       enableTransformLayers:
           enableTransformLayers ?? this.enableTransformLayers,
