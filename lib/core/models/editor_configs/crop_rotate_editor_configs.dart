@@ -91,9 +91,11 @@ class CropRotateEditorConfigs extends ZoomConfigs
     this.cropDragAnimationCurve = Curves.decelerate,
     this.flipAnimationCurve = Curves.decelerate,
     this.fadeInOutsideCropAreaAnimationCurve = Curves.decelerate,
+    this.aspectRatioChangeAnimationCurve = Curves.decelerate,
     this.rotateDirection = RotateDirection.left,
     this.opacityOutsideCropAreaDuration = const Duration(milliseconds: 100),
     this.animationDuration = const Duration(milliseconds: 250),
+    this.aspectRatioChangeAnimationDuration = const Duration(milliseconds: 250),
     this.fadeInOutsideCropAreaAnimationDuration =
         const Duration(milliseconds: 350),
     this.cropDragAnimationDuration = const Duration(milliseconds: 400),
@@ -259,6 +261,9 @@ class CropRotateEditorConfigs extends ZoomConfigs
   /// The duration of drag-crop animations.
   final Duration cropDragAnimationDuration;
 
+  /// The duration of aspect ratio change animations.
+  final Duration aspectRatioChangeAnimationDuration;
+
   /// The delay before the snapback animation plays when the crop area is out of bounds.
   final Duration cropDragOutOfBoundsDelay;
 
@@ -280,6 +285,9 @@ class CropRotateEditorConfigs extends ZoomConfigs
 
   /// The animation curve used for crop animations.
   final Curve cropDragAnimationCurve;
+
+  /// The animation curve used for aspect ratio change animations.
+  final Curve aspectRatioChangeAnimationCurve;
 
   /// The animation curve used for the fade in animation from content outside
   /// the crop area.
@@ -344,6 +352,7 @@ class CropRotateEditorConfigs extends ZoomConfigs
     double? maxWidthFactor,
     List<AspectRatioItem>? aspectRatios,
     Duration? animationDuration,
+    Duration? aspectRatioChangeAnimationDuration,
     Duration? cropDragAnimationDuration,
     Duration? cropDragOutOfBoundsDelay,
     Duration? fadeInOutsideCropAreaAnimationDuration,
@@ -352,6 +361,7 @@ class CropRotateEditorConfigs extends ZoomConfigs
     Curve? flipAnimationCurve,
     Curve? scaleAnimationCurve,
     Curve? cropDragAnimationCurve,
+    Curve? aspectRatioChangeAnimationCurve,
     Curve? fadeInOutsideCropAreaAnimationCurve,
     RotateDirection? rotateDirection,
     double? desktopCornerDragArea,
@@ -390,6 +400,8 @@ class CropRotateEditorConfigs extends ZoomConfigs
       maxWidthFactor: maxWidthFactor ?? this.maxWidthFactor,
       aspectRatios: aspectRatios ?? this.aspectRatios,
       animationDuration: animationDuration ?? this.animationDuration,
+      aspectRatioChangeAnimationDuration: aspectRatioChangeAnimationDuration ??
+          this.aspectRatioChangeAnimationDuration,
       cropDragAnimationDuration:
           cropDragAnimationDuration ?? this.cropDragAnimationDuration,
       cropDragOutOfBoundsDelay:
@@ -404,6 +416,8 @@ class CropRotateEditorConfigs extends ZoomConfigs
       scaleAnimationCurve: scaleAnimationCurve ?? this.scaleAnimationCurve,
       cropDragAnimationCurve:
           cropDragAnimationCurve ?? this.cropDragAnimationCurve,
+      aspectRatioChangeAnimationCurve: aspectRatioChangeAnimationCurve ??
+          this.aspectRatioChangeAnimationCurve,
       fadeInOutsideCropAreaAnimationCurve:
           fadeInOutsideCropAreaAnimationCurve ??
               this.fadeInOutsideCropAreaAnimationCurve,

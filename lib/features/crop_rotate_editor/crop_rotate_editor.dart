@@ -279,11 +279,11 @@ class CropRotateEditorState extends State<CropRotateEditor>
   /// Tracks the scale applied during the last update frame.
   double _lastScale = 1.0;
 
+  /// Counter to prevent overlapping scale/cropRect animations during rapid changes.
+  int _animationId = 0;
+
   /// Tracks the minimum allowed scale considering the active perspective transform.
   double _perspectiveMinScale = 1.0;
-
-  /// Tracks the rotation scale factor to compensate for boundary constraints during rotation.
-  double _rotationScaleFactor = 1.0;
 
   /// Calculates the scale required to hide empty spaces caused by straightening.
   double _straightenScale = 1.0;
@@ -542,7 +542,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
             scaleFactor: userScaleFactor *
                 max(1.0, _straightenScale) *
                 max(1.0, _perspectiveMinScale),
-            rotationScaleFactor: _rotationScaleFactor,
+            rotationScaleFactor: scaleAnimation.value,
             interactionOpacity: _interactionOpacityProgress,
             screenSize: Size(
               editorBodySize.width,
@@ -630,8 +630,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
     scaleCtrl = AnimationController(
         duration: cropRotateEditorConfigs.animationDuration, vsync: this);
 
-    scaleAnimation =
-        Tween<double>(begin: initScale, end: initScale).animate(scaleCtrl);
+    scaleAnimation = AlwaysStoppedAnimation(initScale);
 
     straightenAngle = initialTransformConfigs?.straightenAngle ?? 0.0;
     _straightenScale = _calculateStraightenScale(straightenAngle);
@@ -654,7 +653,6 @@ class CropRotateEditorState extends State<CropRotateEditor>
       cropRect = initialTransformConfigs!.cropRect;
       _viewRect = initialTransformConfigs!.cropRect;
       oldScaleFactor = initialTransformConfigs!.scaleRotation;
-      _rotationScaleFactor = oldScaleFactor;
       setInitHistory(initialTransformConfigs!);
     }
 
@@ -1062,12 +1060,19 @@ class CropRotateEditorState extends State<CropRotateEditor>
     Curve? curve,
     Size? imageSize,
     bool animated = true,
+    Duration? duration,
+    Rect? customOldCropRect,
   }) {
-    if (!animated) scaleCtrl.duration = Duration.zero;
+    if (!animated) {
+      scaleCtrl.duration = Duration.zero;
+    } else if (duration != null) {
+      scaleCtrl.duration = duration;
+    } else {
+      scaleCtrl.duration = cropRotateEditorConfigs.animationDuration;
+    }
 
-    debugPrint('==== calcFitToScreen CALLED ====');
-    debugPrint('  animated: $animated');
-    debugPrint('  current oldScaleFactor: $oldScaleFactor');
+    _animationId++;
+    final int currentAnimationId = _animationId;
 
     final EdgeInsets margin = cropRotateEditorConfigs.viewPadding ??
         cropRotateEditorConfigs.boundaryMargin;
@@ -1093,50 +1098,59 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
     final double scale = min(scaleX, scaleY);
 
-    debugPrint('  renderedSize: $renderedSize');
-    debugPrint('  contentSize: $contentSize');
-    debugPrint('  activeCropSpaceHorizontal: $activeCropSpaceHorizontal');
-    debugPrint('  activeCropSpaceVertical: $activeCropSpaceVertical');
-    debugPrint('  scaleX: $scaleX');
-    debugPrint('  scaleY: $scaleY');
-    debugPrint('  FINAL scale: $scale');
-    debugPrint('================================');
-
-    scaleAnimation = Tween<double>(begin: oldScaleFactor, end: scale).animate(
-      CurvedAnimation(
-        parent: scaleCtrl,
-        curve: curve ?? cropRotateEditorConfigs.rotateAnimationCurve,
-      ),
-    );
+    final double targetScale = scale;
+    final double startScale = scaleAnimation.value;
 
     scaleCtrl
       ..reset()
       ..forward();
 
-    final double startRotateFactor = oldScaleFactor;
-    final double targetRotateFactor = scale;
     oldScaleFactor = scale;
+
+    final Rect startCropRect = customOldCropRect ?? cropRect;
+    final Rect targetCropRect = cropRect;
 
     _setCropPainter();
 
-    if (!startRotateFactor.isInfinite &&
-        !startRotateFactor.isNaN &&
-        !targetRotateFactor.isInfinite &&
-        !targetRotateFactor.isNaN) {
-      loopWithTransitionTiming(
-        (double curveT) {
-          _rotationScaleFactor =
-              ui.lerpDouble(startRotateFactor, targetRotateFactor, curveT)!;
+    if (!targetScale.isInfinite && !targetScale.isNaN) {
+      scaleAnimation =
+          Tween<double>(begin: startScale, end: targetScale).animate(
+        CurvedAnimation(
+          parent: scaleCtrl,
+          curve: curve ?? cropRotateEditorConfigs.rotateAnimationCurve,
+        ),
+      );
 
+      final Animation<Rect?>? cropRectAnim = customOldCropRect != null
+          ? RectTween(begin: startCropRect, end: targetCropRect).animate(
+              CurvedAnimation(
+                parent: scaleCtrl,
+                curve: curve ?? cropRotateEditorConfigs.rotateAnimationCurve,
+              ),
+            )
+          : null;
+
+      void onScaleTick() {
+        if (!mounted || _animationId != currentAnimationId) return;
+
+        if (cropRectAnim != null && cropRectAnim.value != null) {
+          cropRect = cropRectAnim.value!;
+          _updateAllStates();
+        } else {
           _setCropPainter();
+        }
+      }
+
+      scaleCtrl.addListener(onScaleTick);
+      scaleCtrl.addStatusListener(
+        (status) {
+          if (status == AnimationStatus.completed) {
+            scaleCtrl.removeListener(onScaleTick);
+          }
         },
-        mounted: mounted,
-        duration: cropRotateEditorConfigs.animationDuration,
-        transitionFunction:
-            (curve ?? cropRotateEditorConfigs.rotateAnimationCurve).transform,
       );
     } else {
-      _rotationScaleFactor = 1.0;
+      scaleAnimation = AlwaysStoppedAnimation(targetScale);
     }
 
     if (!animated) {
@@ -1179,10 +1193,26 @@ class CropRotateEditorState extends State<CropRotateEditor>
   void updateAspectRatio(double value) {
     aspectRatio = value;
     cropRotateEditorCallbacks?.handleRatioSelected(value);
+
+    final Rect oldCropRect = cropRect;
     calcCropRect();
-    calcFitToScreen();
-    _setOffsetLimits();
+    final Rect targetCropRect = cropRect;
+
+    // Temporarily set target rect to accurately capture state in history
+    cropRect = targetCropRect;
     addHistory(scaleRotation: oldScaleFactor);
+
+    if (oldCropRect != targetCropRect) {
+      calcFitToScreen(
+        duration: cropRotateEditorConfigs.aspectRatioChangeAnimationDuration,
+        curve: cropRotateEditorConfigs.aspectRatioChangeAnimationCurve,
+        customOldCropRect: oldCropRect,
+      );
+    } else {
+      calcFitToScreen();
+    }
+
+    _setOffsetLimits();
     _updateAllStates();
   }
 
@@ -3526,7 +3556,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
       ..add(EnumProperty<CropMode>('cropMode', cropMode))
       ..add(DoubleProperty('userScaleFactor', userScaleFactor))
       ..add(DoubleProperty('oldScaleFactor', oldScaleFactor))
-      ..add(DoubleProperty('rotationScaleFactor', _rotationScaleFactor))
+      ..add(DoubleProperty('animatedScale', scaleAnimation.value))
       ..add(DiagnosticsProperty<Offset>('translate', translate))
       ..add(DiagnosticsProperty<Rect>('cropRect', cropRect))
       ..add(DiagnosticsProperty<Rect>('viewRect', _viewRect))
@@ -3723,12 +3753,14 @@ class CropRotateEditorState extends State<CropRotateEditor>
             // Crop handles above blur so they're not blurred
             Positioned.fill(
               child: AnimatedBuilder(
-                animation: scaleAnimation,
-                builder: (context, child) => Transform.scale(
-                  scale: scaleAnimation.value,
-                  alignment: Alignment.center,
-                  child: child,
-                ),
+                animation: scaleCtrl,
+                builder: (context, child) {
+                  return Transform.scale(
+                    scale: scaleAnimation.value,
+                    alignment: Alignment.center,
+                    child: child,
+                  );
+                },
                 child: ValueListenableBuilder<CropCornerPainter?>(
                   valueListenable: _cropPainterNotifier,
                   builder: (context, painter, _) {
@@ -3916,12 +3948,14 @@ class CropRotateEditorState extends State<CropRotateEditor>
   /// Keeps the image locked to boundaries dynamically while turning.
   Widget _buildRotationScaleTransform({required Widget child}) {
     return AnimatedBuilder(
-      animation: scaleAnimation,
-      builder: (BuildContext context, Widget? mappedChild) => Transform.scale(
-        scale: scaleAnimation.value,
-        alignment: Alignment.center,
-        child: mappedChild,
-      ),
+      animation: scaleCtrl,
+      builder: (context, child) {
+        return Transform.scale(
+          scale: scaleAnimation.value,
+          alignment: Alignment.center,
+          child: child,
+        );
+      },
       child: child,
     );
   }
@@ -3985,12 +4019,14 @@ class CropRotateEditorState extends State<CropRotateEditor>
   Widget _buildBlurOverlay() {
     return Positioned.fill(
       child: AnimatedBuilder(
-        animation: scaleAnimation,
-        builder: (context, child) => Transform.scale(
-          scale: scaleAnimation.value,
-          alignment: Alignment.center,
-          child: child,
-        ),
+        animation: scaleCtrl,
+        builder: (context, child) {
+          return Transform.scale(
+            scale: scaleAnimation.value,
+            alignment: Alignment.center,
+            child: child,
+          );
+        },
         child: ValueListenableBuilder<CropCornerPainter?>(
           valueListenable: _cropPainterNotifier,
           builder: (context, painter, _) {
