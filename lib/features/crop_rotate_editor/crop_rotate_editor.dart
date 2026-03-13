@@ -2298,52 +2298,128 @@ class CropRotateEditorState extends State<CropRotateEditor>
           if (targetRatio >= 0.0 && cropRect.size.aspectRatio != targetRatio) {
             if (_currentCropAreaPart == CropAreaPart.left ||
                 _currentCropAreaPart == CropAreaPart.right) {
-              cropRect = Rect.fromCenter(
-                center: cropRect.center,
-                width: cropRect.width,
-                height: cropRect.width * targetRatio,
-              );
+              double newWidth = cropRect.width;
+              double newHeight = newWidth * targetRatio;
+
+              double maxDistTop = cropRect.center.dy - minTop;
+              double maxDistBottom = minBottom - cropRect.center.dy;
+              double maxAllowedHeight = 2.0 * min(maxDistTop, maxDistBottom);
+
+              if (newHeight > maxAllowedHeight) {
+                newHeight = maxAllowedHeight;
+                newWidth = newHeight / targetRatio;
+              }
+
+              if (_currentCropAreaPart == CropAreaPart.left) {
+                cropRect = Rect.fromLTRB(
+                  cropRect.right - newWidth,
+                  cropRect.center.dy - newHeight / 2.0,
+                  cropRect.right,
+                  cropRect.center.dy + newHeight / 2.0,
+                );
+              } else {
+                cropRect = Rect.fromLTRB(
+                  cropRect.left,
+                  cropRect.center.dy - newHeight / 2.0,
+                  cropRect.left + newWidth,
+                  cropRect.center.dy + newHeight / 2.0,
+                );
+              }
             } else if (_currentCropAreaPart == CropAreaPart.top ||
                 _currentCropAreaPart == CropAreaPart.bottom) {
-              cropRect = Rect.fromCenter(
-                center: cropRect.center,
-                width: cropRect.height / targetRatio,
-                height: cropRect.height,
-              );
+              double newHeight = cropRect.height;
+              double newWidth = newHeight / targetRatio;
+
+              double maxDistLeft = cropRect.center.dx - minLeft;
+              double maxDistRight = minRight - cropRect.center.dx;
+              double maxAllowedWidth = 2.0 * min(maxDistLeft, maxDistRight);
+
+              if (newWidth > maxAllowedWidth) {
+                newWidth = maxAllowedWidth;
+                newHeight = newWidth * targetRatio;
+              }
+
+              if (_currentCropAreaPart == CropAreaPart.top) {
+                cropRect = Rect.fromLTRB(
+                  cropRect.center.dx - newWidth / 2.0,
+                  cropRect.bottom - newHeight,
+                  cropRect.center.dx + newWidth / 2.0,
+                  cropRect.bottom,
+                );
+              } else {
+                cropRect = Rect.fromLTRB(
+                  cropRect.center.dx - newWidth / 2.0,
+                  cropRect.top,
+                  cropRect.center.dx + newWidth / 2.0,
+                  cropRect.top + newHeight,
+                );
+              }
             } else if (_currentCropAreaPart == CropAreaPart.topLeft ||
                 _currentCropAreaPart == CropAreaPart.topRight ||
                 _currentCropAreaPart == CropAreaPart.bottomLeft ||
                 _currentCropAreaPart == CropAreaPart.bottomRight) {
-              final double newWidth =
-                  (cropRect.width + cropRect.height / targetRatio) / 2;
+              double newWidth =
+                  (cropRect.width + cropRect.height / targetRatio) / 2.0;
 
               if (_currentCropAreaPart == CropAreaPart.topLeft) {
+                double maxWidth = cropRect.right - minLeft;
+                double maxHeight = cropRect.bottom - minTop;
+                if (newWidth > maxWidth) newWidth = maxWidth;
+                if (newWidth * targetRatio > maxHeight) {
+                  newWidth = maxHeight / targetRatio;
+                }
+                double newHeight = newWidth * targetRatio;
+
                 cropRect = Rect.fromLTRB(
                   cropRect.right - newWidth,
-                  cropRect.bottom - newWidth * targetRatio,
+                  cropRect.bottom - newHeight,
                   cropRect.right,
                   cropRect.bottom,
                 );
               } else if (_currentCropAreaPart == CropAreaPart.topRight) {
+                double maxWidth = minRight - cropRect.left;
+                double maxHeight = cropRect.bottom - minTop;
+                if (newWidth > maxWidth) newWidth = maxWidth;
+                if (newWidth * targetRatio > maxHeight) {
+                  newWidth = maxHeight / targetRatio;
+                }
+                double newHeight = newWidth * targetRatio;
+
                 cropRect = Rect.fromLTRB(
                   cropRect.left,
-                  cropRect.bottom - newWidth * targetRatio,
+                  cropRect.bottom - newHeight,
                   cropRect.left + newWidth,
                   cropRect.bottom,
                 );
               } else if (_currentCropAreaPart == CropAreaPart.bottomLeft) {
+                double maxWidth = cropRect.right - minLeft;
+                double maxHeight = minBottom - cropRect.top;
+                if (newWidth > maxWidth) newWidth = maxWidth;
+                if (newWidth * targetRatio > maxHeight) {
+                  newWidth = maxHeight / targetRatio;
+                }
+                double newHeight = newWidth * targetRatio;
+
                 cropRect = Rect.fromLTRB(
                   cropRect.right - newWidth,
                   cropRect.top,
                   cropRect.right,
-                  cropRect.top + newWidth * targetRatio,
+                  cropRect.top + newHeight,
                 );
               } else if (_currentCropAreaPart == CropAreaPart.bottomRight) {
+                double maxWidth = minRight - cropRect.left;
+                double maxHeight = minBottom - cropRect.top;
+                if (newWidth > maxWidth) newWidth = maxWidth;
+                if (newWidth * targetRatio > maxHeight) {
+                  newWidth = maxHeight / targetRatio;
+                }
+                double newHeight = newWidth * targetRatio;
+
                 cropRect = Rect.fromLTRB(
                   cropRect.left,
                   cropRect.top,
                   cropRect.left + newWidth,
-                  cropRect.top + newWidth * targetRatio,
+                  cropRect.top + newHeight,
                 );
               }
             }
