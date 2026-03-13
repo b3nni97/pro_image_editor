@@ -1022,6 +1022,61 @@ class ProImageEditorState extends State<ProImageEditor>
           ),
           configs: transformConfigs ?? stateManager.transformConfigs,
         );
+
+    // Apply initial aspect ratio clamping
+    if (_imageInfos != null &&
+        !shouldImportStateHistory &&
+        transformConfigs == null &&
+        mainEditorConfigs.transformSetup == null) {
+      final double actRatio = _imageInfos!.rawSize.aspectRatio;
+      double? targetRatio;
+      if (cropRotateEditorConfigs.initAspectRatio != null &&
+          cropRotateEditorConfigs.initAspectRatio! > 0) {
+        targetRatio = cropRotateEditorConfigs.initAspectRatio;
+      } else if (cropRotateEditorConfigs.minAspectRatio != null &&
+          actRatio < cropRotateEditorConfigs.minAspectRatio!) {
+        targetRatio = cropRotateEditorConfigs.minAspectRatio;
+      } else if (cropRotateEditorConfigs.maxAspectRatio != null &&
+          actRatio > cropRotateEditorConfigs.maxAspectRatio!) {
+        targetRatio = cropRotateEditorConfigs.maxAspectRatio;
+      }
+      if (targetRatio != null &&
+          targetRatio > 0 &&
+          stateManager.stateHistory.isNotEmpty) {
+        final Size imgBaseSize = _imageInfos!.renderedSize;
+        final double imgW = imgBaseSize.width;
+        final double imgH = imgBaseSize.height;
+
+        double newW = imgW;
+        double newH = imgH;
+
+        if (imgW / imgH > targetRatio) {
+          newW = imgH * targetRatio;
+        } else {
+          newH = imgW / targetRatio;
+        }
+
+        double left = (imgW - newW) / 2;
+        double top = (imgH - newH) / 2;
+
+        Rect newCropRect = Rect.fromLTWH(left, top, newW, newH);
+
+        stateManager.stateHistory.first.transformConfigs =
+            (stateManager.stateHistory.first.transformConfigs ??
+                    TransformConfigs.empty())
+                .copyWith(
+          cropRect: newCropRect,
+          aspectRatio: targetRatio,
+          originalSize: imgBaseSize,
+          cropEditorScreenRatio: sizesManager.bodySize.aspectRatio,
+        );
+        stateManager.updateActiveItems();
+        _imageInfos = _imageInfos!.copyWith(
+          cropRectSize: newCropRect.size,
+        );
+      }
+    }
+
     sizesManager.originalImageSize ??= _imageInfos!.rawSize;
     sizesManager.decodedImageSize = _imageInfos!.renderedSize;
 
