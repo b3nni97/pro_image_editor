@@ -2299,6 +2299,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
         if (!isFreeAspectRatio &&
             !_hasPerspective &&
+            userScaleFactor <= _effectiveMinScale &&
             (outsideLeft || outsideRight || outsideTop || outsideBottom)) {
           if (!_activeScaleOut) {
             _activeScaleOut = true;
