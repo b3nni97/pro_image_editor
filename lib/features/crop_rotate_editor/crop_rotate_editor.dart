@@ -1191,11 +1191,58 @@ class CropRotateEditorState extends State<CropRotateEditor>
   ///
   /// Emits updates cascading to bounding validation routines.
   void updateAspectRatio(double value) {
+    if (value == 0.0) {
+      double originalRatio = _mainImageSize.aspectRatio;
+      if (cropRotateEditorConfigs.minAspectRatio != null &&
+          originalRatio < cropRotateEditorConfigs.minAspectRatio!) {
+        value = cropRotateEditorConfigs.minAspectRatio!;
+      } else if (cropRotateEditorConfigs.maxAspectRatio != null &&
+          originalRatio > cropRotateEditorConfigs.maxAspectRatio!) {
+        value = cropRotateEditorConfigs.maxAspectRatio!;
+      }
+    }
+
     aspectRatio = value;
     cropRotateEditorCallbacks?.handleRatioSelected(value);
 
     final Rect oldCropRect = cropRect;
-    calcCropRect();
+    if (value < 0.0) {
+      calcCropRect(onlyViewRect: true);
+
+      // Clamp existing cropRect to the newly calculated _viewRect bounds
+      double clampedWidth = cropRect.width.clamp(0.0, _viewRect.width);
+      double clampedHeight = cropRect.height.clamp(0.0, _viewRect.height);
+
+      // Also ensure the cropRect aspect ratio itself doesn't exceed min/max config
+      double currentRectRatio = clampedWidth / clampedHeight;
+      if (cropRotateEditorConfigs.minAspectRatio != null &&
+          currentRectRatio < cropRotateEditorConfigs.minAspectRatio!) {
+        currentRectRatio = cropRotateEditorConfigs.minAspectRatio!;
+        if (clampedHeight * currentRectRatio <= _viewRect.width) {
+          clampedWidth = clampedHeight * currentRectRatio;
+        } else {
+          clampedWidth = _viewRect.width;
+          clampedHeight = clampedWidth / currentRectRatio;
+        }
+      } else if (cropRotateEditorConfigs.maxAspectRatio != null &&
+          currentRectRatio > cropRotateEditorConfigs.maxAspectRatio!) {
+        currentRectRatio = cropRotateEditorConfigs.maxAspectRatio!;
+        if (clampedWidth / currentRectRatio <= _viewRect.height) {
+          clampedHeight = clampedWidth / currentRectRatio;
+        } else {
+          clampedHeight = _viewRect.height;
+          clampedWidth = clampedHeight * currentRectRatio;
+        }
+      }
+
+      cropRect = Rect.fromCenter(
+        center: cropRect.center,
+        width: clampedWidth,
+        height: clampedHeight,
+      );
+    } else {
+      calcCropRect();
+    }
     final Rect targetCropRect = cropRect;
 
     // Temporarily set target rect to accurately capture state in history
@@ -1239,7 +1286,21 @@ class CropRotateEditorState extends State<CropRotateEditor>
     double realImgW = imageSticksToScreenWidth ? imgW : imgH / imgSizeRatio;
     double realImgH = imageSticksToScreenWidth ? imgW * imgSizeRatio : imgH;
 
-    final double ratio = newRatio ?? (_ratio > 0.0 ? _ratio : imgSizeRatio);
+    final double ratio;
+    if (_ratio <= 0.0) {
+      // Freeform mode. We clamp the "view bounds" ratio.
+      double freeformBoundRatio = imgSizeRatio;
+      if (cropRotateEditorConfigs.minAspectRatio != null &&
+          1 / freeformBoundRatio < cropRotateEditorConfigs.minAspectRatio!) {
+        freeformBoundRatio = 1 / cropRotateEditorConfigs.minAspectRatio!;
+      } else if (cropRotateEditorConfigs.maxAspectRatio != null &&
+          1 / freeformBoundRatio > cropRotateEditorConfigs.maxAspectRatio!) {
+        freeformBoundRatio = 1 / cropRotateEditorConfigs.maxAspectRatio!;
+      }
+      ratio = newRatio ?? freeformBoundRatio;
+    } else {
+      ratio = newRatio ?? _ratio;
+    }
     double left = 0.0;
     double top = 0.0;
 
@@ -2137,7 +2198,6 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
         final double maxRight = cropRect.right - minCornerDistance;
         final double maxBottom = cropRect.bottom - minCornerDistance;
-
         double minLeft = halfSpaceHorizontal;
         double minRight = imgW - halfSpaceHorizontal;
         double minTop = halfSpaceVertical;
@@ -2172,19 +2232,34 @@ class CropRotateEditorState extends State<CropRotateEditor>
         final EdgeInsets dragMargin = cropRotateEditorConfigs.viewPadding ??
             cropRotateEditorConfigs.boundaryMargin;
 
-        final double availableHeight = editorBodySize.height - margin.vertical;
-        final double availableWidth = editorBodySize.width - margin.horizontal;
+        // Convert viewPadding (global screen insets) to crop-local coords.
+        // Since dy/dx and focalPoint go through the same globalToLocal
+        // transform, the transform mostly cancels out. However, the
+        // cropPainter sits inside Transform.scale(scaleAnimation.value),
+        // so we must divide by scaleAnimation.value to match the local
+        // coordinate scale.
+        final Size screenSize = MediaQuery.sizeOf(context);
+        final double scale = scaleAnimation.value;
+        final double dyBase = dy - circleGapY;
+        final double dxBase = dx - circleGapX;
 
-        final double topOffset = margin.top + (availableHeight - imgH) / 2.0;
-        final double bottomOffset =
-            margin.bottom + (availableHeight - imgH) / 2.0;
-        final double leftOffset = margin.left + (availableWidth - imgW) / 2.0;
-        final double rightOffset = margin.right + (availableWidth - imgW) / 2.0;
+        final double vpTop =
+            dyBase + (dragMargin.top - details.focalPoint.dy) / scale;
+        final double vpBottom = dyBase +
+            (screenSize.height - dragMargin.bottom - details.focalPoint.dy) /
+                scale;
+        final double vpLeft =
+            dxBase + (dragMargin.left - details.focalPoint.dx) / scale;
+        final double vpRight = dxBase +
+            (screenSize.width - dragMargin.right - details.focalPoint.dx) /
+                scale;
 
-        minTop = max(minTop, dragMargin.top - topOffset);
-        minBottom = min(minBottom, imgH - (dragMargin.bottom - bottomOffset));
-        minLeft = max(minLeft, dragMargin.left - leftOffset);
-        minRight = min(minRight, imgW - (dragMargin.right - rightOffset));
+        minTop = max(minTop, vpTop);
+        minBottom = min(minBottom, vpBottom);
+        minLeft = max(minLeft, vpLeft);
+        minRight = min(minRight, vpRight);
+
+
 
         Size realViewRectSize = _viewRect.size * scaleAnimation.value;
 
@@ -2229,11 +2304,13 @@ class CropRotateEditorState extends State<CropRotateEditor>
             _activeScaleOut = true;
             _zoomOutside();
           }
-        } else if (!_activeScaleOut ||
-            (offset.dx.abs() <
-                _viewRect.width / 2.0 - _interactiveCornerArea)) {
-          _activeScaleOut = false;
+        } else {
+          if (_activeScaleOut) {
+            _activeScaleOut = false;
+          }
+        }
 
+        if (!_activeScaleOut || _currentCropAreaPart != CropAreaPart.inside) {
           switch (_currentCropAreaPart) {
             case CropAreaPart.topLeft:
               cropRect = Rect.fromLTRB(
@@ -3136,10 +3213,13 @@ class CropRotateEditorState extends State<CropRotateEditor>
     final double rawMaxExtent =
         axis == Axis.horizontal ? -bounds.left : -bounds.top;
 
+    final double minVal = min(rawMinExtent, rawMaxExtent);
+    final double maxVal = max(rawMinExtent, rawMaxExtent);
+
     return FixedScrollMetrics(
       pixels: pixels,
-      minScrollExtent: min(rawMinExtent, rawMaxExtent),
-      maxScrollExtent: max(rawMinExtent, rawMaxExtent),
+      minScrollExtent: minVal,
+      maxScrollExtent: max(minVal, maxVal),
       viewportDimension:
           axis == Axis.horizontal ? _viewRect.width : _viewRect.height,
       axisDirection: axisDirection,
