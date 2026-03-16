@@ -1082,6 +1082,8 @@ class CropRotateEditorState extends State<CropRotateEditor>
     bool animated = true,
     Duration? duration,
     Rect? customOldCropRect,
+    Offset? oldTranslate,
+    Offset? targetTranslate,
   }) {
     if (!animated) {
       scaleCtrl.duration = Duration.zero;
@@ -1118,17 +1120,6 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
     final double scale = min(scaleX, scaleY);
 
-    debugPrint('=== calcFitToScreen ===');
-    debugPrint('  editorBodySize: $editorBodySize');
-    debugPrint('  margin (viewPadding): $margin');
-    debugPrint('  contentSize (body - margin): $contentSize');
-    debugPrint('  renderedImgSize: $renderedSize');
-    debugPrint('  cropSpaceH: $activeCropSpaceHorizontal, cropSpaceV: $activeCropSpaceVertical');
-    debugPrint('  boxWidth: $boxWidth, boxHeight: $boxHeight');
-    debugPrint('  scaleX: $scaleX, scaleY: $scaleY');
-    debugPrint('  => scaleAnimation.value (target): $scale');
-    debugPrint('  limitedBy: ${scaleX < scaleY ? "WIDTH" : "HEIGHT"}');
-
     final double targetScale = scale;
     final double startScale = scaleAnimation.value;
 
@@ -1144,11 +1135,14 @@ class CropRotateEditorState extends State<CropRotateEditor>
     _setCropPainter();
 
     if (!targetScale.isInfinite && !targetScale.isNaN) {
+      final Curve animCurve =
+          curve ?? cropRotateEditorConfigs.rotateAnimationCurve;
+
       scaleAnimation =
           Tween<double>(begin: startScale, end: targetScale).animate(
         CurvedAnimation(
           parent: scaleCtrl,
-          curve: curve ?? cropRotateEditorConfigs.rotateAnimationCurve,
+          curve: animCurve,
         ),
       );
 
@@ -1156,7 +1150,17 @@ class CropRotateEditorState extends State<CropRotateEditor>
           ? RectTween(begin: startCropRect, end: targetCropRect).animate(
               CurvedAnimation(
                 parent: scaleCtrl,
-                curve: curve ?? cropRotateEditorConfigs.rotateAnimationCurve,
+                curve: animCurve,
+              ),
+            )
+          : null;
+
+      final Animation<Offset?>? translateAnim = (oldTranslate != null &&
+              targetTranslate != null)
+          ? Tween<Offset>(begin: oldTranslate, end: targetTranslate).animate(
+              CurvedAnimation(
+                parent: scaleCtrl,
+                curve: animCurve,
               ),
             )
           : null;
@@ -1164,8 +1168,19 @@ class CropRotateEditorState extends State<CropRotateEditor>
       void onScaleTick() {
         if (!mounted || _animationId != currentAnimationId) return;
 
+        bool needsFullUpdate = false;
+
         if (cropRectAnim != null && cropRectAnim.value != null) {
           cropRect = cropRectAnim.value!;
+          needsFullUpdate = true;
+        }
+
+        if (translateAnim != null && translateAnim.value != null) {
+          translate = translateAnim.value!;
+          needsFullUpdate = true;
+        }
+
+        if (needsFullUpdate) {
           _updateAllStates();
         } else {
           _setCropPainter();
@@ -1237,6 +1252,8 @@ class CropRotateEditorState extends State<CropRotateEditor>
     cropRotateEditorCallbacks?.handleRatioSelected(value);
 
     final Rect oldCropRect = cropRect;
+    final Offset oldTranslate = translate;
+
     if (value < 0.0) {
       calcCropRect(onlyViewRect: true);
 
@@ -1276,21 +1293,35 @@ class CropRotateEditorState extends State<CropRotateEditor>
     }
     final Rect targetCropRect = cropRect;
 
-    // Temporarily set target rect to accurately capture state in history
-    cropRect = targetCropRect;
+    // Compute target translate by clamping with the new viewRect
+    _setOffsetLimits();
+    final Offset targetTranslate = translate;
+
+    // Record history with target state
     addHistory(scaleRotation: oldScaleFactor);
 
     if (oldCropRect != targetCropRect) {
+      // NOTE: calcFitToScreen reads cropRect (= targetCropRect) to determine
+      // the animation end state, so we call it BEFORE resetting.
       calcFitToScreen(
         duration: cropRotateEditorConfigs.aspectRatioChangeAnimationDuration,
         curve: cropRotateEditorConfigs.aspectRatioChangeAnimationCurve,
         customOldCropRect: oldCropRect,
+        oldTranslate: oldTranslate,
+        targetTranslate: targetTranslate,
       );
+
+      // Reset to old state so the first rendered frame matches the pre-switch
+      // visual. The animation's onScaleTick will immediately start driving
+      // cropRect and translate from old → target on subsequent frames.
+      cropRect = oldCropRect;
+      translate = oldTranslate;
     } else {
       calcFitToScreen();
+      // Only clamp immediately if nothing is animating
+      _setOffsetLimits();
     }
 
-    _setOffsetLimits();
     _updateAllStates();
   }
 
@@ -1353,14 +1384,6 @@ class CropRotateEditorState extends State<CropRotateEditor>
     }
 
     _viewRect = Rect.fromLTWH(left, top, realImgW, realImgH);
-
-    debugPrint('=== calcCropRect ===');
-    debugPrint('  imgSize: $_imgWidth x $_imgHeight');
-    debugPrint('  imgConstraints: $imgW x $imgH');
-    debugPrint('  ratio: $ratio, _ratio: $_ratio');
-    debugPrint('  cropSpaceH: $_cropSpaceHorizontal, cropSpaceV: $_cropSpaceVertical');
-    debugPrint('  cropRect: $cropRect');
-    debugPrint('  viewRect: $_viewRect');
 
     _setCropPainter();
   }
@@ -1703,24 +1726,6 @@ class CropRotateEditorState extends State<CropRotateEditor>
           proposedTranslate: translate,
           scale: userScaleFactor,
         );
-
-        if (oldUserScale != userScaleFactor || oldTranslate != translate) {
-          debugPrint('==== _applyPerspectiveSolver JUMP DETECTED ====');
-          debugPrint('  wIsNegative: $wIsNegative');
-          debugPrint('  imageSize: $imageSize');
-          debugPrint('  viewWidth: $viewWidth, viewHeight: $viewHeight');
-          debugPrint('  viewOffset: $viewOffset');
-          debugPrint('  minP: $minP, maxP: $maxP');
-          debugPrint('  minQ: $minQ, maxQ: $maxQ');
-          // debugPrint('  sMinX: $sMinX, sMinY: $sMinY');
-          debugPrint('  _straightenScale: $_straightenScale');
-          debugPrint('  old userScaleFactor: $oldUserScale');
-          debugPrint('  newMinimumScale: $newMinimumScale');
-          debugPrint('  FINAL userScaleFactor: $userScaleFactor');
-          debugPrint('  old translate: $oldTranslate');
-          debugPrint('  FINAL translate: $translate');
-          debugPrint('===============================================');
-        }
       }
     });
   }
@@ -2298,8 +2303,6 @@ class CropRotateEditorState extends State<CropRotateEditor>
         minBottom = min(minBottom, vpBottom);
         minLeft = max(minLeft, vpLeft);
         minRight = min(minRight, vpRight);
-
-
 
         Size realViewRectSize = _viewRect.size * scaleAnimation.value;
 
@@ -3897,52 +3900,6 @@ class CropRotateEditorState extends State<CropRotateEditor>
                     final double imgOriginY = margin.top +
                         (bodySize.height - margin.vertical - imgSize.height) /
                             2;
-
-                    // Debug: compute effective global positions of cropRect edges
-                    final double scale = scaleAnimation.value;
-                    // Use content center (matching _contentCenterAlignment)
-                    final double contentCenterX = margin.left + (bodySize.width - margin.horizontal) / 2;
-                    final double contentCenterY = margin.top + (bodySize.height - margin.vertical) / 2;
-
-                    // Local positions of cropRect edges (inside Positioned widget)
-                    final double localLeft = imgOriginX + cropRect.left;
-                    final double localTop = imgOriginY + cropRect.top;
-                    final double localRight = imgOriginX + cropRect.right;
-                    final double localBottom = imgOriginY + cropRect.bottom;
-
-                    // After Transform.scale around content center:
-                    final double globalLeft = contentCenterX + (localLeft - contentCenterX) * scale;
-                    final double globalTop = contentCenterY + (localTop - contentCenterY) * scale;
-                    final double globalRight = contentCenterX + (localRight - contentCenterX) * scale;
-                    final double globalBottom = contentCenterY + (localBottom - contentCenterY) * scale;
-
-                    // viewPadding edges:
-                    final double vpLeft = margin.left;
-                    final double vpTop = margin.top;
-                    final double vpRight = bodySize.width - margin.right;
-                    final double vpBottom = bodySize.height - margin.bottom;
-
-                    debugPrint('=== Crop Handles Overlay ===');
-                    debugPrint('  bodySize: $bodySize');
-                    debugPrint('  margin (viewPadding): $margin');
-                    debugPrint('  imgSize (rendered): $imgSize');
-                    debugPrint('  imgOrigin: ($imgOriginX, $imgOriginY)');
-                    debugPrint('  cropRect: $cropRect');
-                    debugPrint('  scaleAnimation.value: $scale');
-                    debugPrint('  --- Local positions (before scale) ---');
-                    debugPrint('  localLeft: $localLeft, localTop: $localTop');
-                    debugPrint('  localRight: $localRight, localBottom: $localBottom');
-                    debugPrint('  --- Global positions (after scale around center) ---');
-                    debugPrint('  globalLeft: $globalLeft, globalTop: $globalTop');
-                    debugPrint('  globalRight: $globalRight, globalBottom: $globalBottom');
-                    debugPrint('  --- viewPadding edges ---');
-                    debugPrint('  vpLeft: $vpLeft, vpTop: $vpTop');
-                    debugPrint('  vpRight: $vpRight, vpBottom: $vpBottom');
-                    debugPrint('  --- DELTAS (global - vp, should be 0 on limiting axis) ---');
-                    debugPrint('  deltaLeft: ${globalLeft - vpLeft}');
-                    debugPrint('  deltaTop: ${globalTop - vpTop}');
-                    debugPrint('  deltaRight: ${globalRight - vpRight}');
-                    debugPrint('  deltaBottom: ${globalBottom - vpBottom}');
 
                     return Stack(
                       children: [
