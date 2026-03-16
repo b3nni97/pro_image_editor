@@ -3919,17 +3919,68 @@ class CropRotateEditorState extends State<CropRotateEditor>
                             ),
                           ),
                         ),
-                        if (cropRotateEditorConfigs
-                                .widgets.cropCornerWidget !=
-                            null)
-                          Positioned(
-                            left: imgOriginX + painter.cropRect.right,
-                            top: imgOriginY + painter.cropRect.top,
-                            child: FractionalTranslation(
-                              translation: const Offset(-1, 0),
-                              child: Transform.scale(
-                                scale: 1.0 / scaleAnimation.value,
-                                alignment: Alignment.bottomRight,
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ),
+            // Crop corner widget – outside Transform.scale so it
+            // keeps its fixed size regardless of scale animations.
+            if (cropRotateEditorConfigs.widgets.cropCornerWidget !=
+                null)
+              Positioned.fill(
+                child: AnimatedBuilder(
+                  animation: scaleCtrl,
+                  builder: (context, _) {
+                    return ValueListenableBuilder<CropCornerPainter?>(
+                      valueListenable: _cropPainterNotifier,
+                      builder: (context, painter, _) {
+                        if (painter == null) {
+                          return const SizedBox.shrink();
+                        }
+                        final EdgeInsets margin =
+                            cropRotateEditorConfigs.viewPadding ??
+                                cropRotateEditorConfigs.boundaryMargin;
+                        final Size imgSize = _renderedImgSize;
+                        final Size bodySize = editorBodySize;
+                        final double imgOriginX = margin.left +
+                            (bodySize.width -
+                                    margin.horizontal -
+                                    imgSize.width) /
+                                2;
+                        final double imgOriginY = margin.top +
+                            (bodySize.height -
+                                    margin.vertical -
+                                    imgSize.height) /
+                                2;
+
+                        // Compute the unscaled position
+                        final double rawX =
+                            imgOriginX + painter.cropRect.right;
+                        final double rawY =
+                            imgOriginY + painter.cropRect.top;
+
+                        // Apply the same scale transform as the
+                        // crop handles overlay uses
+                        final double s = scaleAnimation.value;
+                        final Alignment a = _contentCenterAlignment;
+                        final double cx =
+                            bodySize.width * (0.5 + a.x / 2);
+                        final double cy =
+                            bodySize.height * (0.5 + a.y / 2);
+                        final double scaledX =
+                            cx + (rawX - cx) * s;
+                        final double scaledY =
+                            cy + (rawY - cy) * s;
+
+                        return Stack(
+                          children: [
+                            Positioned(
+                              left: scaledX,
+                              top: scaledY,
+                              child: FractionalTranslation(
+                                translation: const Offset(-1, 0),
                                 child: IgnorePointer(
                                   child: cropRotateEditorConfigs
                                       .widgets.cropCornerWidget!(
@@ -3939,13 +3990,13 @@ class CropRotateEditorState extends State<CropRotateEditor>
                                 ),
                               ),
                             ),
-                          ),
-                      ],
+                          ],
+                        );
+                      },
                     );
                   },
                 ),
               ),
-            ),
             if (cropRotateEditorConfigs.widgets.bodyItems != null)
               ...cropRotateEditorConfigs.widgets.bodyItems!(
                   this, rebuildController.stream),
