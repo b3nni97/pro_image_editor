@@ -458,6 +458,26 @@ class CropRotateEditorState extends State<CropRotateEditor>
   /// Necessary to prevent infinite shrink gaps.
   double get _effectiveMinScale => _hasPerspective ? _perspectiveMinScale : 1.0;
 
+  /// Computes the alignment for Transform.scale so that scaling is centered
+  /// on the content area (within viewPadding) rather than the body center.
+  ///
+  /// This is critical when viewPadding is asymmetric (e.g. top ≠ bottom),
+  /// because Alignment.center would scale around the body center, causing
+  /// the crop rect to shift away from the viewPadding boundaries.
+  Alignment get _contentCenterAlignment {
+    final EdgeInsets margin = cropRotateEditorConfigs.viewPadding ??
+        cropRotateEditorConfigs.boundaryMargin;
+    final double bodyW = editorBodySize.width;
+    final double bodyH = editorBodySize.height;
+    if (bodyW <= 0 || bodyH <= 0) return Alignment.center;
+    final double contentCenterX = margin.left + (bodyW - margin.horizontal) / 2;
+    final double contentCenterY = margin.top + (bodyH - margin.vertical) / 2;
+    return Alignment(
+      (contentCenterX - bodyW / 2) / (bodyW / 2),
+      (contentCenterY - bodyH / 2) / (bodyH / 2),
+    );
+  }
+
   /// Retrieves the current mouse cursor state.
   ///
   /// Abstracts direct access to keep the getter implementation generic.
@@ -1098,6 +1118,17 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
     final double scale = min(scaleX, scaleY);
 
+    debugPrint('=== calcFitToScreen ===');
+    debugPrint('  editorBodySize: $editorBodySize');
+    debugPrint('  margin (viewPadding): $margin');
+    debugPrint('  contentSize (body - margin): $contentSize');
+    debugPrint('  renderedImgSize: $renderedSize');
+    debugPrint('  cropSpaceH: $activeCropSpaceHorizontal, cropSpaceV: $activeCropSpaceVertical');
+    debugPrint('  boxWidth: $boxWidth, boxHeight: $boxHeight');
+    debugPrint('  scaleX: $scaleX, scaleY: $scaleY');
+    debugPrint('  => scaleAnimation.value (target): $scale');
+    debugPrint('  limitedBy: ${scaleX < scaleY ? "WIDTH" : "HEIGHT"}');
+
     final double targetScale = scale;
     final double startScale = scaleAnimation.value;
 
@@ -1322,6 +1353,15 @@ class CropRotateEditorState extends State<CropRotateEditor>
     }
 
     _viewRect = Rect.fromLTWH(left, top, realImgW, realImgH);
+
+    debugPrint('=== calcCropRect ===');
+    debugPrint('  imgSize: $_imgWidth x $_imgHeight');
+    debugPrint('  imgConstraints: $imgW x $imgH');
+    debugPrint('  ratio: $ratio, _ratio: $_ratio');
+    debugPrint('  cropSpaceH: $_cropSpaceHorizontal, cropSpaceV: $_cropSpaceVertical');
+    debugPrint('  cropRect: $cropRect');
+    debugPrint('  viewRect: $_viewRect');
+
     _setCropPainter();
   }
 
@@ -3838,7 +3878,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
                 builder: (context, child) {
                   return Transform.scale(
                     scale: scaleAnimation.value,
-                    alignment: Alignment.center,
+                    alignment: _contentCenterAlignment,
                     child: child,
                   );
                 },
@@ -3857,6 +3897,53 @@ class CropRotateEditorState extends State<CropRotateEditor>
                     final double imgOriginY = margin.top +
                         (bodySize.height - margin.vertical - imgSize.height) /
                             2;
+
+                    // Debug: compute effective global positions of cropRect edges
+                    final double scale = scaleAnimation.value;
+                    // Use content center (matching _contentCenterAlignment)
+                    final double contentCenterX = margin.left + (bodySize.width - margin.horizontal) / 2;
+                    final double contentCenterY = margin.top + (bodySize.height - margin.vertical) / 2;
+
+                    // Local positions of cropRect edges (inside Positioned widget)
+                    final double localLeft = imgOriginX + cropRect.left;
+                    final double localTop = imgOriginY + cropRect.top;
+                    final double localRight = imgOriginX + cropRect.right;
+                    final double localBottom = imgOriginY + cropRect.bottom;
+
+                    // After Transform.scale around content center:
+                    final double globalLeft = contentCenterX + (localLeft - contentCenterX) * scale;
+                    final double globalTop = contentCenterY + (localTop - contentCenterY) * scale;
+                    final double globalRight = contentCenterX + (localRight - contentCenterX) * scale;
+                    final double globalBottom = contentCenterY + (localBottom - contentCenterY) * scale;
+
+                    // viewPadding edges:
+                    final double vpLeft = margin.left;
+                    final double vpTop = margin.top;
+                    final double vpRight = bodySize.width - margin.right;
+                    final double vpBottom = bodySize.height - margin.bottom;
+
+                    debugPrint('=== Crop Handles Overlay ===');
+                    debugPrint('  bodySize: $bodySize');
+                    debugPrint('  margin (viewPadding): $margin');
+                    debugPrint('  imgSize (rendered): $imgSize');
+                    debugPrint('  imgOrigin: ($imgOriginX, $imgOriginY)');
+                    debugPrint('  cropRect: $cropRect');
+                    debugPrint('  scaleAnimation.value: $scale');
+                    debugPrint('  --- Local positions (before scale) ---');
+                    debugPrint('  localLeft: $localLeft, localTop: $localTop');
+                    debugPrint('  localRight: $localRight, localBottom: $localBottom');
+                    debugPrint('  --- Global positions (after scale around center) ---');
+                    debugPrint('  globalLeft: $globalLeft, globalTop: $globalTop');
+                    debugPrint('  globalRight: $globalRight, globalBottom: $globalBottom');
+                    debugPrint('  --- viewPadding edges ---');
+                    debugPrint('  vpLeft: $vpLeft, vpTop: $vpTop');
+                    debugPrint('  vpRight: $vpRight, vpBottom: $vpBottom');
+                    debugPrint('  --- DELTAS (global - vp, should be 0 on limiting axis) ---');
+                    debugPrint('  deltaLeft: ${globalLeft - vpLeft}');
+                    debugPrint('  deltaTop: ${globalTop - vpTop}');
+                    debugPrint('  deltaRight: ${globalRight - vpRight}');
+                    debugPrint('  deltaBottom: ${globalBottom - vpBottom}');
+
                     return Stack(
                       children: [
                         Positioned(
@@ -4033,7 +4120,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
       builder: (context, child) {
         return Transform.scale(
           scale: scaleAnimation.value,
-          alignment: Alignment.center,
+          alignment: _contentCenterAlignment,
           child: child,
         );
       },
@@ -4104,7 +4191,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
         builder: (context, child) {
           return Transform.scale(
             scale: scaleAnimation.value,
-            alignment: Alignment.center,
+            alignment: _contentCenterAlignment,
             child: child,
           );
         },
