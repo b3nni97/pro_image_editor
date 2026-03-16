@@ -138,12 +138,23 @@ mixin CropAreaHistory
   @protected
   bool showWidgets = false;
 
+  /// A [ValueNotifier] that emits the current aspect ratio of the crop area.
+  ///
+  /// Listen to this notifier from outside to react to aspect ratio changes.
+  final ValueNotifier<double> aspectRatioNotifier = ValueNotifier<double>(0.0);
+
   /// The aspect ratio of the crop area.
   ///
   /// This value defines the ratio between width and height for the crop area,
   /// ensuring consistent aspect ratios during transformations.
+  /// Setting this also updates [aspectRatioNotifier].
   @protected
-  late double aspectRatio;
+  double get aspectRatio => aspectRatioNotifier.value;
+
+  @protected
+  set aspectRatio(double value) {
+    aspectRatioNotifier.value = value;
+  }
 
   /// The screen ratio for the crop editor.
   ///

@@ -432,6 +432,9 @@ class CropRotateEditorState extends State<CropRotateEditor>
   Size get _mainImageSize =>
       mainImageSize ?? imageInfos?.renderedSize ?? Size.zero;
 
+  /// The original aspect ratio (width / height) of the source image.
+  double get originalAspectRatio => _mainImageSize.aspectRatio;
+
   /// Indicates whether the image is visually rotated by an odd multiple of 90 degrees.
   ///
   /// Reverses axis boundaries if true.
