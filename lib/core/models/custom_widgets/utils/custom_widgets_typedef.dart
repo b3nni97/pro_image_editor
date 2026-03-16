@@ -301,3 +301,30 @@ typedef CustomBodyItems<T> = List<ReactiveWidget> Function(
   T editor,
   Stream<void> rebuildStream,
 );
+
+/// A function that builds a [Widget] to display at a corner of the crop rect.
+///
+/// The widget receives the [editorState] for access to crop rect, aspect ratio,
+/// and other editor properties, along with a [rebuildStream] to react to
+/// changes.
+///
+/// **Example Usage:**
+/// ```dart
+/// cropCornerWidget: (editorState, rebuildStream) {
+///   return StreamBuilder(
+///     stream: rebuildStream,
+///     builder: (context, _) {
+///       final bool isLocked = editorState.aspectRatio > 0;
+///       return Icon(
+///         isLocked ? Icons.lock : Icons.lock_open,
+///         color: Colors.white,
+///         size: 20,
+///       );
+///     },
+///   );
+/// },
+/// ```
+typedef CropCornerWidgetBuilder<T> = Widget Function(
+  T editorState,
+  Stream<void> rebuildStream,
+);

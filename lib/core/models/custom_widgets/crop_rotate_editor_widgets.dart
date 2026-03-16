@@ -32,6 +32,7 @@ class CropRotateEditorWidgets
     super.bodyItems,
     this.aspectRatioOptions,
     this.slider,
+    this.cropCornerWidget,
   });
 
   /// A widget for selecting aspect ratio options in the crop editor.
@@ -55,6 +56,33 @@ class CropRotateEditorWidgets
   /// {@macro customSliderWidget}
   final CustomSlider<CropRotateEditorState>? slider;
 
+  /// A widget builder for displaying a custom widget at the top-right corner
+  /// of the crop rect area.
+  ///
+  /// This is useful for showing contextual indicators like a lock icon when
+  /// the aspect ratio is fixed, similar to the iOS Photos crop editor.
+  ///
+  /// The builder receives the editor state and a rebuild stream, so the widget
+  /// can react to state changes (e.g., aspect ratio changes).
+  ///
+  /// **Example:**
+  /// ```dart
+  /// cropCornerWidget: (editorState, rebuildStream) {
+  ///   return StreamBuilder(
+  ///     stream: rebuildStream,
+  ///     builder: (context, _) {
+  ///       final bool isLocked = editorState.aspectRatio > 0;
+  ///       return Icon(
+  ///         isLocked ? Icons.lock : Icons.lock_open,
+  ///         color: Colors.white,
+  ///         size: 20,
+  ///       );
+  ///     },
+  ///   );
+  /// },
+  /// ```
+  final CropCornerWidgetBuilder<CropRotateEditorState>? cropCornerWidget;
+
   @override
   CropRotateEditorWidgets copyWith({
     ReactiveAppbar? Function(
@@ -66,6 +94,7 @@ class CropRotateEditorWidgets
     CustomBodyItems<CropRotateEditorState>? bodyItems,
     CropEditorAspectRatioOptions<CropRotateEditorState>? aspectRatioOptions,
     CustomSlider<CropRotateEditorState>? slider,
+    CropCornerWidgetBuilder<CropRotateEditorState>? cropCornerWidget,
   }) {
     return CropRotateEditorWidgets(
       appBar: appBar ?? this.appBar,
@@ -73,6 +102,7 @@ class CropRotateEditorWidgets
       bodyItems: bodyItems ?? this.bodyItems,
       aspectRatioOptions: aspectRatioOptions ?? this.aspectRatioOptions,
       slider: slider ?? this.slider,
+      cropCornerWidget: cropCornerWidget ?? this.cropCornerWidget,
     );
   }
 }

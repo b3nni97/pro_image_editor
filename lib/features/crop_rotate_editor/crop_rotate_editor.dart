@@ -3919,6 +3919,27 @@ class CropRotateEditorState extends State<CropRotateEditor>
                             ),
                           ),
                         ),
+                        if (cropRotateEditorConfigs
+                                .widgets.cropCornerWidget !=
+                            null)
+                          Positioned(
+                            left: imgOriginX + painter.cropRect.right,
+                            top: imgOriginY + painter.cropRect.top,
+                            child: FractionalTranslation(
+                              translation: const Offset(-1, 0),
+                              child: Transform.scale(
+                                scale: 1.0 / scaleAnimation.value,
+                                alignment: Alignment.bottomRight,
+                                child: IgnorePointer(
+                                  child: cropRotateEditorConfigs
+                                      .widgets.cropCornerWidget!(
+                                    this,
+                                    rebuildController.stream,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
                       ],
                     );
                   },
