@@ -34,6 +34,7 @@ class MainEditorBackgroundImage extends StatelessWidget {
     required this.isInitialized,
     required this.heroTag,
     required this.blankSize,
+    this.hasAspectRatioClamping = false,
   }) : assert(editorImage != null || blankSize != null,
             'Either editorImage or blankSize must be provided');
 
@@ -58,6 +59,11 @@ class MainEditorBackgroundImage extends StatelessWidget {
   /// Indicates whether the editor has been fully initialized.
   final bool isInitialized;
 
+  /// Whether aspect ratio clamping (min/max/init) will be applied.
+  /// When true and not yet initialized, hides the raw image to prevent
+  /// a flash of the uncropped image.
+  final bool hasAspectRatioClamping;
+
   /// A unique hero tag for the Image Editor widget.
   final String heroTag;
 
@@ -67,13 +73,15 @@ class MainEditorBackgroundImage extends StatelessWidget {
       tag: heroTag,
       createRectTween: (begin, end) => RectTween(begin: begin, end: end),
       child: !isInitialized
-          ? editorImage != null
-              ? AutoImage(
-                  editorImage!,
-                  fit: BoxFit.contain,
-                  configs: configs,
-                )
-              : SizedBox.fromSize(size: blankSize)
+          ? hasAspectRatioClamping
+              ? const SizedBox.shrink()
+              : editorImage != null
+                  ? AutoImage(
+                      editorImage!,
+                      fit: BoxFit.contain,
+                      configs: configs,
+                    )
+                  : SizedBox.fromSize(size: blankSize)
           : TransformedContentGenerator(
               transformConfigs: stateManager.transformConfigs,
               configs: configs,

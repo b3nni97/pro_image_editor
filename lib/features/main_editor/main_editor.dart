@@ -2925,6 +2925,11 @@ class ProImageEditorState extends State<ProImageEditor>
       sizesManager: sizesManager,
       stateManager: stateManager,
       blankSize: widget.blankSize,
+      hasAspectRatioClamping:
+          cropRotateEditorConfigs.minAspectRatio != null ||
+              cropRotateEditorConfigs.maxAspectRatio != null ||
+              (cropRotateEditorConfigs.initAspectRatio != null &&
+                  cropRotateEditorConfigs.initAspectRatio! > 0),
     );
   }
 
