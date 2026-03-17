@@ -3876,7 +3876,9 @@ class CropRotateEditorState extends State<CropRotateEditor>
                 ),
               ),
             ),
+            _buildDarkenOverlay(),
             _buildBlurOverlay(),
+            _buildSharpCropRestore(),
             // Crop handles above blur so they're not blurred
             Positioned.fill(
               child: AnimatedBuilder(
@@ -3913,8 +3915,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
                           height: imgSize.height,
                           child: IgnorePointer(
                             child: CustomPaint(
-                              painter: painter.copy(
-                                  drawCropOverlay: true, drawDarken: false),
+                              painter: painter.copy(drawCropOverlay: true),
                               child: const SizedBox.expand(),
                             ),
                           ),
@@ -3927,8 +3928,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
             ),
             // Crop corner widget – outside Transform.scale so it
             // keeps its fixed size regardless of scale animations.
-            if (cropRotateEditorConfigs.widgets.cropCornerWidget !=
-                null)
+            if (cropRotateEditorConfigs.widgets.cropCornerWidget != null)
               Positioned.fill(
                 child: AnimatedBuilder(
                   animation: scaleCtrl,
@@ -3956,23 +3956,17 @@ class CropRotateEditorState extends State<CropRotateEditor>
                                 2;
 
                         // Compute the unscaled position
-                        final double rawX =
-                            imgOriginX + painter.cropRect.right;
-                        final double rawY =
-                            imgOriginY + painter.cropRect.top;
+                        final double rawX = imgOriginX + painter.cropRect.right;
+                        final double rawY = imgOriginY + painter.cropRect.top;
 
                         // Apply the same scale transform as the
                         // crop handles overlay uses
                         final double s = scaleAnimation.value;
                         final Alignment a = _contentCenterAlignment;
-                        final double cx =
-                            bodySize.width * (0.5 + a.x / 2);
-                        final double cy =
-                            bodySize.height * (0.5 + a.y / 2);
-                        final double scaledX =
-                            cx + (rawX - cx) * s;
-                        final double scaledY =
-                            cy + (rawY - cy) * s;
+                        final double cx = bodySize.width * (0.5 + a.x / 2);
+                        final double cy = bodySize.height * (0.5 + a.y / 2);
+                        final double scaledX = cx + (rawX - cx) * s;
+                        final double scaledY = cy + (rawY - cy) * s;
 
                         return Stack(
                           children: [
@@ -4205,7 +4199,8 @@ class CropRotateEditorState extends State<CropRotateEditor>
     );
   }
 
-  /// Darkens the areas of the image that are outside the crop rect.
+  /// Paints the image without darken overlay or crop overlay.
+  /// Darken and crop overlay are now separate Stack layers.
   Widget _buildBackgroundCropPainter({required Widget child}) {
     return ExtendedCustomPaint(
       key: cropPainterKey,
@@ -4216,7 +4211,75 @@ class CropRotateEditorState extends State<CropRotateEditor>
     );
   }
 
+  /// Uniform darken overlay covering the entire body area.
+  /// Sits between the image and the blur so BackdropFilter blurs
+  /// a uniformly darkened image (no transition = no artifacts).
+  Widget _buildDarkenOverlay() {
+    return Positioned.fill(
+      child: ValueListenableBuilder<CropCornerPainter?>(
+        valueListenable: _cropPainterNotifier,
+        builder: (context, painter, _) {
+          if (painter == null) return const SizedBox.shrink();
+
+          final Color interpolatedColor = Color.lerp(
+            painter.background,
+            painter.cropOverlayColor,
+            painter.fadeInOpacity,
+          )!;
+
+          final double opacity = painter.style.cropOverlayOpacity -
+              painter.style.cropOverlayInteractionOpacity *
+                  painter.interactionOpacity;
+          final double fadeInFactor =
+              (1 - opacity) * (1 - painter.fadeInOpacity);
+
+          return IgnorePointer(
+            child: ColoredBox(
+              color: interpolatedColor.withValues(
+                alpha: (opacity + fadeInFactor).clamp(0, 1),
+              ),
+              child: const SizedBox.expand(),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  /// Full-area blur. Since the darken overlay is uniform (no crop rect
+  /// transition), there are no edge artifacts. The sharp restore layer
+  /// on top handles showing the clear image inside the crop rect.
   Widget _buildBlurOverlay() {
+    return Positioned.fill(
+      child: ValueListenableBuilder<CropCornerPainter?>(
+        valueListenable: _cropPainterNotifier,
+        builder: (context, painter, _) {
+          if (painter == null || painter.style.cropOverlayBlur <= 0) {
+            return const SizedBox.shrink();
+          }
+
+          return Opacity(
+            opacity: (1.0 - _blurInteractionOpacity).clamp(0.0, 1.0),
+            child: IgnorePointer(
+              child: BackdropFilter(
+                filter: ui.ImageFilter.blur(
+                  sigmaX: painter.style.cropOverlayBlur,
+                  sigmaY: painter.style.cropOverlayBlur,
+                  tileMode: TileMode.mirror,
+                  bounds: Offset.zero & editorBodySize,
+                ),
+                child: const SizedBox.expand(),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  /// Restores the sharp (un-blurred, un-darkened) image inside the crop rect
+  /// on top of the uniformly-darkened and blurred backdrop.
+  Widget _buildSharpCropRestore() {
     return Positioned.fill(
       child: AnimatedBuilder(
         animation: scaleCtrl,
@@ -4238,37 +4301,81 @@ class CropRotateEditorState extends State<CropRotateEditor>
                 cropRotateEditorConfigs.boundaryMargin;
             final Size imgSize = _renderedImgSize;
             final Size bodySize = editorBodySize;
-
-            // Compute image origin in body coordinates
             final double imgOriginX = margin.left +
                 (bodySize.width - margin.horizontal - imgSize.width) / 2;
             final double imgOriginY = margin.top +
                 (bodySize.height - margin.vertical - imgSize.height) / 2;
 
-            return Opacity(
-              opacity: (1.0 - _blurInteractionOpacity).clamp(0.0, 1.0),
-              child: IgnorePointer(
-                child: ClipPath(
-                  clipper: _CropBlurClipper(
-                    cropRect: painter.cropRect,
-                    drawCircle: painter.drawCircle,
-                    imageOffset: Offset(imgOriginX, imgOriginY),
-                  ),
-                  child: BackdropFilter(
-                    filter: ui.ImageFilter.blur(
-                      sigmaX: painter.style.cropOverlayBlur,
-                      sigmaY: painter.style.cropOverlayBlur,
-                      // tileMode: TileMode.clamp,
-                      bounds: Offset.zero & editorBodySize,
-                      tileMode: TileMode.decal,
-                    ),
-                    child: const SizedBox.expand(),
-                  ),
+            return IgnorePointer(
+              child: ClipPath(
+                clipper: _CropInsideClipper(
+                  cropRect: painter.cropRect,
+                  drawCircle: painter.drawCircle,
+                  imageOffset: Offset(imgOriginX, imgOriginY),
                 ),
+                child: _buildSharpRestoreContent(),
               ),
             );
           },
         ),
+      ),
+    );
+  }
+
+  /// Non-interactive image with the same visual transforms,
+  /// used to restore the sharp view inside the crop rect.
+  Widget _buildSharpRestoreContent() {
+    return _buildRotationTransform(
+      child: _buildFlipTransform(
+        child: Align(
+          alignment: Alignment.center,
+          child: Padding(
+            padding: cropRotateEditorConfigs.viewPadding ??
+                cropRotateEditorConfigs.boundaryMargin,
+            child: _buildStraightenAndPerspectiveTransform(
+              child: Transform.scale(
+                scale: _straightenScale,
+                alignment: Alignment.center,
+                child: Transform.scale(
+                  scale: userScaleFactor,
+                  alignment: Alignment.center,
+                  child: Transform.translate(
+                    offset: translate,
+                    child: _buildSharpRestoreImage(),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Lightweight image for the sharp crop rect restore layer.
+  Widget _buildSharpRestoreImage() {
+    final EdgeInsets margin = cropRotateEditorConfigs.viewPadding ??
+        cropRotateEditorConfigs.boundaryMargin;
+    final double availableHeight = editorBodySize.height - margin.vertical;
+    final double availableWidth = editorBodySize.width - margin.horizontal;
+    final double maxWidth = _imgWidth / _imgHeight * availableHeight;
+    final double maxHeight = availableWidth * _imgHeight / _imgWidth;
+
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        maxWidth: maxWidth.isNaN ? _imgWidth : maxWidth,
+        maxHeight: maxHeight.isNaN ? _imgHeight : maxHeight,
+      ),
+      child: FilteredWidget(
+        filters: appliedFilters,
+        tuneAdjustments: appliedTuneAdjustments,
+        blurFactor: appliedBlurFactor,
+        configs: configs,
+        width: _imgWidth,
+        height: _imgHeight,
+        image: editorImage,
+        videoPlayer: videoController?.videoPlayer,
+        blankSize: initConfigs.mainImageSize,
       ),
     );
   }
@@ -4476,6 +4583,39 @@ class _CropBlurClipper extends CustomClipper<Path> {
 
   @override
   bool shouldReclip(covariant _CropBlurClipper oldClipper) {
+    return oldClipper.cropRect != cropRect ||
+        oldClipper.drawCircle != drawCircle ||
+        oldClipper.imageOffset != imageOffset;
+  }
+}
+
+/// Clips to INSIDE the crop rect only (the inverse of [_CropBlurClipper]).
+/// Used for the sharp-image restore layer on top of the blur.
+class _CropInsideClipper extends CustomClipper<Path> {
+  final Rect cropRect;
+  final bool drawCircle;
+  final Offset imageOffset;
+
+  _CropInsideClipper({
+    required this.cropRect,
+    required this.drawCircle,
+    required this.imageOffset,
+  });
+
+  @override
+  Path getClip(Size size) {
+    final Rect bodyCropRect =
+        cropRect.translate(imageOffset.dx, imageOffset.dy);
+
+    if (drawCircle) {
+      return Path()..addOval(bodyCropRect);
+    } else {
+      return Path()..addRect(bodyCropRect);
+    }
+  }
+
+  @override
+  bool shouldReclip(covariant _CropInsideClipper oldClipper) {
     return oldClipper.cropRect != cropRect ||
         oldClipper.drawCircle != drawCircle ||
         oldClipper.imageOffset != imageOffset;

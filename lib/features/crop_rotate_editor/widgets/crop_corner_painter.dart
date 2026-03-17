@@ -58,7 +58,6 @@ class CropCornerPainter extends CustomPainter {
     this.perspectiveY = 0.0,
     this.perspectiveDepth = 0.001,
     this.straightenScale = 1.0,
-    this.drawDarken = true,
     this.drawCropOverlay = true,
   });
 
@@ -158,10 +157,7 @@ class CropCornerPainter extends CustomPainter {
   /// The scale applied to compensate for straighten rotation.
   final double straightenScale;
 
-  /// Whether to draw the darken overlay. Defaults to true.
-  final bool drawDarken;
-
-  /// Wether to draw the crop corners and the helper areas. Defaults to true.
+  /// Whether to draw the crop corners and the helper areas. Defaults to true.
   final bool drawCropOverlay;
 
   double get _cropOffsetLeft => cropRect.left;
@@ -178,7 +174,6 @@ class CropCornerPainter extends CustomPainter {
         !cropRect.isFinite) {
       return;
     }
-    if (drawDarken) _drawDarkenOutside(canvas: canvas, size: size);
     if (drawCropOverlay) _drawCropOutline(canvas: canvas);
     if (drawCropOverlay && fadeInOpacity > 0) {
       _drawHelperAreas(canvas: canvas, size: size);
@@ -202,133 +197,6 @@ class CropCornerPainter extends CustomPainter {
     }
   }
 
-  /// Returns the path used to clip the overlay and blur effects.
-  Path getClipPath(Size size) {
-    double cropWidth = _cropOffsetRight - _cropOffsetLeft;
-    double cropHeight = _cropOffsetBottom - _cropOffsetTop;
-
-    Path cropPath = Path();
-
-    if (drawCircle) {
-      /// Create a path for the circular clip
-      cropPath.addOval(
-        Rect.fromCenter(
-          center: Offset(
-            cropWidth / 2 + _cropOffsetLeft,
-            cropHeight / 2 + _cropOffsetTop,
-          ),
-          width: cropWidth,
-          height: cropHeight,
-        ),
-      );
-    } else {
-      /// Create a path for the rectangular clip
-      cropPath.addRect(
-        Rect.fromCenter(
-          center: Offset(
-            cropWidth / 2 + _cropOffsetLeft,
-            cropHeight / 2 + _cropOffsetTop,
-          ),
-          width: cropWidth,
-          height: cropHeight,
-        ),
-      );
-    }
-
-    final Rect imageRect = Rect.fromCenter(
-      center: Offset(
-        size.width / 2 + offset.dx * scaleFactor,
-        size.height / 2 + offset.dy * scaleFactor,
-      ),
-      width: renderedImageSize.width * scaleFactor,
-      height: renderedImageSize.height * scaleFactor,
-    );
-
-    Path imagePath = Path()..addRect(imageRect);
-
-    // Apply straighten/perspective transform to the image path so the
-    // darken area follows the visual transformation of the image.
-    if (straightenAngle != 0.0 || perspectiveX != 0.0 || perspectiveY != 0.0) {
-      final double cx = imageRect.center.dx;
-      final double cy = imageRect.center.dy;
-
-      // Build the same matrix used by _buildStraightenAndPerspectiveTransform,
-      // but centered on the image rect.
-      // ignore: deprecated_member_use
-      final Matrix4 m = Matrix4.identity()
-        // ignore: deprecated_member_use
-        ..translate(cx, cy)
-        ..multiply(Matrix4.identity()
-          ..setEntry(3, 2, perspectiveDepth)
-          ..rotateX(-perspectiveX)
-          ..rotateY(perspectiveY)
-          ..rotateZ(-straightenAngle)
-          // ignore: deprecated_member_use
-          ..scale(straightenScale, straightenScale))
-        // ignore: deprecated_member_use
-        ..translate(-cx, -cy);
-
-      imagePath = imagePath.transform(m.storage);
-    }
-
-    return Path.combine(PathOperation.difference, imagePath, cropPath);
-  }
-
-  /// Returns the path used to clip the blur effect.
-  ///
-  /// Clips away the crop rect area so everything else gets blurred,
-  /// including areas beyond the image bounds up to the screen edges.
-  Path getBlurClipPath(Size size) {
-    Path path = Path()..fillType = PathFillType.evenOdd;
-
-    if (drawCircle) {
-      path.addOval(cropRect);
-    } else {
-      path.addRect(cropRect);
-    }
-
-    // Use a rect large enough to cover the full screen area,
-    // centered on the widget so blur extends beyond image bounds.
-    final double outerW = max(size.width, screenSize.width) * 3;
-    final double outerH = max(size.height, screenSize.height) * 3;
-    path.addRect(Rect.fromCenter(
-      center: Offset(size.width / 2, size.height / 2),
-      width: outerW,
-      height: outerH,
-    ));
-
-    return path;
-  }
-
-  void _drawDarkenOutside({
-    required Canvas canvas,
-    required Size size,
-  }) {
-    /// Draw outline darken layers
-    Path path = getClipPath(size);
-
-    Color interpolatedColor = Color.lerp(
-      background,
-      cropOverlayColor,
-      fadeInOpacity,
-    )!;
-
-    double opacity = style.cropOverlayOpacity -
-        style.cropOverlayInteractionOpacity * interactionOpacity;
-
-    double fadeInFactor = (1 - opacity) * (1 - fadeInOpacity);
-
-    // Old saveLayer based blur has been removed from here.
-
-    /// Draw the darkened area
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = interpolatedColor.withValues(
-            alpha: (opacity + fadeInFactor).clamp(0, 1))
-        ..style = PaintingStyle.fill,
-    );
-  }
 
   void _drawCorners({
     required Canvas canvas,
@@ -565,12 +433,13 @@ class CropCornerPainter extends CustomPainter {
         oldDelegate.perspectiveY != perspectiveY ||
         oldDelegate.perspectiveDepth != perspectiveDepth ||
         oldDelegate.straightenScale != straightenScale ||
-        oldDelegate.drawDarken != drawDarken ||
         oldDelegate.drawCropOverlay != drawCropOverlay;
   }
 
   /// Create a copy of the [CropCornerPainter].
-  CropCornerPainter copy({bool? drawDarken, bool? drawCropOverlay}) {
+  CropCornerPainter copy({
+    bool? drawCropOverlay,
+  }) {
     return CropCornerPainter(
       drawCircle: drawCircle,
       offset: offset,
@@ -592,31 +461,7 @@ class CropCornerPainter extends CustomPainter {
       perspectiveY: perspectiveY,
       perspectiveDepth: perspectiveDepth,
       straightenScale: straightenScale,
-      drawDarken: drawDarken ?? this.drawDarken,
       drawCropOverlay: drawCropOverlay ?? this.drawCropOverlay,
     );
-  }
-}
-
-/// A custom clipper that uses the CropCornerPainter's clip path logic.
-///
-/// This is used to apply effects like backdrop blur exclusively to the overlay
-/// area (the space outside the crop bounds) in the crop/rotate editor.
-class CropOverlayClipper extends CustomClipper<Path> {
-  /// Reference to the current state of the crop painter.
-  final CropCornerPainter painter;
-
-  /// Creates a [CropOverlayClipper].
-  CropOverlayClipper(this.painter);
-
-  @override
-  Path getClip(Size size) {
-    return painter.getBlurClipPath(size);
-  }
-
-  @override
-  bool shouldReclip(CustomClipper<Path> oldClipper) {
-    if (oldClipper is! CropOverlayClipper) return true;
-    return painter.shouldRepaint(oldClipper.painter);
   }
 }
