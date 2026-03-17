@@ -2782,7 +2782,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
             mounted: mounted,
             duration: cropRotateEditorConfigs.opacityOutsideCropAreaDuration,
           );
-          fadeInBlur();
+          if (_isAdjustmentBlurActive) fadeInBlur();
         }
       }
     });
