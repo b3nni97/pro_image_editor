@@ -467,6 +467,9 @@ class ProImageEditorState extends State<ProImageEditor>
   /// Flag indicating if the editor has been initialized.
   bool _isInitialized = false;
 
+  /// Whether the initial crop animation is currently playing.
+  bool _isCropAnimating = false;
+
   /// Flag indicating if the image needs decoding.
   bool _isImageNotDecoded = true;
 
@@ -2815,6 +2818,7 @@ class ProImageEditorState extends State<ProImageEditor>
       videoController: widget.videoController,
       isVideoEditor: _isVideoEditor,
       layerDragSelectionService: _layerDragSelectionService,
+      isCropAnimating: _isCropAnimating,
     );
   }
 
@@ -2925,11 +2929,11 @@ class ProImageEditorState extends State<ProImageEditor>
       sizesManager: sizesManager,
       stateManager: stateManager,
       blankSize: widget.blankSize,
-      hasAspectRatioClamping:
-          cropRotateEditorConfigs.minAspectRatio != null ||
-              cropRotateEditorConfigs.maxAspectRatio != null ||
-              (cropRotateEditorConfigs.initAspectRatio != null &&
-                  cropRotateEditorConfigs.initAspectRatio! > 0),
+      onCropAnimationChanged: (isAnimating) {
+        setState(() {
+          _isCropAnimating = isAnimating;
+        });
+      },
     );
   }
 

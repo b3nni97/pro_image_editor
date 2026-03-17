@@ -17,6 +17,7 @@ class TransformedContentGenerator extends StatelessWidget {
     required this.transformConfigs,
     required this.configs,
     this.isVideoPlayer = false,
+    this.enableCropClip = true,
     super.key,
   });
 
@@ -31,6 +32,12 @@ class TransformedContentGenerator extends StatelessWidget {
 
   /// Indicates if the child is a video player.
   final bool isVideoPlayer;
+
+  /// Whether to apply the crop clip rect.
+  ///
+  /// Set to `false` during animated crop transitions to prevent the
+  /// dark background from showing through the clipped area.
+  final bool enableCropClip;
 
   TransformConfigs get _transformConfigs => transformConfigs;
 
@@ -199,6 +206,7 @@ class TransformedContentGenerator extends StatelessWidget {
   }
 
   Widget _buildCropPainter({required Widget child}) {
+    if (!enableCropClip) return child;
     if (kIsWeb && isVideoPlayer) return child;
 
     CropMode cropMode = _transformConfigs.cropMode;

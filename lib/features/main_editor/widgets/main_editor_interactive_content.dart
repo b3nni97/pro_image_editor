@@ -63,6 +63,7 @@ class MainEditorInteractiveContent extends StatelessWidget {
     required this.isVideoEditor,
     required this.videoController,
     required this.layerDragSelectionService,
+    this.isCropAnimating = false,
   });
 
   /// A builder function to create the image widget.
@@ -119,6 +120,9 @@ class MainEditorInteractiveContent extends StatelessWidget {
   /// Manages the drag-to-select layer interaction.
   final LayerDragSelectionService layerDragSelectionService;
 
+  /// Whether the initial crop animation is currently playing.
+  final bool isCropAnimating;
+
   @override
   Widget build(BuildContext context) {
     bool hasSelectedLayers = layerInteractionManager.hasSelectedLayers;
@@ -139,7 +143,8 @@ class MainEditorInteractiveContent extends StatelessWidget {
           ),
 
           /// Build crop area overlay
-          if (configs.imageGeneration.cropToImageBounds)
+          if (configs.imageGeneration.cropToImageBounds &&
+              !isCropAnimating)
             _buildCropAreaOverlay(),
 
           /// Build video controls

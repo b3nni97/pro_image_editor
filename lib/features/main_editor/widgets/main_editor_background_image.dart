@@ -11,19 +11,11 @@ import '../services/sizes_manager.dart';
 import '../services/state_manager.dart';
 
 /// A widget for displaying the background image in the main editor,
-/// supporting color filters and size configurations.
-class MainEditorBackgroundImage extends StatelessWidget {
+/// supporting color filters, size configurations, and animated crop
+/// transitions for hero animations.
+class MainEditorBackgroundImage extends StatefulWidget {
   /// Creates a `MainEditorBackgroundImage` with the provided configurations
   /// and dependencies.
-  ///
-  /// - [stateManager]: Manages the state of the editor.
-  /// - [sizesManager]: Handles size configurations and adjustments.
-  /// - [configs]: The editor's configuration settings.
-  /// - [editorImage]: The main image being edited.
-  /// - [backgroundImageColorFilterKey]: A key for applying color filters
-  ///   to the background image.
-  /// - [isInitialized]: Indicates whether the editor has been fully
-  ///   initialized.
   const MainEditorBackgroundImage({
     super.key,
     required this.stateManager,
@@ -34,7 +26,7 @@ class MainEditorBackgroundImage extends StatelessWidget {
     required this.isInitialized,
     required this.heroTag,
     required this.blankSize,
-    this.hasAspectRatioClamping = false,
+    this.onCropAnimationChanged,
   }) : assert(editorImage != null || blankSize != null,
             'Either editorImage or blankSize must be provided');
 
@@ -59,46 +51,16 @@ class MainEditorBackgroundImage extends StatelessWidget {
   /// Indicates whether the editor has been fully initialized.
   final bool isInitialized;
 
-  /// Whether aspect ratio clamping (min/max/init) will be applied.
-  /// When true and not yet initialized, hides the raw image to prevent
-  /// a flash of the uncropped image.
-  final bool hasAspectRatioClamping;
-
   /// A unique hero tag for the Image Editor widget.
   final String heroTag;
 
+  /// Called when the crop animation state changes.
+  /// `true` when animation starts, `false` when it ends.
+  final ValueChanged<bool>? onCropAnimationChanged;
+
   @override
-  Widget build(BuildContext context) {
-    return Hero(
-      tag: heroTag,
-      createRectTween: (begin, end) => RectTween(begin: begin, end: end),
-      child: !isInitialized
-          ? hasAspectRatioClamping
-              ? const SizedBox.shrink()
-              : editorImage != null
-                  ? AutoImage(
-                      editorImage!,
-                      fit: BoxFit.contain,
-                      configs: configs,
-                    )
-                  : SizedBox.fromSize(size: blankSize)
-          : TransformedContentGenerator(
-              transformConfigs: stateManager.transformConfigs,
-              configs: configs,
-              child: FilteredWidget(
-                filterKey: backgroundImageColorFilterKey,
-                width: sizesManager.decodedImageSize.width,
-                height: sizesManager.decodedImageSize.height,
-                configs: configs,
-                image: editorImage,
-                blankSize: blankSize,
-                filters: stateManager.activeFilters,
-                tuneAdjustments: stateManager.activeTuneAdjustments,
-                blurFactor: stateManager.activeBlur,
-              ),
-            ),
-    );
-  }
+  State<MainEditorBackgroundImage> createState() =>
+      _MainEditorBackgroundImageState();
 
   @override
   void debugFillProperties(DiagnosticPropertiesBuilder properties) {
@@ -145,5 +107,177 @@ class MainEditorBackgroundImage extends StatelessWidget {
         'backgroundImageColorFilterKey',
         backgroundImageColorFilterKey,
       ));
+  }
+}
+
+class _MainEditorBackgroundImageState extends State<MainEditorBackgroundImage>
+    with SingleTickerProviderStateMixin {
+  AnimationController? _cropAnimCtrl;
+  Animation<double>? _cropAnimation;
+
+  /// The transform configs captured when the crop animation starts.
+  TransformConfigs? _targetTransformConfigs;
+
+  /// The full (uncropped) rect to animate from.
+  Rect? _fullRect;
+
+  /// Whether the crop animation has completed.
+  bool _cropAnimDone = false;
+
+  /// Tracks the previous initialized state to detect transitions.
+  bool _wasInitialized = false;
+
+  @override
+  void didUpdateWidget(covariant MainEditorBackgroundImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (widget.isInitialized && !_wasInitialized) {
+      _wasInitialized = true;
+      _checkAndStartCropAnimation();
+    }
+  }
+
+  @override
+  void dispose() {
+    _cropAnimCtrl?.dispose();
+    super.dispose();
+  }
+
+  /// Checks if aspect ratio clamping produced a crop and starts the
+  /// animated transition from full rect to cropped rect.
+  void _checkAndStartCropAnimation() {
+    final tc = widget.stateManager.transformConfigs;
+
+    // Only animate if a crop has actually been applied
+    if (tc.isEmpty || tc.originalSize.isInfinite) {
+      _cropAnimDone = true;
+      return;
+    }
+
+    final origSize = tc.originalSize;
+    final fullCropRect = Rect.fromLTWH(
+      0,
+      0,
+      origSize.width,
+      origSize.height,
+    );
+
+    // If cropRect equals fullRect, no crop animation needed
+    if ((tc.cropRect.left - fullCropRect.left).abs() < 0.5 &&
+        (tc.cropRect.top - fullCropRect.top).abs() < 0.5 &&
+        (tc.cropRect.width - fullCropRect.width).abs() < 0.5 &&
+        (tc.cropRect.height - fullCropRect.height).abs() < 0.5) {
+      _cropAnimDone = true;
+      return;
+    }
+
+    _targetTransformConfigs = tc;
+    _fullRect = fullCropRect;
+    _cropAnimDone = false;
+
+    _cropAnimCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 400),
+    );
+    _cropAnimation = CurvedAnimation(
+      parent: _cropAnimCtrl!,
+      curve: Curves.easeInOut,
+    );
+
+    _cropAnimCtrl!.addStatusListener((status) {
+      if (status == AnimationStatus.completed) {
+        widget.onCropAnimationChanged?.call(false);
+        setState(() {
+          _cropAnimDone = true;
+        });
+      }
+    });
+
+    // Start after the current frame so the hero transition settles first
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        // Notify parent that crop animation is starting
+        widget.onCropAnimationChanged?.call(true);
+        _cropAnimCtrl!.forward();
+      }
+    });
+  }
+
+  /// Returns interpolated transform configs during the crop animation.
+  TransformConfigs _animatedTransformConfigs() {
+    final t = _cropAnimation!.value;
+    final target = _targetTransformConfigs!;
+    final animatedRect = Rect.lerp(_fullRect!, target.cropRect, t)!;
+    return target.copyWith(cropRect: animatedRect);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final w = widget;
+
+    return Hero(
+      tag: w.heroTag,
+      createRectTween: (begin, end) => RectTween(begin: begin, end: end),
+      child: _buildContent(),
+    );
+  }
+
+  Widget _buildContent() {
+    final w = widget;
+
+    // Before initialization: show raw image for hero animation
+    if (!w.isInitialized) {
+      return w.editorImage != null
+          ? AutoImage(
+              w.editorImage!,
+              fit: BoxFit.contain,
+              configs: w.configs,
+            )
+          : SizedBox.fromSize(size: w.blankSize);
+    }
+
+    // Crop animation in progress: interpolate the crop rect
+    if (!_cropAnimDone &&
+        _cropAnimation != null &&
+        _targetTransformConfigs != null) {
+      return AnimatedBuilder(
+        animation: _cropAnimation!,
+        builder: (context, child) {
+          return TransformedContentGenerator(
+            transformConfigs: _animatedTransformConfigs(),
+            configs: w.configs,
+            child: child!,
+          );
+        },
+        child: FilteredWidget(
+          filterKey: w.backgroundImageColorFilterKey,
+          width: w.sizesManager.decodedImageSize.width,
+          height: w.sizesManager.decodedImageSize.height,
+          configs: w.configs,
+          image: w.editorImage,
+          blankSize: w.blankSize,
+          filters: w.stateManager.activeFilters,
+          tuneAdjustments: w.stateManager.activeTuneAdjustments,
+          blurFactor: w.stateManager.activeBlur,
+        ),
+      );
+    }
+
+    // Normal state: show final transformed image
+    return TransformedContentGenerator(
+      transformConfigs: w.stateManager.transformConfigs,
+      configs: w.configs,
+      child: FilteredWidget(
+        filterKey: w.backgroundImageColorFilterKey,
+        width: w.sizesManager.decodedImageSize.width,
+        height: w.sizesManager.decodedImageSize.height,
+        configs: w.configs,
+        image: w.editorImage,
+        blankSize: w.blankSize,
+        filters: w.stateManager.activeFilters,
+        tuneAdjustments: w.stateManager.activeTuneAdjustments,
+        blurFactor: w.stateManager.activeBlur,
+      ),
+    );
   }
 }
