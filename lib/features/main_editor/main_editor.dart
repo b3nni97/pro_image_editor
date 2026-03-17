@@ -1066,7 +1066,10 @@ class ProImageEditorState extends State<ProImageEditor>
                     TransformConfigs.empty())
                 .copyWith(
           cropRect: newCropRect,
-          aspectRatio: targetRatio,
+          aspectRatio: (cropRotateEditorConfigs.initAspectRatio != null &&
+                  cropRotateEditorConfigs.initAspectRatio! > 0)
+              ? targetRatio
+              : -1.0,
           originalSize: imgBaseSize,
           cropEditorScreenRatio: sizesManager.bodySize.aspectRatio,
         );
