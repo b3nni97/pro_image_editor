@@ -115,6 +115,10 @@ class LayerStack extends StatelessWidget {
             RepaintBoundary(
               child: Hero(
                 tag: 'crop_layer_painter_hero',
+                flightShuttleBuilder:
+                    (context, animation, direction, fromCtx, toCtx) {
+                  return const SizedBox.shrink();
+                },
                 child: CustomPaint(
                   foregroundPainter:
                       _cutOutsideImageArea ? _buildCropPainter() : null,

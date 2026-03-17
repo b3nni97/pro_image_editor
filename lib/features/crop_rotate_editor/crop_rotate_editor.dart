@@ -3876,9 +3876,11 @@ class CropRotateEditorState extends State<CropRotateEditor>
                 ),
               ),
             ),
-            _buildDarkenOverlay(),
-            _buildBlurOverlay(),
-            _buildSharpCropRestore(),
+            if (!_showFakeHero) ...[
+              _buildDarkenOverlay(),
+              _buildBlurOverlay(),
+              _buildSharpCropRestore(),
+            ],
             // Crop handles above blur so they're not blurred
             Positioned.fill(
               child: AnimatedBuilder(
