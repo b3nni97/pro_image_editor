@@ -1057,7 +1057,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
         _blurInteractionOpacity = 1.0 * curveT;
         _setCropPainter();
       },
-      mounted: mounted,
+      getIsMounted: () => mounted,
       transitionFunction: Curves.decelerate.transform,
       duration: cropRotateEditorConfigs.opacityOutsideCropAreaDuration,
     );
@@ -1072,7 +1072,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
           _blurInteractionOpacity = 1.0 - 1.0 * curveT;
           _setCropPainter();
         },
-        mounted: mounted,
+        getIsMounted: () => mounted,
         duration: cropRotateEditorConfigs.opacityOutsideCropAreaDuration,
       );
     });
@@ -1505,13 +1505,20 @@ class CropRotateEditorState extends State<CropRotateEditor>
         _painterOpacity = 1.0 * curveT;
         _updateCropPainter();
       },
-      mounted: mounted,
+      getIsMounted: () => mounted,
       transitionFunction:
           cropRotateEditorConfigs.fadeInOutsideCropAreaAnimationCurve.transform,
       duration: cropRotateEditorConfigs.fadeInOutsideCropAreaAnimationDuration,
       onDone: takeScreenshot,
     );
 
+    _updateAllStates();
+  }
+
+  /// Re-enables the fake hero before a route transition.
+  void showFakeHero() {
+    if (!mounted) return;
+    _showFakeHero = true;
     _updateAllStates();
   }
 
@@ -1541,7 +1548,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
             );
             _setOffsetLimits();
           },
-          mounted: mounted,
+          getIsMounted: () => mounted,
           duration: cropRotateEditorConfigs.animationDuration,
           transitionFunction:
               cropRotateEditorConfigs.scaleAnimationCurve.transform,
@@ -1561,7 +1568,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
             userScaleFactor = startZoom + (targetZoom - startZoom) * curveT;
             _setOffsetLimits();
           },
-          mounted: mounted,
+          getIsMounted: () => mounted,
           duration: cropRotateEditorConfigs.animationDuration,
           transitionFunction:
               cropRotateEditorConfigs.scaleAnimationCurve.transform,
@@ -2093,7 +2100,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
           _interactionOpacityProgress = 1.0 * curveT;
           _setCropPainter();
         },
-        mounted: mounted,
+        getIsMounted: () => mounted,
         transitionFunction: Curves.decelerate.transform,
         duration: cropRotateEditorConfigs.opacityOutsideCropAreaDuration,
       );
@@ -2779,7 +2786,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
               _interactionOpacityProgress = 1.0 - 1.0 * curveT;
               _setCropPainter();
             },
-            mounted: mounted,
+            getIsMounted: () => mounted,
             duration: cropRotateEditorConfigs.opacityOutsideCropAreaDuration,
           );
           if (_isAdjustmentBlurActive) fadeInBlur();
@@ -2922,7 +2929,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
             _setCropPainter();
           },
-          mounted: mounted,
+          getIsMounted: () => mounted,
           duration: animationDuration,
           transitionFunction: animationCurve.transform,
         ).whenComplete(() {
@@ -3367,7 +3374,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
                 userScaleFactor *
                 curveT;
       },
-      mounted: mounted,
+      getIsMounted: () => mounted,
       duration: cropRotateEditorConfigs.animationDuration,
       transitionFunction: Curves.decelerate.transform,
     );

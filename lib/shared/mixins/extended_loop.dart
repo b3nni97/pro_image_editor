@@ -41,7 +41,7 @@ mixin ExtendedLoop {
   Future<void> loopWithTransitionTiming(
     void Function(double curveT) function, {
     required Duration duration,
-    required bool mounted,
+    bool Function()? getIsMounted,
     double Function(double t) transitionFunction = linear,
     Function()? onDone,
   }) async {
@@ -51,7 +51,8 @@ mixin ExtendedLoop {
     double endTime = startTime + fullTime;
 
     if (duration.inMilliseconds != 0) {
-      while (DateTime.now().millisecondsSinceEpoch < endTime && mounted) {
+      while (DateTime.now().millisecondsSinceEpoch < endTime &&
+          (getIsMounted?.call() ?? true)) {
         double t =
             (DateTime.now().millisecondsSinceEpoch - startTime) / fullTime;
 
@@ -60,6 +61,9 @@ mixin ExtendedLoop {
         await Future.delayed(Duration(milliseconds: frameRate));
       }
     }
+    
+    if (!(getIsMounted?.call() ?? true)) return;
+
     function(1.0);
     onDone?.call();
   }

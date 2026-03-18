@@ -1409,6 +1409,7 @@ class ProImageEditorState extends State<ProImageEditor>
   ///
   /// [layerData] - The text layer data to be edited.
   void _onTextLayerTap(TextLayer layerData) async {
+    if (isSubEditorOpen) resetGlobalKeys();
     final customCallback = mainEditorCallbacks?.onEditTextLayer;
     TextLayer? updatedLayer;
 
@@ -1519,6 +1520,8 @@ class ProImageEditorState extends State<ProImageEditor>
   }) {
     layerInteractionManager.clearSelectedLayers();
     _checkInteractiveViewer();
+
+    bool wasSubEditorOpen = isSubEditorOpen;
     isSubEditorOpen = true;
 
     setState(() {});
@@ -1542,6 +1545,11 @@ class ProImageEditorState extends State<ProImageEditor>
     }
 
     mainEditorCallbacks?.handleOpenSubEditor(editorName);
+    
+    if (wasSubEditorOpen && !_pageOpenCompleter.isCompleted) {
+      _pageOpenCompleter.complete(true);
+    }
+    
     _pageOpenCompleter = Completer();
 
     final subEditorStyle = mainEditorConfigs.style.subEditorPage;
@@ -1625,7 +1633,13 @@ class ProImageEditorState extends State<ProImageEditor>
       },
     );
     if (mainEditorConfigs.enableSubEditorPage) {
+      if (wasSubEditorOpen) {
+        return _navigatorKey.currentState!.pushReplacement<T?, dynamic>(route);
+      }
       return _navigatorKey.currentState!.push<T?>(route);
+    }
+    if (wasSubEditorOpen) {
+      return Navigator.pushReplacement<T?, dynamic>(context, route);
     }
     return Navigator.push<T?>(
       context,
@@ -1640,6 +1654,7 @@ class ProImageEditorState extends State<ProImageEditor>
   /// After closing the paint editor, any changes made are applied to the
   /// image's layers.
   void openPaintEditor() async {
+    if (isSubEditorOpen) resetGlobalKeys();
     var paintCallbacks =
         callbacks.paintEditorCallbacks ?? const PaintEditorCallbacks();
     var overridenPaintCallbacks = paintCallbacks.copyWith(
@@ -1723,6 +1738,7 @@ class ProImageEditorState extends State<ProImageEditor>
     /// Small Duration is important for a smooth hero animation
     Duration duration = const Duration(milliseconds: 150),
   }) async {
+    if (isSubEditorOpen) resetGlobalKeys();
     final customCallback = mainEditorCallbacks?.onCreateTextLayer;
     TextLayer? layer;
 
@@ -1759,6 +1775,8 @@ class ProImageEditorState extends State<ProImageEditor>
   /// the image.
   void openCropRotateEditor() async {
     if (!_isInitialized) await _decodeImageCompleter.future;
+
+    if (isSubEditorOpen) resetGlobalKeys();
 
     await openPage<TransformConfigs?>(
       CropRotateEditor.autoSource(
@@ -1826,6 +1844,7 @@ class ProImageEditorState extends State<ProImageEditor>
   /// adjustments are made, the current state remains unchanged.
   void openTuneEditor({bool enableHero = true}) async {
     if (!mounted) return;
+    if (isSubEditorOpen) resetGlobalKeys();
     List<TuneAdjustmentMatrix>? tuneAdjustments = await openPage(
       HeroMode(
         enabled: enableHero,
@@ -1872,6 +1891,7 @@ class ProImageEditorState extends State<ProImageEditor>
   /// original image is retained.
   void openFilterEditor() async {
     if (!mounted) return;
+    if (isSubEditorOpen) resetGlobalKeys();
     FilterMatrix? filters = await openPage(
       FilterEditor.autoSource(
         key: filterEditor,
@@ -1906,6 +1926,7 @@ class ProImageEditorState extends State<ProImageEditor>
   /// Opens the blur editor as a modal bottom sheet.
   void openBlurEditor() async {
     if (!mounted) return;
+    if (isSubEditorOpen) resetGlobalKeys();
     double? blur = await openPage(
       BlurEditor.autoSource(
         key: blurEditor,
@@ -2326,13 +2347,27 @@ class ProImageEditorState extends State<ProImageEditor>
   /// text, crop/rotate, filter, tune, and emoji editors.
   /// This ensures that any open sub-editor is properly closed and the main
   /// editor returns to its default state.
-  void closeSubEditor() {
-    paintEditor.currentState?.close();
-    textEditor.currentState?.close();
-    cropRotateEditor.currentState?.close();
-    filterEditor.currentState?.close();
-    tuneEditor.currentState?.close();
-    emojiEditor.currentState?.close();
+  ///
+  /// Returns a [Future] that completes when the sub-editor's route dismiss
+  /// animation has finished and the widget has been fully removed from the
+  /// tree. Await this before opening a new sub-editor to avoid duplicate
+  /// GlobalKey errors.
+  Future<void> closeSubEditor() async {
+    if (!isSubEditorOpen) return;
+
+    // Pop the route directly from the correct navigator to ensure the
+    // route animation fires regardless of onCloseEditor callbacks.
+    if (mainEditorConfigs.enableSubEditorPage) {
+      _navigatorKey.currentState?.pop();
+    } else {
+      Navigator.of(context).pop();
+    }
+
+    // Wait for the route dismiss animation to complete so the old widget
+    // is fully removed from the tree before a new editor can be opened.
+    if (!_pageOpenCompleter.isCompleted) {
+      await _pageOpenCompleter.future;
+    }
   }
 
   /// Close the image editor.

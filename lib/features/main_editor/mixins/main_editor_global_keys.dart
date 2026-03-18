@@ -14,29 +14,49 @@ import '/features/tune_editor/tune_editor.dart';
 mixin MainEditorGlobalKeys {
   /// A GlobalKey for the Paint Editor, used to access and control the state
   /// of the paint editor.
-  final paintEditor = GlobalKey<PaintEditorState>();
+  late GlobalKey<PaintEditorState> paintEditor = GlobalKey<PaintEditorState>();
 
   /// A GlobalKey for the Text Editor, used to access and control the state of
   /// the text editor.
-  final textEditor = GlobalKey<TextEditorState>();
+  late GlobalKey<TextEditorState> textEditor = GlobalKey<TextEditorState>();
 
   /// A GlobalKey for the Crop and Rotate Editor, used to access and control
   /// the state of the crop and rotate editor.
-  final cropRotateEditor = GlobalKey<CropRotateEditorState>();
+  late GlobalKey<CropRotateEditorState> cropRotateEditor =
+      GlobalKey<CropRotateEditorState>();
 
   /// A GlobalKey for the Filter Editor, used to access and control the state
   /// of the filter editor.
-  final filterEditor = GlobalKey<FilterEditorState>();
+  late GlobalKey<FilterEditorState> filterEditor =
+      GlobalKey<FilterEditorState>();
 
   /// A GlobalKey for the Tune Editor, used to access and control the state of
   /// the tune editor.
-  final tuneEditor = GlobalKey<TuneEditorState>();
+  late GlobalKey<TuneEditorState> tuneEditor = GlobalKey<TuneEditorState>();
 
   /// A GlobalKey for the Blur Editor, used to access and control the state of
   /// the blur editor.
-  final blurEditor = GlobalKey<BlurEditorState>();
+  late GlobalKey<BlurEditorState> blurEditor = GlobalKey<BlurEditorState>();
 
   /// A GlobalKey for the Emoji Editor, used to access and control the state of
   /// the emoji editor.
-  final emojiEditor = GlobalKey<EmojiEditorState>();
+  late GlobalKey<EmojiEditorState> emojiEditor = GlobalKey<EmojiEditorState>();
+
+  /// Re-initializes all GlobalKeys. Useful when rapidly switching between
+  /// subeditors via `pushReplacement` to avoid "Duplicate GlobalKey" errors.
+  /// This also ensures the `CropRotateEditor` shows its fake hero before its
+  /// key is lost, allowing the outgoing hero animation to play.
+  void resetGlobalKeys() {
+    cropRotateEditor.currentState?.showFakeHero();
+
+    paintEditor = GlobalKey<PaintEditorState>();
+    textEditor = GlobalKey<TextEditorState>();
+    cropRotateEditor = GlobalKey<CropRotateEditorState>();
+    filterEditor = GlobalKey<FilterEditorState>();
+    tuneEditor = GlobalKey<TuneEditorState>();
+    blurEditor = GlobalKey<BlurEditorState>();
+    emojiEditor = GlobalKey<EmojiEditorState>();
+  }
 }
+
+
