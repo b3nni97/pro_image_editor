@@ -23,6 +23,9 @@ class ExtendedInteractiveViewer extends StatefulWidget {
     this.onMatrix4Change,
     this.initialMatrix4,
     this.enableExternalGestureDetector = false,
+    this.boundaryMargin = EdgeInsets.zero,
+    this.minScale = 1.0,
+    this.maxScale = 5.0,
   });
 
   /// Configuration options that control zoom behavior and limits.
@@ -115,6 +118,18 @@ class ExtendedInteractiveViewer extends StatefulWidget {
   /// The initial Matrix4 value.
   final Matrix4? initialMatrix4;
 
+  /// The boundary margin for the interactive viewer.
+  ///
+  /// This defines the margin around the child content that determines
+  /// the panning limits.
+  final EdgeInsets boundaryMargin;
+
+  /// The minimum scale the interactive viewer can be zoomed to.
+  final double minScale;
+
+  /// The maximum scale the interactive viewer can be zoomed to.
+  final double maxScale;
+
   @override
   State<ExtendedInteractiveViewer> createState() =>
       ExtendedInteractiveViewerState();
@@ -137,7 +152,7 @@ class ExtendedInteractiveViewerState extends State<ExtendedInteractiveViewer>
   void initState() {
     super.initState();
     final initialTransformation =
-        (widget.initialMatrix4 ?? widget.zoomConfigs.initialTransform);
+        widget.initialMatrix4;
 
     _transformCtrl = TransformationController(initialTransformation)
       ..addListener(() {
@@ -317,12 +332,12 @@ class ExtendedInteractiveViewerState extends State<ExtendedInteractiveViewer>
       );
     }
     return InteractiveViewerScrollPhysics(
-      boundaryMargin: widget.zoomConfigs.boundaryMargin,
+      boundaryMargin: widget.boundaryMargin,
       transformationController: _transformCtrl,
       panEnabled: _enableInteraction,
       scaleEnabled: _enableInteraction,
-      minScale: widget.zoomConfigs.editorMinScale,
-      maxScale: widget.zoomConfigs.editorMaxScale,
+      minScale: widget.minScale,
+      maxScale: widget.maxScale,
       onInteractionStart: widget.onInteractionStart,
       onInteractionUpdate: widget.onInteractionUpdate,
       onInteractionEnd: widget.onInteractionEnd,

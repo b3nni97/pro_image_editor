@@ -42,6 +42,7 @@ export 'state_history_configs.dart';
 export 'sticker_editor_configs.dart';
 export 'text_editor_configs.dart';
 export 'tune_editor_configs.dart';
+export 'utils/viewport_fit_result.dart';
 
 /// A class representing configuration options for the Image Editor.
 class ProImageEditorConfigs {

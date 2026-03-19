@@ -1,22 +1,25 @@
 import 'package:flutter/widgets.dart';
 
+import 'viewport_fit_result.dart';
+
+export 'viewport_fit_result.dart';
+
 /// Configuration interface for zoom behavior in an editor or viewer.
 ///
-/// Provides control over zoom enablement, scale limits, double-tap behavior,
-/// and boundary constraints.
+/// Provides control over zoom enablement, double-tap behavior,
+/// and a [viewportFitBuilder] callback that dynamically computes
+/// boundary margin, scale limits, and initial transform based on
+/// the current effective aspect ratio.
 abstract class ZoomConfigs {
   /// Creates a set of zoom configuration options.
   const ZoomConfigs({
     this.enableZoom = false,
-    this.editorMinScale = 1,
-    this.editorMaxScale = 5,
-    this.boundaryMargin = EdgeInsets.zero,
-    this.initialTransform,
     this.enableDoubleTapZoom = true,
     this.doubleTapZoomFactor = 2,
     this.doubleTapZoomDuration = const Duration(milliseconds: 180),
     this.doubleTapZoomCurve = Curves.easeInOut,
     this.invertTrackpadDirection = false,
+    this.viewportFitBuilder,
   });
 
   /// {@template enableZoom}
@@ -30,55 +33,6 @@ abstract class ZoomConfigs {
   /// Default value is `false`.
   /// {@endtemplate}
   final bool enableZoom;
-
-  /// The minimum scale factor for the editor.
-  ///
-  /// This value determines the lowest level of zoom that can be applied to the
-  /// editor content. It only has an effect when [enableZoom] is set to
-  /// `true`.
-  /// If [enableZoom] is `false`, this value is ignored.
-  ///
-  /// Default value is 1.0.
-  final double editorMinScale;
-
-  /// The maximum scale factor for the editor.
-  ///
-  /// This value determines the highest level of zoom that can be applied to the
-  /// editor content. It only has an effect when [enableZoom] is set to
-  /// `true`.
-  /// If [enableZoom] is `false`, this value is ignored.
-  ///
-  /// Default value is 5.0.
-  final double editorMaxScale;
-
-  /// Zoom boundary
-  ///
-  /// A margin for the visible boundaries of the child.
-  ///
-  /// Any transformation that results in the viewport being able to view
-  /// outside of the boundaries will be stopped at the boundary.
-  /// The boundaries do not rotate with the rest of the scene, so they are
-  /// always aligned with the viewport.
-  ///
-  /// To produce no boundaries at all, pass infinite [EdgeInsets], such as
-  /// EdgeInsets.all(double.infinity).
-  ///
-  /// No edge can be NaN.
-  ///
-  /// Defaults to [EdgeInsets.zero], which results in boundaries that are the
-  /// exact same size and position as the [child].
-  final EdgeInsets boundaryMargin;
-
-  /// The initial transformation matrix applied to the viewport.
-  ///
-  /// This acts as the starting camera position and scale. Unlike [boundaryMargin],
-  /// which defines the physical limits of the scrollable area, this matrix
-  /// explicitly dictates exactly where the camera should look when the editor
-  /// renders its very first frame.
-  ///
-  /// If left null, the underlying viewer will fallback to its default
-  /// auto-centering behavior.
-  final Matrix4? initialTransform;
 
   /// Whether double-tap to zoom is enabled.
   ///
@@ -117,4 +71,17 @@ abstract class ZoomConfigs {
   ///
   /// Defaults to `false` (traditional scrolling behavior).
   final bool invertTrackpadDirection;
+
+  /// A callback that dynamically computes viewport-fit values (boundary
+  /// margin, scale limits, initial transform) based on the current
+  /// effective aspect ratio.
+  ///
+  /// The [aspectRatio] parameter will be `null` when the editor does not
+  /// yet know the aspect ratio (e.g. during `initState` before the image
+  /// is decoded). When it becomes available, the editor will call this
+  /// callback again.
+  ///
+  /// If this is `null`, the editor uses default values from
+  /// [ViewportFitResult()].
+  final ViewportFitBuilder? viewportFitBuilder;
 }

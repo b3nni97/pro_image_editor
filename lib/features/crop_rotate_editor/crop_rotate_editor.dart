@@ -208,6 +208,15 @@ class CropRotateEditorState extends State<CropRotateEditor>
         StandaloneEditorState<CropRotateEditor, CropRotateEditorInitConfigs>,
         ExtendedLoop,
         CropAreaHistory {
+  /// Returns the effective view padding for the crop editor by calling
+  /// [viewportFitBuilder] on the current config. Falls back to
+  /// [EdgeInsets.zero] if no builder is set.
+  EdgeInsets get _cropViewPadding {
+    final fit = cropRotateEditorConfigs.viewportFitBuilder?.call(null) ??
+        const ViewportFitResult();
+    return fit.viewPadding ?? fit.boundaryMargin;
+  }
+
   /// Identifies the editor content widget to allow retrieving its render box for global offset calculations.
   final GlobalKey _editorContentKey = GlobalKey();
 
@@ -479,8 +488,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
   /// because Alignment.center would scale around the body center, causing
   /// the crop rect to shift away from the viewPadding boundaries.
   Alignment get _contentCenterAlignment {
-    final EdgeInsets margin = cropRotateEditorConfigs.viewPadding ??
-        cropRotateEditorConfigs.boundaryMargin;
+    final EdgeInsets margin = _cropViewPadding;
     final double bodyW = editorBodySize.width;
     final double bodyH = editorBodySize.height;
     if (bodyW <= 0 || bodyH <= 0) return Alignment.center;
@@ -1143,8 +1151,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
     _animationId++;
     final int currentAnimationId = _animationId;
 
-    final EdgeInsets margin = cropRotateEditorConfigs.viewPadding ??
-        cropRotateEditorConfigs.boundaryMargin;
+    final EdgeInsets margin = _cropViewPadding;
 
     final Size contentSize = Size(
       editorBodySize.width - margin.horizontal,
@@ -2310,8 +2317,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
         final double halfSpaceHorizontal = _cropSpaceHorizontal / 2.0;
         final double halfSpaceVertical = _cropSpaceVertical / 2.0;
 
-        final EdgeInsets margin = cropRotateEditorConfigs.viewPadding ??
-            cropRotateEditorConfigs.boundaryMargin;
+        final EdgeInsets margin = _cropViewPadding;
         final double cornerGap =
             cropRotateEditorConfigs.style.cropCornerLength * 2.25;
         final double minCornerDistance = cornerGap;
@@ -2372,8 +2378,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
                   translate.dy * userScaleFactor);
         }
 
-        final EdgeInsets dragMargin = cropRotateEditorConfigs.viewPadding ??
-            cropRotateEditorConfigs.boundaryMargin;
+        final EdgeInsets dragMargin = _cropViewPadding;
 
         // Convert viewPadding (global screen insets) to crop-local coords.
         // Since dy/dx and focalPoint go through the same globalToLocal
@@ -3902,8 +3907,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
             _setCropPainter();
           }
 
-          final EdgeInsets margin = cropRotateEditorConfigs.viewPadding ??
-              cropRotateEditorConfigs.boundaryMargin;
+          final EdgeInsets margin = _cropViewPadding;
 
           cropEditorScreenRatio = Size(
             editorBodySize.width - margin.horizontal,
@@ -3998,9 +4002,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
                         if (painter == null) {
                           return const SizedBox.shrink();
                         }
-                        final EdgeInsets margin =
-                            cropRotateEditorConfigs.viewPadding ??
-                                cropRotateEditorConfigs.boundaryMargin;
+                        final EdgeInsets margin = _cropViewPadding;
                         final Size imgSize = _renderedImgSize;
                         final Size bodySize = editorBodySize;
                         final double imgOriginX = margin.left +
@@ -4052,9 +4054,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
                           if (painter == null) {
                             return const SizedBox.shrink();
                           }
-                          final EdgeInsets margin =
-                              cropRotateEditorConfigs.viewPadding ??
-                                  cropRotateEditorConfigs.boundaryMargin;
+                          final EdgeInsets margin = _cropViewPadding;
                           final Size imgSize = _renderedImgSize;
                           final Size bodySize = editorBodySize;
                           final double imgOriginX = margin.left +
@@ -4412,8 +4412,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
               return const SizedBox.shrink();
             }
 
-            final EdgeInsets margin = cropRotateEditorConfigs.viewPadding ??
-                cropRotateEditorConfigs.boundaryMargin;
+            final EdgeInsets margin = _cropViewPadding;
             final Size imgSize = _renderedImgSize;
             final Size bodySize = editorBodySize;
             final double imgOriginX = margin.left +
@@ -4445,8 +4444,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
         child: Align(
           alignment: Alignment.center,
           child: Padding(
-            padding: cropRotateEditorConfigs.viewPadding ??
-                cropRotateEditorConfigs.boundaryMargin,
+            padding: _cropViewPadding,
             child: _buildStraightenAndPerspectiveTransform(
               child: Transform.scale(
                 scale: _straightenScale,
@@ -4469,8 +4467,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
   /// Lightweight image for the sharp crop rect restore layer.
   Widget _buildSharpRestoreImage() {
-    final EdgeInsets margin = cropRotateEditorConfigs.viewPadding ??
-        cropRotateEditorConfigs.boundaryMargin;
+    final EdgeInsets margin = _cropViewPadding;
     final double availableHeight = editorBodySize.height - margin.vertical;
     final double availableWidth = editorBodySize.width - margin.horizontal;
     final double maxWidth = _imgWidth / _imgHeight * availableHeight;
@@ -4502,8 +4499,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
     return Align(
       alignment: Alignment.center,
       child: Padding(
-        padding: cropRotateEditorConfigs.viewPadding ??
-            cropRotateEditorConfigs.boundaryMargin,
+        padding: _cropViewPadding,
         child: child,
       ),
     );
@@ -4513,8 +4509,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
   ///
   /// Filters layout layers and bounds against structural constraints.
   Widget _buildImage() {
-    final EdgeInsets margin = cropRotateEditorConfigs.viewPadding ??
-        cropRotateEditorConfigs.boundaryMargin;
+    final EdgeInsets margin = _cropViewPadding;
     final double availableHeight = editorBodySize.height - margin.vertical;
     final double availableWidth = editorBodySize.width - margin.horizontal;
 
@@ -4578,9 +4573,13 @@ class CropRotateEditorState extends State<CropRotateEditor>
   ///
   /// Allows seamless transition animations before unlocking the editor interaction grid.
   Widget _buildFakeHero() {
+    final fit = cropRotateEditorConfigs.viewportFitBuilder?.call(
+          _fakeHeroTransformConfigs.cropRect.size.aspectRatio,
+        ) ??
+        const ViewportFitResult();
+
     return Padding(
-      padding: cropRotateEditorConfigs.boundaryMargin *
-          cropRotateEditorConfigs.editorMinScale,
+      padding: fit.boundaryMargin * fit.editorMinScale,
       child: LayoutBuilder(
         builder: (BuildContext context, BoxConstraints constraints) {
           return Stack(

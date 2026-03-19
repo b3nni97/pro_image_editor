@@ -187,10 +187,26 @@ class MainEditorInteractiveContent extends StatelessWidget {
 
   Widget _buildInteractiveViewer() {
     var mainConfigs = configs.mainEditor;
+
+    // Determine the effective aspect ratio from crop state or original image.
+    final transformConfigs = stateManager.transformConfigs;
+    final double? effectiveAspectRatio = transformConfigs.isNotEmpty
+        ? transformConfigs.cropRect.size.aspectRatio
+        : (sizesManager.decodedImageSize != Size.zero
+            ? sizesManager.decodedImageSize.aspectRatio
+            : null);
+
+    final fit = mainConfigs.viewportFitBuilder?.call(effectiveAspectRatio) ??
+        const ViewportFitResult();
+
     return ExtendedInteractiveViewer(
       key: interactiveViewerKey,
       enableExternalGestureDetector: true,
       zoomConfigs: mainConfigs,
+      boundaryMargin: fit.boundaryMargin,
+      minScale: fit.editorMinScale,
+      maxScale: fit.editorMaxScale,
+      initialMatrix4: fit.initialTransform,
       onInteractionStart: (details) {
         callbacks.mainEditorCallbacks?.onEditorZoomScaleStart?.call(details);
 

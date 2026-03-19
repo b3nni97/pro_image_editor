@@ -19,15 +19,12 @@ class MainEditorConfigs extends ZoomConfigs {
   /// Creates an instance of MainEditorConfigs with optional settings.
   const MainEditorConfigs({
     super.enableZoom,
-    super.editorMinScale,
-    super.editorMaxScale,
     super.enableDoubleTapZoom,
     super.doubleTapZoomFactor,
     super.doubleTapZoomDuration,
     super.doubleTapZoomCurve,
-    super.boundaryMargin,
-    super.initialTransform,
     super.invertTrackpadDirection,
+    super.viewportFitBuilder,
     this.transformSetup,
     this.enableCloseButton = true,
     this.enableKeyboardShortcuts = true,
@@ -105,7 +102,7 @@ class MainEditorConfigs extends ZoomConfigs {
   /// Defines which sub-editors are available in the bottom-bar of the editor.
   ///
   /// The order of the tools in this list determines the order in the UI.
-  /// Simply include the tools you want and leave out the ones you don’t.
+  /// Simply include the tools you want and leave out the ones you don't.
   ///
   /// Example:
   /// ```dart
@@ -139,9 +136,6 @@ class MainEditorConfigs extends ZoomConfigs {
     MainEditorIcons? icons,
     MainEditorWidgets? widgets,
     bool? enableZoom,
-    double? editorMinScale,
-    double? editorMaxScale,
-    EdgeInsets? boundaryMargin,
     bool? enableDoubleTapZoom,
     bool? canZoomWhenLayerSelected,
     MobilePanInteraction? mobilePanInteraction,
@@ -152,6 +146,7 @@ class MainEditorConfigs extends ZoomConfigs {
     EditorSafeArea? safeArea,
     List<SubEditorMode>? tools,
     bool? enableSubEditorPage,
+    ViewportFitBuilder? viewportFitBuilder,
   }) {
     return MainEditorConfigs(
       enableSubEditorPage: enableSubEditorPage ?? this.enableSubEditorPage,
@@ -164,8 +159,6 @@ class MainEditorConfigs extends ZoomConfigs {
       icons: icons ?? this.icons,
       widgets: widgets ?? this.widgets,
       enableZoom: enableZoom ?? this.enableZoom,
-      editorMinScale: editorMinScale ?? this.editorMinScale,
-      editorMaxScale: editorMaxScale ?? this.editorMaxScale,
       enableDoubleTapZoom: enableDoubleTapZoom ?? this.enableDoubleTapZoom,
       canZoomWhenLayerSelected:
           canZoomWhenLayerSelected ?? this.canZoomWhenLayerSelected,
@@ -176,12 +169,13 @@ class MainEditorConfigs extends ZoomConfigs {
       doubleTapZoomDuration:
           doubleTapZoomDuration ?? this.doubleTapZoomDuration,
       doubleTapZoomCurve: doubleTapZoomCurve ?? this.doubleTapZoomCurve,
-      boundaryMargin: boundaryMargin ?? this.boundaryMargin,
       safeArea: safeArea ?? this.safeArea,
       tools: tools ?? this.tools,
+      viewportFitBuilder: viewportFitBuilder ?? this.viewportFitBuilder,
     );
   }
 }
+
 
 /// A class that encapsulates the configuration and image information
 /// required to set up the main editor's transform settings.

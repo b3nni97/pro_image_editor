@@ -441,48 +441,58 @@ class TuneEditorState extends State<TuneEditor>
         alignment: Alignment.center,
         fit: StackFit.expand,
         children: [
-          ExtendedInteractiveViewer(
-            key: interactiveViewerKey,
-            zoomConfigs: mainConfigs,
-            onInteractionStart: (details) {
-              callbacks.tuneEditorCallbacks?.onEditorZoomScaleStart
-                  ?.call(details);
-            },
-            onInteractionUpdate: (details) {
-              callbacks.tuneEditorCallbacks?.onEditorZoomScaleUpdate
-                  ?.call(details);
-            },
-            onInteractionEnd: (details) {
-              callbacks.tuneEditorCallbacks?.onEditorZoomScaleEnd
-                  ?.call(details);
-            },
-            onMatrix4Change: (value) {
-              callbacks.tuneEditorCallbacks?.onEditorZoomMatrix4Change
-                  ?.call(value);
-            },
-            child: Stack(
-              children: [
-                if (initConfigs.convertToUint8List && isVideoEditor)
-                  _buildBackground(),
-                ContentRecorder(
-                  controller: screenshotCtrl,
-                  child: Stack(
-                    alignment: Alignment.center,
-                    fit: StackFit.expand,
-                    children: [
-                      if (!initConfigs.convertToUint8List || !isVideoEditor)
-                        _buildBackground(),
-                      if (tuneEditorConfigs.showLayers && layers != null)
-                        _buildLayers(),
-                      if (tuneEditorConfigs.widgets.bodyItemsRecorded != null)
-                        ...tuneEditorConfigs.widgets.bodyItemsRecorded!(
-                            this, rebuildController.stream),
-                    ],
+          Builder(builder: (context) {
+            final fit = mainConfigs.viewportFitBuilder?.call(
+                  initialTransformConfigs?.cropRect.size.aspectRatio,
+                ) ??
+                const ViewportFitResult();
+            return ExtendedInteractiveViewer(
+              key: interactiveViewerKey,
+              zoomConfigs: mainConfigs,
+              boundaryMargin: fit.boundaryMargin,
+              minScale: fit.editorMinScale,
+              maxScale: fit.editorMaxScale,
+              initialMatrix4: fit.initialTransform,
+              onInteractionStart: (details) {
+                callbacks.tuneEditorCallbacks?.onEditorZoomScaleStart
+                    ?.call(details);
+              },
+              onInteractionUpdate: (details) {
+                callbacks.tuneEditorCallbacks?.onEditorZoomScaleUpdate
+                    ?.call(details);
+              },
+              onInteractionEnd: (details) {
+                callbacks.tuneEditorCallbacks?.onEditorZoomScaleEnd
+                    ?.call(details);
+              },
+              onMatrix4Change: (value) {
+                callbacks.tuneEditorCallbacks?.onEditorZoomMatrix4Change
+                    ?.call(value);
+              },
+              child: Stack(
+                children: [
+                  if (initConfigs.convertToUint8List && isVideoEditor)
+                    _buildBackground(),
+                  ContentRecorder(
+                    controller: screenshotCtrl,
+                    child: Stack(
+                      alignment: Alignment.center,
+                      fit: StackFit.expand,
+                      children: [
+                        if (!initConfigs.convertToUint8List || !isVideoEditor)
+                          _buildBackground(),
+                        if (tuneEditorConfigs.showLayers && layers != null)
+                          _buildLayers(),
+                        if (tuneEditorConfigs.widgets.bodyItemsRecorded != null)
+                          ...tuneEditorConfigs.widgets.bodyItemsRecorded!(
+                              this, rebuildController.stream),
+                      ],
+                    ),
                   ),
-                ),
-              ],
-            ),
-          ),
+                ],
+              ),
+            );
+          }),
           if (tuneEditorConfigs.widgets.bodyItems != null)
             ...tuneEditorConfigs.widgets.bodyItems!(
                 this, rebuildController.stream),

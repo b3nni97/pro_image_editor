@@ -376,25 +376,34 @@ class FilterEditorState extends State<FilterEditor>
         alignment: Alignment.center,
         fit: StackFit.expand,
         children: [
-          ExtendedInteractiveViewer(
-            key: interactiveViewerKey,
-            zoomConfigs: mainConfigs,
-            onInteractionStart: (details) {
-              callbacks.filterEditorCallbacks?.onEditorZoomScaleStart
-                  ?.call(details);
-            },
-            onInteractionUpdate: (details) {
-              callbacks.filterEditorCallbacks?.onEditorZoomScaleUpdate
-                  ?.call(details);
-            },
-            onInteractionEnd: (details) {
-              callbacks.filterEditorCallbacks?.onEditorZoomScaleEnd
-                  ?.call(details);
-            },
-            onMatrix4Change: (value) {
-              callbacks.filterEditorCallbacks?.onEditorZoomMatrix4Change
-                  ?.call(value);
-            },
+          Builder(builder: (context) {
+            final fit = mainConfigs.viewportFitBuilder?.call(
+                  initialTransformConfigs?.cropRect.size.aspectRatio,
+                ) ??
+                const ViewportFitResult();
+            return ExtendedInteractiveViewer(
+              key: interactiveViewerKey,
+              zoomConfigs: mainConfigs,
+              boundaryMargin: fit.boundaryMargin,
+              minScale: fit.editorMinScale,
+              maxScale: fit.editorMaxScale,
+              initialMatrix4: fit.initialTransform,
+              onInteractionStart: (details) {
+                callbacks.filterEditorCallbacks?.onEditorZoomScaleStart
+                    ?.call(details);
+              },
+              onInteractionUpdate: (details) {
+                callbacks.filterEditorCallbacks?.onEditorZoomScaleUpdate
+                    ?.call(details);
+              },
+              onInteractionEnd: (details) {
+                callbacks.filterEditorCallbacks?.onEditorZoomScaleEnd
+                    ?.call(details);
+              },
+              onMatrix4Change: (value) {
+                callbacks.filterEditorCallbacks?.onEditorZoomMatrix4Change
+                    ?.call(value);
+              },
             child: Stack(
               alignment: Alignment.center,
               fit: StackFit.expand,
@@ -434,7 +443,8 @@ class FilterEditorState extends State<FilterEditor>
                 ),
               ],
             ),
-          ),
+            );
+          }),
           if (filterEditorConfigs.widgets.bodyItems != null)
             ...filterEditorConfigs.widgets.bodyItems!(
                 this, rebuildController.stream),
