@@ -157,18 +157,16 @@ class TransformedContentGenerator extends StatelessWidget {
 
     if (w == 0 || h == 0) return 1.0;
 
-    double cosAngle = 1 /
-        (1 /
-                (w /
-                    (w * cos(absAngle) +
-                        h * sin(absAngle))) +
-            1 /
-                (h /
-                    (h * cos(absAngle) +
-                        w * sin(absAngle))) -
-            1);
+    double cosAngle = cos(absAngle);
+    double sinAngle = sin(absAngle);
 
-    return 1 / cosAngle;
+    double boundingWidth = w * cosAngle + h * sinAngle;
+    double boundingHeight = w * sinAngle + h * cosAngle;
+
+    double scaleX = boundingWidth / w;
+    double scaleY = boundingHeight / h;
+
+    return max(scaleX, scaleY);
   }
 
   Widget _buildStraightenPerspective({required Widget child}) {

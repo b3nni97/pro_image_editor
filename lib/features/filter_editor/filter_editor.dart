@@ -247,6 +247,11 @@ class FilterEditorState extends State<FilterEditor>
     filterEditorCallbacks?.handleDone();
   }
 
+  /// Exports the current filter matrix state.
+  FilterMatrix exportStateHistory() {
+    return _getActiveFilters();
+  }
+
   FilterMatrix _getActiveFilters() {
     if (!filterEditorConfigs.enableMultiSelection) {
       if (selectedFilter.filters.isEmpty) {

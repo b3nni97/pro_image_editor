@@ -706,6 +706,33 @@ class PaintEditorState extends State<PaintEditor>
     paintEditorCallbacks?.handleDone();
   }
 
+  /// Exports the current paint state.
+  PaintEditorResponse exportStateHistory() {
+    final scale = _layerStackTransformHelper.scale;
+
+    final originalLayers =
+        (widget.initConfigs.layers ?? []).whereType<PaintLayer>().toList();
+    final newLayers =
+        activeHistory.layers.whereType<PaintLayer>().where((layer) {
+      return originalLayers.indexWhere(
+            (el) =>
+                el.id == layer.id &&
+                listEquals(el.item.erasedOffsets, layer.item.erasedOffsets),
+          ) <
+          0;
+    });
+    final transformedLayers = newLayers.map((layer) {
+      return layer
+        ..offset *= scale
+        ..scale *= scale;
+    }).toList();
+    
+    return PaintEditorResponse(
+      layers: transformedLayers,
+      removedLayers: activeHistory.removedLayers,
+    );
+  }
+
   /// Adds a painted model as a new layer to the editor.
   ///
   /// Transforms the given [item] into a layer and adds it to the editor.

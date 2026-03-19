@@ -276,6 +276,11 @@ class TuneEditorState extends State<TuneEditor>
     tuneEditorCallbacks?.handleDone();
   }
 
+  /// Exports the current tune adjustment state.
+  List<TuneAdjustmentMatrix> exportStateHistory() {
+    return tuneAdjustmentMatrix;
+  }
+
   /// Resets the tune editor state, clearing undo and redo stacks.
   void reset() {
     _undoStack = [];

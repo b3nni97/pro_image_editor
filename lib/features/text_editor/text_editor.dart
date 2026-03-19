@@ -336,6 +336,27 @@ class TextEditorState extends State<TextEditor>
     textEditorCallbacks?.handleDone();
   }
 
+  /// Exports the current text layer state.
+  TextLayer? exportStateHistory() {
+    if (textCtrl.text.trim().isNotEmpty || widget.layer != null) {
+      return TextLayer(
+        text: textCtrl.text.trim(),
+        background: _backgroundColor,
+        color: _textColor,
+        align: align,
+        fontScale: _fontScale,
+        colorMode: backgroundColorMode,
+        textStyle: selectedTextStyle,
+        customSecondaryColor: _secondaryColor != null,
+        maxTextWidth: (textEditorConfigs.enableAutoWrapOnLayer ||
+                textEditorConfigs.enableImageBoundaryTextWrap)
+            ? _maxTextWidth
+            : null,
+      );
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(

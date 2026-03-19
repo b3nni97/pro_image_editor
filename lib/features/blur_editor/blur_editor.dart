@@ -215,6 +215,11 @@ class BlurEditorState extends State<BlurEditor>
     blurEditorCallbacks?.handleDone();
   }
 
+  /// Exports the current blur factor state.
+  double exportStateHistory() {
+    return blurFactor;
+  }
+
   /// Set the blur factor and update the UI.
   void setBlurFactor(double value) {
     blurFactor = value;

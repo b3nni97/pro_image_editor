@@ -1409,7 +1409,6 @@ class ProImageEditorState extends State<ProImageEditor>
   ///
   /// [layerData] - The text layer data to be edited.
   void _onTextLayerTap(TextLayer layerData) async {
-    if (isSubEditorOpen) resetGlobalKeys();
     final customCallback = mainEditorCallbacks?.onEditTextLayer;
     TextLayer? updatedLayer;
 
@@ -1545,11 +1544,11 @@ class ProImageEditorState extends State<ProImageEditor>
     }
 
     mainEditorCallbacks?.handleOpenSubEditor(editorName);
-    
+
     if (wasSubEditorOpen && !_pageOpenCompleter.isCompleted) {
       _pageOpenCompleter.complete(true);
     }
-    
+
     _pageOpenCompleter = Completer();
 
     final subEditorStyle = mainEditorConfigs.style.subEditorPage;
@@ -1634,12 +1633,14 @@ class ProImageEditorState extends State<ProImageEditor>
     );
     if (mainEditorConfigs.enableSubEditorPage) {
       if (wasSubEditorOpen) {
-        return _navigatorKey.currentState!.pushReplacement<T?, dynamic>(route);
+        return _navigatorKey.currentState!
+            .pushReplacement<T?, dynamic>(route, result: null);
       }
       return _navigatorKey.currentState!.push<T?>(route);
     }
     if (wasSubEditorOpen) {
-      return Navigator.pushReplacement<T?, dynamic>(context, route);
+      return Navigator.pushReplacement<T?, dynamic>(context, route,
+          result: null);
     }
     return Navigator.push<T?>(
       context,
@@ -1654,7 +1655,7 @@ class ProImageEditorState extends State<ProImageEditor>
   /// After closing the paint editor, any changes made are applied to the
   /// image's layers.
   void openPaintEditor() async {
-    if (isSubEditorOpen) resetGlobalKeys();
+    await _commitCurrentSubEditorState();
     var paintCallbacks =
         callbacks.paintEditorCallbacks ?? const PaintEditorCallbacks();
     var overridenPaintCallbacks = paintCallbacks.copyWith(
@@ -1738,7 +1739,7 @@ class ProImageEditorState extends State<ProImageEditor>
     /// Small Duration is important for a smooth hero animation
     Duration duration = const Duration(milliseconds: 150),
   }) async {
-    if (isSubEditorOpen) resetGlobalKeys();
+    await _commitCurrentSubEditorState();
     final customCallback = mainEditorCallbacks?.onCreateTextLayer;
     TextLayer? layer;
 
@@ -1775,8 +1776,7 @@ class ProImageEditorState extends State<ProImageEditor>
   /// the image.
   void openCropRotateEditor() async {
     if (!_isInitialized) await _decodeImageCompleter.future;
-
-    if (isSubEditorOpen) resetGlobalKeys();
+    await _commitCurrentSubEditorState();
 
     await openPage<TransformConfigs?>(
       CropRotateEditor.autoSource(
@@ -1844,7 +1844,8 @@ class ProImageEditorState extends State<ProImageEditor>
   /// adjustments are made, the current state remains unchanged.
   void openTuneEditor({bool enableHero = true}) async {
     if (!mounted) return;
-    if (isSubEditorOpen) resetGlobalKeys();
+    await _commitCurrentSubEditorState();
+
     List<TuneAdjustmentMatrix>? tuneAdjustments = await openPage(
       HeroMode(
         enabled: enableHero,
@@ -1891,7 +1892,8 @@ class ProImageEditorState extends State<ProImageEditor>
   /// original image is retained.
   void openFilterEditor() async {
     if (!mounted) return;
-    if (isSubEditorOpen) resetGlobalKeys();
+    await _commitCurrentSubEditorState();
+
     FilterMatrix? filters = await openPage(
       FilterEditor.autoSource(
         key: filterEditor,
@@ -1926,7 +1928,8 @@ class ProImageEditorState extends State<ProImageEditor>
   /// Opens the blur editor as a modal bottom sheet.
   void openBlurEditor() async {
     if (!mounted) return;
-    if (isSubEditorOpen) resetGlobalKeys();
+    await _commitCurrentSubEditorState();
+
     double? blur = await openPage(
       BlurEditor.autoSource(
         key: blurEditor,
@@ -1970,6 +1973,7 @@ class ProImageEditorState extends State<ProImageEditor>
   /// active and restored
   /// after its closure.
   void openEmojiEditor() async {
+    await _commitCurrentSubEditorState();
     setState(() => layerInteractionManager.clearSelectedLayers());
     _checkInteractiveViewer();
     ServicesBinding.instance.keyboard.removeHandler(_onKeyEvent);
@@ -2026,6 +2030,7 @@ class ProImageEditorState extends State<ProImageEditor>
 
   /// Opens the sticker editor as a modal bottom sheet.
   void openStickerEditor() async {
+    await _commitCurrentSubEditorState();
     setState(() => layerInteractionManager.selectedLayerId = '');
     _checkInteractiveViewer();
     ServicesBinding.instance.keyboard.removeHandler(_onKeyEvent);
@@ -2299,6 +2304,53 @@ class ProImageEditorState extends State<ProImageEditor>
       /// Allow users to continue editing if they didn't close the editor.
       setState(() => _isProcessingFinalImage = false);
     });
+  }
+
+  /// Extracts the state of the currently open subeditor (if any) and adds it
+  /// to the history before switching to another subeditor. This ensures the
+  /// newly opened subeditor receives the most up-to-date image state.
+  Future<void> _commitCurrentSubEditorState() async {
+    if (isSubEditorOpen) {
+      if (cropRotateEditor.currentState != null) {
+        await cropRotateEditor.currentState!.showFakeHero();
+        // After skipAnimation the state might already be gone if the widget
+        // was disposed during the pushReplacement, so guard with a null check.
+        final cropState = cropRotateEditor.currentState;
+        if (cropState != null) {
+          addHistory(
+            transformConfigs: cropState.exportStateHistory(),
+          );
+        }
+      } else if (filterEditor.currentState != null) {
+        addHistory(filters: filterEditor.currentState!.exportStateHistory());
+      } else if (tuneEditor.currentState != null) {
+        addHistory(
+            tuneAdjustments: tuneEditor.currentState!.exportStateHistory());
+      } else if (blurEditor.currentState != null) {
+        addHistory(blur: blurEditor.currentState!.exportStateHistory());
+      } else if (paintEditor.currentState != null) {
+        var res = paintEditor.currentState!.exportStateHistory();
+        for (var layer in res.removedLayers) {
+          removeLayer(layer, blockCaptureScreenshot: true);
+        }
+        for (var layer in res.layers) {
+          final duplicatedLayer =
+              _layerCopyManager.duplicateLayer(layer, offset: Offset.zero);
+          final oldIndex = activeLayers.indexWhere((el) => el.id == layer.id);
+          addLayer(duplicatedLayer,
+              removeLayerIndex: oldIndex,
+              blockSelectLayer: true,
+              blockCaptureScreenshot: true,
+              autoCorrectZoomOffset: false,
+              autoCorrectZoomScale: false);
+        }
+      } else if (textEditor.currentState != null) {
+        var layer = textEditor.currentState!.exportStateHistory();
+        if (layer != null) addHistory(newLayer: layer);
+      }
+    }
+
+    resetGlobalKeys();
   }
 
   /// Captures the final editor image.

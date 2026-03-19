@@ -47,8 +47,6 @@ mixin MainEditorGlobalKeys {
   /// This also ensures the `CropRotateEditor` shows its fake hero before its
   /// key is lost, allowing the outgoing hero animation to play.
   void resetGlobalKeys() {
-    cropRotateEditor.currentState?.showFakeHero();
-
     paintEditor = GlobalKey<PaintEditorState>();
     textEditor = GlobalKey<TextEditorState>();
     cropRotateEditor = GlobalKey<CropRotateEditorState>();

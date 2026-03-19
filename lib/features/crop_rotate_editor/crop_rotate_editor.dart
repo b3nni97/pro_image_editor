@@ -348,6 +348,17 @@ class CropRotateEditorState extends State<CropRotateEditor>
   /// Determines if a fake hero animation should be shown during initial rendering.
   bool _showFakeHero = true;
 
+  /// Whether the editor content is currently fading out to reveal the fake hero.
+  bool _isFadingToFakeHero = false;
+
+  /// Opacity of editor content during the fade-to-fakeHero transition (1.0→0.0).
+  double _heroTransitionOpacity = 1.0;
+
+  /// Counter to cancel overlapping hero animations. Each new
+  /// [showFakeHero]/[hideFakeHero] call increments this; running animations
+  /// bail out when they detect a newer ID.
+  int _heroAnimationId = 0;
+
   /// Prevents recursive updates by blocking simultaneous interaction flows.
   bool _blockInteraction = false;
 
@@ -656,13 +667,12 @@ class CropRotateEditorState extends State<CropRotateEditor>
     scaleAnimation = AlwaysStoppedAnimation(initScale);
 
     straightenAngle = initialTransformConfigs?.straightenAngle ?? 0.0;
-    _straightenScale = _calculateStraightenScale(straightenAngle);
-
+    _straightenScale = 1.0;
     aspectRatio =
         cropRotateEditorConfigs.initAspectRatio ?? CropAspectRatios.custom;
 
     if (widget.initConfigs.convertToUint8List) {
-      setImageInfos(activeHistory: activeHistory);
+      setImageInfos(activeHistory: exportStateHistory());
     }
 
     if (initialTransformConfigs != null &&
@@ -676,8 +686,14 @@ class CropRotateEditorState extends State<CropRotateEditor>
       cropRect = initialTransformConfigs!.cropRect;
       _viewRect = initialTransformConfigs!.cropRect;
       oldScaleFactor = initialTransformConfigs!.scaleRotation;
+      perspectiveX = initialTransformConfigs!.perspectiveX;
+      perspectiveY = initialTransformConfigs!.perspectiveY;
+      _straightenScale = _calculateStraightenScale(straightenAngle);
       setInitHistory(initialTransformConfigs!);
     }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // Removed temporary 5-second log
+    });
 
     enableFakeHero = initConfigs.enableFakeHero;
     _showFakeHero = enableFakeHero;
@@ -737,6 +753,11 @@ class CropRotateEditorState extends State<CropRotateEditor>
         WidgetsBinding.instance.addPostFrameCallback((_) async {
           final double oldScaleAnimationValue = scaleAnimation.value;
           scaleCtrl.duration = Duration.zero;
+
+          if (cropRect.width > 0 && cropRect.height > 0) {
+            calcCropRect(newRatio: 1.0 / cropRect.size.aspectRatio);
+          }
+
           calcFitToScreen();
           scaleCtrl.duration = cropRotateEditorConfigs.animationDuration;
           _setCropRectBounding(oldScaleAnimationValue: oldScaleAnimationValue);
@@ -792,7 +813,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
     final TransformConfigs transformC =
         !canRedo && !canUndo && initialTransformConfigs != null
             ? initialTransformConfigs!
-            : activeHistory;
+            : exportStateHistory();
 
     _showFakeHero = enableFakeHero;
     _fakeHeroTransformConfigs = transformC;
@@ -814,7 +835,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
       if (cropRotateEditorConfigs.enableProvideImageInfos &&
           imageInfos == null) {
-        await setImageInfos(activeHistory: activeHistory);
+        await setImageInfos(activeHistory: exportStateHistory());
       }
 
       await initConfigs.onDone
@@ -832,7 +853,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
       );
 
       if (imageInfos == null) {
-        await setImageInfos(activeHistory: activeHistory);
+        await setImageInfos(activeHistory: exportStateHistory());
       }
 
       if (!mounted) {
@@ -908,6 +929,26 @@ class CropRotateEditorState extends State<CropRotateEditor>
     _interactionActive = false;
   }
 
+  /// Exports the current crop/rotate/scale state.
+  TransformConfigs exportStateHistory() {
+    return TransformConfigs(
+      angle: rotateAnimation.value,
+      cropRect: cropRect,
+      originalSize: originalSize,
+      cropEditorScreenRatio: cropEditorScreenRatio,
+      scaleUser: userScaleFactor,
+      scaleRotation: scaleAnimation.value,
+      aspectRatio: aspectRatio,
+      flipX: flipX,
+      flipY: flipY,
+      offset: translate,
+      cropMode: cropMode,
+      straightenAngle: straightenAngle,
+      perspectiveX: perspectiveX,
+      perspectiveY: perspectiveY,
+    );
+  }
+
   /// Takes an immediate internal screenshot to retain interaction history.
   ///
   /// Necessary for fast undo/redo transitions relying on rendered snapshots.
@@ -915,7 +956,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
   void takeScreenshot() async {
     if (!widget.initConfigs.convertToUint8List) return;
 
-    await setImageInfos(activeHistory: activeHistory, forceUpdate: true);
+    await setImageInfos(activeHistory: exportStateHistory(), forceUpdate: true);
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (initialTransformConfigs == null &&
@@ -934,6 +975,9 @@ class CropRotateEditorState extends State<CropRotateEditor>
             flipY: flipY,
             offset: translate,
             cropMode: cropMode,
+            straightenAngle: straightenAngle,
+            perspectiveX: perspectiveX,
+            perspectiveY: perspectiveY,
           ),
         );
       }
@@ -941,7 +985,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
       final TransformConfigs transformC =
           !canRedo && !canUndo && initialTransformConfigs != null
               ? initialTransformConfigs!
-              : activeHistory;
+              : exportStateHistory();
 
       await screenshotCtrl.capture(
         imageInfos: imageInfos!,
@@ -1492,6 +1536,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
   }
 
   void hideFakeHero() {
+    final int id = ++_heroAnimationId;
     _showFakeHero = false;
     showWidgets = true;
 
@@ -1502,10 +1547,12 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
     loopWithTransitionTiming(
       (double curveT) {
+        // Bail out if a newer hero animation has started.
+        if (_heroAnimationId != id) return;
         _painterOpacity = 1.0 * curveT;
         _updateCropPainter();
       },
-      getIsMounted: () => mounted,
+      getIsMounted: () => mounted && _heroAnimationId == id,
       transitionFunction:
           cropRotateEditorConfigs.fadeInOutsideCropAreaAnimationCurve.transform,
       duration: cropRotateEditorConfigs.fadeInOutsideCropAreaAnimationDuration,
@@ -1515,9 +1562,45 @@ class CropRotateEditorState extends State<CropRotateEditor>
     _updateAllStates();
   }
 
-  /// Re-enables the fake hero before a route transition.
-  void showFakeHero() {
+  /// Shows the fake hero overlay, optionally skipping the fade animation.
+  ///
+  /// When [skipAnimation] is `true` the state is set immediately without
+  /// waiting for the fade-out, which is used during rapid editor switching
+  /// to avoid blocking the transition.
+  Future<void> showFakeHero({bool skipAnimation = false}) async {
     if (!mounted) return;
+    final int id = ++_heroAnimationId;
+    _fakeHeroTransformConfigs = exportStateHistory();
+
+    if (skipAnimation) {
+      // Instant transition — no blocking await.
+      _isFadingToFakeHero = false;
+      _heroTransitionOpacity = 0.0;
+      _showFakeHero = true;
+      _updateAllStates();
+      return;
+    }
+
+    // Start transition: show fakeHero behind, keep editor content visible
+    _isFadingToFakeHero = true;
+    _heroTransitionOpacity = 1.0;
+    _updateAllStates();
+
+    // Fade out all editor content to reveal the fakeHero
+    await loopWithTransitionTiming(
+      (double curveT) {
+        if (_heroAnimationId != id) return;
+        _heroTransitionOpacity = 1.0 - curveT;
+        _updateAllStates();
+      },
+      getIsMounted: () => mounted && _heroAnimationId == id,
+      transitionFunction:
+          cropRotateEditorConfigs.fadeInOutsideCropAreaAnimationCurve.transform,
+      duration: cropRotateEditorConfigs.fadeInOutsideCropAreaAnimationDuration,
+    );
+
+    if (!mounted || _heroAnimationId != id) return;
+    _isFadingToFakeHero = false;
     _showFakeHero = true;
     _updateAllStates();
   }
@@ -1884,6 +1967,11 @@ class CropRotateEditorState extends State<CropRotateEditor>
     if (cropRect.isEmpty) {
       return;
     }
+
+    // Ensure crop padding (_cropSpaceHorizontal/_cropSpaceVertical) is correctly initialized
+    // against the current constraints before evaluating bounds, escaping early rescale bugs
+    // when restoring a previously saved smaller cropRect.
+    calcCropRect(onlyViewRect: true);
 
     if (!_renderedImgSize.isInfinite) {
       bool fitToWidth =
@@ -3832,9 +3920,12 @@ class CropRotateEditorState extends State<CropRotateEditor>
         },
         child: Stack(
           children: [
-            if (_showFakeHero)
-              _buildFakeHero()
-            else if (!_imageSizeIsDecoded && initConfigs.convertToUint8List)
+            // FakeHero behind everything (visible during fade-out
+            // transition or when fully transitioned)
+            if (_showFakeHero) _buildFakeHero(),
+            if (!_showFakeHero &&
+                !_imageSizeIsDecoded &&
+                initConfigs.convertToUint8List)
               Align(
                 alignment: Alignment.center,
                 child: SizedBox(
@@ -3846,10 +3937,11 @@ class CropRotateEditorState extends State<CropRotateEditor>
                 ),
               ),
             AnimatedOpacity(
-              duration: !initConfigs.convertToUint8List
+              duration: !initConfigs.convertToUint8List || _isFadingToFakeHero
                   ? Duration.zero
                   : const Duration(milliseconds: 160),
-              opacity: _showFakeHero || !_imageSizeIsDecoded ? 0.0 : 1.0,
+              opacity: (_showFakeHero || !_imageSizeIsDecoded ? 0.0 : 1.0) *
+                  (_isFadingToFakeHero ? _heroTransitionOpacity : 1.0),
               child: HeroMode(
                 enabled: false,
                 child: _buildMouseCursor(
@@ -3887,62 +3979,20 @@ class CropRotateEditorState extends State<CropRotateEditor>
               _buildDarkenOverlay(),
               _buildBlurOverlay(),
               _buildSharpCropRestore(),
-            ],
-            // Crop handles above blur so they're not blurred
-            Positioned.fill(
-              child: AnimatedBuilder(
-                animation: scaleCtrl,
-                builder: (context, child) {
-                  return Transform.scale(
-                    scale: scaleAnimation.value,
-                    alignment: _contentCenterAlignment,
-                    child: child,
-                  );
-                },
-                child: ValueListenableBuilder<CropCornerPainter?>(
-                  valueListenable: _cropPainterNotifier,
-                  builder: (context, painter, _) {
-                    if (painter == null) return const SizedBox.shrink();
-                    final EdgeInsets margin =
-                        cropRotateEditorConfigs.viewPadding ??
-                            cropRotateEditorConfigs.boundaryMargin;
-                    final Size imgSize = _renderedImgSize;
-                    final Size bodySize = editorBodySize;
-                    final double imgOriginX = margin.left +
-                        (bodySize.width - margin.horizontal - imgSize.width) /
-                            2;
-                    final double imgOriginY = margin.top +
-                        (bodySize.height - margin.vertical - imgSize.height) /
-                            2;
-
-                    return Stack(
-                      children: [
-                        Positioned(
-                          left: imgOriginX,
-                          top: imgOriginY,
-                          width: imgSize.width,
-                          height: imgSize.height,
-                          child: IgnorePointer(
-                            child: CustomPaint(
-                              painter: painter.copy(drawCropOverlay: true),
-                              child: const SizedBox.expand(),
-                            ),
-                          ),
-                        ),
-                      ],
-                    );
-                  },
-                ),
-              ),
-            ),
-            // Crop corner widget – outside Transform.scale so it
-            // keeps its fixed size regardless of scale animations.
-            if (cropRotateEditorConfigs.widgets.cropCornerWidget != null)
+              // Crop handles above blur so they're not blurred
               Positioned.fill(
-                child: AnimatedBuilder(
-                  animation: scaleCtrl,
-                  builder: (context, _) {
-                    return ValueListenableBuilder<CropCornerPainter?>(
+                child: Opacity(
+                  opacity: _isFadingToFakeHero ? _heroTransitionOpacity : 1.0,
+                  child: AnimatedBuilder(
+                    animation: scaleCtrl,
+                    builder: (context, child) {
+                      return Transform.scale(
+                        scale: scaleAnimation.value,
+                        alignment: _contentCenterAlignment,
+                        child: child,
+                      );
+                    },
+                    child: ValueListenableBuilder<CropCornerPainter?>(
                       valueListenable: _cropPainterNotifier,
                       builder: (context, painter, _) {
                         if (painter == null) {
@@ -3964,40 +4014,96 @@ class CropRotateEditorState extends State<CropRotateEditor>
                                     imgSize.height) /
                                 2;
 
-                        // Compute the unscaled position
-                        final double rawX = imgOriginX + painter.cropRect.right;
-                        final double rawY = imgOriginY + painter.cropRect.top;
-
-                        // Apply the same scale transform as the
-                        // crop handles overlay uses
-                        final double s = scaleAnimation.value;
-                        final Alignment a = _contentCenterAlignment;
-                        final double cx = bodySize.width * (0.5 + a.x / 2);
-                        final double cy = bodySize.height * (0.5 + a.y / 2);
-                        final double scaledX = cx + (rawX - cx) * s;
-                        final double scaledY = cy + (rawY - cy) * s;
-
                         return Stack(
                           children: [
                             Positioned(
-                              left: scaledX,
-                              top: scaledY,
-                              child: FractionalTranslation(
-                                translation: const Offset(-1, 0),
-                                child: IgnorePointer(
-                                  child: cropRotateEditorConfigs
-                                      .widgets.cropCornerWidget!(
-                                    this,
-                                    rebuildController.stream,
-                                  ),
+                              left: imgOriginX,
+                              top: imgOriginY,
+                              width: imgSize.width,
+                              height: imgSize.height,
+                              child: IgnorePointer(
+                                child: CustomPaint(
+                                  painter: painter.copy(drawCropOverlay: true),
+                                  child: const SizedBox.expand(),
                                 ),
                               ),
                             ),
                           ],
                         );
                       },
-                    );
-                  },
+                    ),
+                  ),
+                ),
+              ),
+            ],
+
+            // Crop corner widget – outside Transform.scale so it
+            // keeps its fixed size regardless of scale animations.
+            if (cropRotateEditorConfigs.widgets.cropCornerWidget != null)
+              Positioned.fill(
+                child: Opacity(
+                  opacity: _isFadingToFakeHero ? _heroTransitionOpacity : 1.0,
+                  child: AnimatedBuilder(
+                    animation: scaleCtrl,
+                    builder: (context, _) {
+                      return ValueListenableBuilder<CropCornerPainter?>(
+                        valueListenable: _cropPainterNotifier,
+                        builder: (context, painter, _) {
+                          if (painter == null) {
+                            return const SizedBox.shrink();
+                          }
+                          final EdgeInsets margin =
+                              cropRotateEditorConfigs.viewPadding ??
+                                  cropRotateEditorConfigs.boundaryMargin;
+                          final Size imgSize = _renderedImgSize;
+                          final Size bodySize = editorBodySize;
+                          final double imgOriginX = margin.left +
+                              (bodySize.width -
+                                      margin.horizontal -
+                                      imgSize.width) /
+                                  2;
+                          final double imgOriginY = margin.top +
+                              (bodySize.height -
+                                      margin.vertical -
+                                      imgSize.height) /
+                                  2;
+
+                          // Compute the unscaled position
+                          final double rawX =
+                              imgOriginX + painter.cropRect.right;
+                          final double rawY = imgOriginY + painter.cropRect.top;
+
+                          // Apply the same scale transform as the
+                          // crop handles overlay uses
+                          final double s = scaleAnimation.value;
+                          final Alignment a = _contentCenterAlignment;
+                          final double cx = bodySize.width * (0.5 + a.x / 2);
+                          final double cy = bodySize.height * (0.5 + a.y / 2);
+                          final double scaledX = cx + (rawX - cx) * s;
+                          final double scaledY = cy + (rawY - cy) * s;
+
+                          return Stack(
+                            children: [
+                              Positioned(
+                                left: scaledX,
+                                top: scaledY,
+                                child: FractionalTranslation(
+                                  translation: const Offset(-1, 0),
+                                  child: IgnorePointer(
+                                    child: cropRotateEditorConfigs
+                                        .widgets.cropCornerWidget!(
+                                      this,
+                                      rebuildController.stream,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      );
+                    },
+                  ),
                 ),
               ),
             if (cropRotateEditorConfigs.widgets.bodyItems != null)
