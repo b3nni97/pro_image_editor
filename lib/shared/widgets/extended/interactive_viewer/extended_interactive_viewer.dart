@@ -151,8 +151,7 @@ class ExtendedInteractiveViewerState extends State<ExtendedInteractiveViewer>
   @override
   void initState() {
     super.initState();
-    final initialTransformation =
-        widget.initialMatrix4;
+    final initialTransformation = widget.initialMatrix4;
 
     _transformCtrl = TransformationController(initialTransformation)
       ..addListener(() {

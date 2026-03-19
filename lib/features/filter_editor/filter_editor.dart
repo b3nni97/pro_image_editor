@@ -381,6 +381,12 @@ class FilterEditorState extends State<FilterEditor>
                   initialTransformConfigs?.cropRect.size.aspectRatio,
                 ) ??
                 const ViewportFitResult();
+
+            debugPrint('[FilterEditor] viewportFit: '
+                'aspectRatio=${initialTransformConfigs?.cropRect.size.aspectRatio}, '
+                'boundaryMargin=${fit.boundaryMargin}, '
+                'minScale=${fit.editorMinScale}, maxScale=${fit.editorMaxScale}, '
+                'initialTransform=${fit.initialTransform}');
             return ExtendedInteractiveViewer(
               key: interactiveViewerKey,
               zoomConfigs: mainConfigs,
@@ -404,45 +410,46 @@ class FilterEditorState extends State<FilterEditor>
                 callbacks.filterEditorCallbacks?.onEditorZoomMatrix4Change
                     ?.call(value);
               },
-            child: Stack(
-              alignment: Alignment.center,
-              fit: StackFit.expand,
-              children: [
-                if (initConfigs.convertToUint8List && isVideoEditor)
-                  _buildBackground(),
-                ContentRecorder(
-                  controller: screenshotCtrl,
-                  child: Stack(
-                    alignment: Alignment.center,
-                    fit: StackFit.expand,
-                    children: [
-                      if (!initConfigs.convertToUint8List || !isVideoEditor)
-                        _buildBackground(),
-                      if (filterEditorConfigs.showLayers && layers != null)
-                        LayerStack(
-                          transformHelper: TransformHelper(
-                            mainBodySize: getValidSizeOrDefault(
-                                mainBodySize, editorBodySize),
-                            mainImageSize: getValidSizeOrDefault(
-                                mainImageSize, editorBodySize),
-                            editorBodySize: editorBodySize,
-                            transformConfigs: initialTransformConfigs,
+              child: Stack(
+                alignment: Alignment.center,
+                fit: StackFit.expand,
+                children: [
+                  if (initConfigs.convertToUint8List && isVideoEditor)
+                    _buildBackground(),
+                  ContentRecorder(
+                    controller: screenshotCtrl,
+                    child: Stack(
+                      alignment: Alignment.center,
+                      fit: StackFit.expand,
+                      children: [
+                        if (!initConfigs.convertToUint8List || !isVideoEditor)
+                          _buildBackground(),
+                        if (filterEditorConfigs.showLayers && layers != null)
+                          LayerStack(
+                            transformHelper: TransformHelper(
+                              mainBodySize: getValidSizeOrDefault(
+                                  mainBodySize, editorBodySize),
+                              mainImageSize: getValidSizeOrDefault(
+                                  mainImageSize, editorBodySize),
+                              editorBodySize: editorBodySize,
+                              transformConfigs: initialTransformConfigs,
+                            ),
+                            configs: configs,
+                            layers: layers!,
+                            clipBehavior: Clip.none,
+                            overlayColor: filterEditorConfigs.style.background
+                                    ?.call(context) ??
+                                kImageEditorBackground,
                           ),
-                          configs: configs,
-                          layers: layers!,
-                          clipBehavior: Clip.none,
-                          overlayColor: filterEditorConfigs.style.background
-                                  ?.call(context) ??
-                              kImageEditorBackground,
-                        ),
-                      if (filterEditorConfigs.widgets.bodyItemsRecorded != null)
-                        ...filterEditorConfigs.widgets.bodyItemsRecorded!(
-                            this, rebuildController.stream)
-                    ],
+                        if (filterEditorConfigs.widgets.bodyItemsRecorded !=
+                            null)
+                          ...filterEditorConfigs.widgets.bodyItemsRecorded!(
+                              this, rebuildController.stream)
+                      ],
+                    ),
                   ),
-                ),
-              ],
-            ),
+                ],
+              ),
             );
           }),
           if (filterEditorConfigs.widgets.bodyItems != null)

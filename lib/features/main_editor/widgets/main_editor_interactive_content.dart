@@ -143,8 +143,7 @@ class MainEditorInteractiveContent extends StatelessWidget {
           ),
 
           /// Build crop area overlay
-          if (configs.imageGeneration.cropToImageBounds &&
-              !isCropAnimating)
+          if (configs.imageGeneration.cropToImageBounds && !isCropAnimating)
             _buildCropAreaOverlay(),
 
           /// Build video controls

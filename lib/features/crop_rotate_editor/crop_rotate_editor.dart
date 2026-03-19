@@ -494,10 +494,11 @@ class CropRotateEditorState extends State<CropRotateEditor>
     if (bodyW <= 0 || bodyH <= 0) return Alignment.center;
     final double contentCenterX = margin.left + (bodyW - margin.horizontal) / 2;
     final double contentCenterY = margin.top + (bodyH - margin.vertical) / 2;
-    return Alignment(
+    final alignment = Alignment(
       (contentCenterX - bodyW / 2) / (bodyW / 2),
       (contentCenterY - bodyH / 2) / (bodyH / 2),
     );
+    return alignment;
   }
 
   /// Retrieves the current mouse cursor state.
@@ -638,6 +639,14 @@ class CropRotateEditorState extends State<CropRotateEditor>
     _flingCtrl = AnimationController(vsync: this);
     _fakeHeroTransformConfigs =
         initialTransformConfigs ?? TransformConfigs.empty();
+    final _initTC = initialTransformConfigs;
+    debugPrint('[CropEditor.initState] '
+        'initialTransformConfigs=${_initTC != null ? "provided" : "null"} | '
+        'fakeHeroTransformConfigs.cropRect='
+        '${_fakeHeroTransformConfigs.cropRect} | '
+        'fakeHeroTransformConfigs.aspectRatio='
+        '${_fakeHeroTransformConfigs.aspectRatio} | '
+        'enableFakeHero=$enableFakeHero');
     _interactiveCornerArea = isDesktop
         ? cropRotateEditorConfigs.desktopCornerDragArea
         : cropRotateEditorConfigs.mobileCornerDragArea;
@@ -825,6 +834,20 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
     _showFakeHero = enableFakeHero;
     _fakeHeroTransformConfigs = transformC;
+
+    debugPrint('[CropEditor.done] '
+        'enableFakeHero=$enableFakeHero | '
+        'transformC.cropRect=${transformC.cropRect} | '
+        'transformC.cropRect.aspectRatio='
+        '${transformC.cropRect.size.aspectRatio} | '
+        'transformC.aspectRatio=${transformC.aspectRatio} | '
+        'transformC.originalSize=${transformC.originalSize} | '
+        'transformC.scaleRotation=${transformC.scaleRotation} | '
+        'transformC.scaleUser=${transformC.scaleUser} | '
+        'transformC.offset=${transformC.offset} | '
+        'current cropRect=$cropRect | '
+        'current aspectRatio=$aspectRatio');
+
     _updateAllStates();
 
     if (!initConfigs.convertToUint8List) {
@@ -1157,6 +1180,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
       editorBodySize.width - margin.horizontal,
       editorBodySize.height - margin.vertical,
     );
+
 
     final double activeCropSpaceHorizontal =
         _rotated90deg ? _cropSpaceVertical : _cropSpaceHorizontal;
@@ -1578,6 +1602,20 @@ class CropRotateEditorState extends State<CropRotateEditor>
     if (!mounted) return;
     final int id = ++_heroAnimationId;
     _fakeHeroTransformConfigs = exportStateHistory();
+
+    debugPrint('[CropEditor.showFakeHero] '
+        'skipAnimation=$skipAnimation | '
+        'fakeHeroTransformConfigs.cropRect=${_fakeHeroTransformConfigs.cropRect} | '
+        'fakeHeroTransformConfigs.cropRect.aspectRatio=${_fakeHeroTransformConfigs.cropRect.size.aspectRatio} | '
+        'fakeHeroTransformConfigs.aspectRatio=${_fakeHeroTransformConfigs.aspectRatio} | '
+        'fakeHeroTransformConfigs.originalSize=${_fakeHeroTransformConfigs.originalSize} | '
+        'fakeHeroTransformConfigs.scaleRotation=${_fakeHeroTransformConfigs.scaleRotation} | '
+        'fakeHeroTransformConfigs.scaleUser=${_fakeHeroTransformConfigs.scaleUser} | '
+        'fakeHeroTransformConfigs.offset=${_fakeHeroTransformConfigs.offset} | '
+        'current cropRect=$cropRect | '
+        'current aspectRatio=$aspectRatio | '
+        'editorBodySize=$editorBodySize | '
+        '_cropViewPadding=$_cropViewPadding');
 
     if (skipAnimation) {
       // Instant transition — no blocking await.
@@ -4573,58 +4611,104 @@ class CropRotateEditorState extends State<CropRotateEditor>
   ///
   /// Allows seamless transition animations before unlocking the editor interaction grid.
   Widget _buildFakeHero() {
+    final double fakeHeroAspectRatio =
+        _fakeHeroTransformConfigs.cropRect.size.aspectRatio;
     final fit = cropRotateEditorConfigs.viewportFitBuilder?.call(
-          _fakeHeroTransformConfigs.cropRect.size.aspectRatio,
+          fakeHeroAspectRatio,
         ) ??
         const ViewportFitResult();
 
-    return Padding(
-      padding: fit.boundaryMargin * fit.editorMinScale,
-      child: LayoutBuilder(
-        builder: (BuildContext context, BoxConstraints constraints) {
-          return Stack(
-            alignment: Alignment.center,
-            fit: StackFit.expand,
-            children: [
-              Hero(
-                tag: heroTag,
-                createRectTween: (Rect? begin, Rect? end) =>
-                    RectTween(begin: begin, end: end),
-                child: TransformedContentGenerator(
-                  isVideoPlayer: videoController != null,
-                  transformConfigs: _fakeHeroTransformConfigs,
-                  configs: configs,
-                  child: FilteredWidget(
-                    width: _mainImageSize.width,
-                    height: _mainImageSize.height,
+    final EdgeInsets fakeHeroPadding = fit.boundaryMargin * fit.editorMinScale;
+
+    // Compute what the crop editor content uses for its padding
+    final fitForCropContent =
+        cropRotateEditorConfigs.viewportFitBuilder?.call(null) ??
+            const ViewportFitResult();
+    final EdgeInsets cropContentPadding =
+        fitForCropContent.viewPadding ?? fitForCropContent.boundaryMargin;
+
+    // Calculate center offset to compensate for different padding centers.
+    // When the aspect ratio changes, viewportFitBuilder returns padding with
+    // a different vertical center than the crop content padding. We need to
+    // shift the fake hero so its center matches the crop content center.
+    final double bodyW = editorBodySize.width;
+    final double bodyH = editorBodySize.height;
+    double offsetX = 0;
+    double offsetY = 0;
+    if (bodyW.isFinite && bodyH.isFinite && bodyW > 0 && bodyH > 0) {
+      final double fakeHeroCenterY =
+          fakeHeroPadding.top + (bodyH - fakeHeroPadding.vertical) / 2;
+      final double cropContentCenterY =
+          cropContentPadding.top + (bodyH - cropContentPadding.vertical) / 2;
+      offsetY = cropContentCenterY - fakeHeroCenterY;
+
+      final double fakeHeroCenterX =
+          fakeHeroPadding.left + (bodyW - fakeHeroPadding.horizontal) / 2;
+      final double cropContentCenterX =
+          cropContentPadding.left + (bodyW - cropContentPadding.horizontal) / 2;
+      offsetX = cropContentCenterX - fakeHeroCenterX;
+    }
+
+    debugPrint('[CropEditor._buildFakeHero] ===== FAKE HERO POSITIONING =====');
+    debugPrint('[CropEditor._buildFakeHero] '
+        'fakeHeroAspectRatio=$fakeHeroAspectRatio | '
+        'fakeHero effectivePadding=$fakeHeroPadding | '
+        'cropContent effectivePadding=$cropContentPadding');
+    debugPrint('[CropEditor._buildFakeHero] '
+        'centerOffset=Offset($offsetX, $offsetY) | '
+        'editorBodySize=$editorBodySize');
+    debugPrint('[CropEditor._buildFakeHero] ===== END FAKE HERO =====');
+
+    return Transform.translate(
+      offset: Offset(offsetX, offsetY),
+      child: Padding(
+        padding: fakeHeroPadding,
+        child: LayoutBuilder(
+          builder: (BuildContext context, BoxConstraints constraints) {
+            return Stack(
+              alignment: Alignment.center,
+              fit: StackFit.expand,
+              children: [
+                Hero(
+                  tag: heroTag,
+                  createRectTween: (Rect? begin, Rect? end) =>
+                      RectTween(begin: begin, end: end),
+                  child: TransformedContentGenerator(
+                    isVideoPlayer: videoController != null,
+                    transformConfigs: _fakeHeroTransformConfigs,
                     configs: configs,
-                    image: editorImage,
-                    videoPlayer: videoController?.videoPlayer,
-                    blankSize: initConfigs.mainImageSize,
-                    filters: appliedFilters,
-                    tuneAdjustments: appliedTuneAdjustments,
-                    blurFactor: appliedBlurFactor,
+                    child: FilteredWidget(
+                      width: _mainImageSize.width,
+                      height: _mainImageSize.height,
+                      configs: configs,
+                      image: editorImage,
+                      videoPlayer: videoController?.videoPlayer,
+                      blankSize: initConfigs.mainImageSize,
+                      filters: appliedFilters,
+                      tuneAdjustments: appliedTuneAdjustments,
+                      blurFactor: appliedBlurFactor,
+                    ),
                   ),
                 ),
-              ),
-              if (cropRotateEditorConfigs.showLayers && layers != null)
-                LayerStack(
-                  transformHelper: TransformHelper(
-                    mainBodySize: (mainBodySize ?? editorBodySize),
-                    mainImageSize: _mainImageSize,
-                    editorBodySize: constraints.biggest,
-                    transformConfigs: initialTransformConfigs,
+                if (cropRotateEditorConfigs.showLayers && layers != null)
+                  LayerStack(
+                    transformHelper: TransformHelper(
+                      mainBodySize: (mainBodySize ?? editorBodySize),
+                      mainImageSize: _mainImageSize,
+                      editorBodySize: constraints.biggest,
+                      transformConfigs: initialTransformConfigs,
+                    ),
+                    configs: configs,
+                    layers: _layers,
+                    clipBehavior: Clip.none,
+                    overlayColor:
+                        cropRotateEditorConfigs.style.background?.call(context) ??
+                            kImageEditorBackground,
                   ),
-                  configs: configs,
-                  layers: _layers,
-                  clipBehavior: Clip.none,
-                  overlayColor:
-                      cropRotateEditorConfigs.style.background?.call(context) ??
-                          kImageEditorBackground,
-                ),
-            ],
-          );
-        },
+              ],
+            );
+          },
+        ),
       ),
     );
   }
