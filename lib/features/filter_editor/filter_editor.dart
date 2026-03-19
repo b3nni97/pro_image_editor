@@ -377,13 +377,18 @@ class FilterEditorState extends State<FilterEditor>
         fit: StackFit.expand,
         children: [
           Builder(builder: (context) {
-            final fit = mainConfigs.viewportFitBuilder?.call(
-                  initialTransformConfigs?.cropRect.size.aspectRatio,
-                ) ??
+            final double? effectiveAspectRatio =
+                initialTransformConfigs != null &&
+                        initialTransformConfigs!.isNotEmpty
+                    ? initialTransformConfigs!.cropRect.size.aspectRatio
+                    : mainImageSize?.aspectRatio;
+
+            final fit = mainConfigs.viewportFitBuilder
+                    ?.call(effectiveAspectRatio) ??
                 const ViewportFitResult();
 
             debugPrint('[FilterEditor] viewportFit: '
-                'aspectRatio=${initialTransformConfigs?.cropRect.size.aspectRatio}, '
+                'aspectRatio=$effectiveAspectRatio, '
                 'boundaryMargin=${fit.boundaryMargin}, '
                 'minScale=${fit.editorMinScale}, maxScale=${fit.editorMaxScale}, '
                 'initialTransform=${fit.initialTransform}');

@@ -442,9 +442,14 @@ class TuneEditorState extends State<TuneEditor>
         fit: StackFit.expand,
         children: [
           Builder(builder: (context) {
-            final fit = mainConfigs.viewportFitBuilder?.call(
-                  initialTransformConfigs?.cropRect.size.aspectRatio,
-                ) ??
+            final double? effectiveAspectRatio =
+                initialTransformConfigs != null &&
+                        initialTransformConfigs!.isNotEmpty
+                    ? initialTransformConfigs!.cropRect.size.aspectRatio
+                    : mainImageSize?.aspectRatio;
+
+            final fit = mainConfigs.viewportFitBuilder
+                    ?.call(effectiveAspectRatio) ??
                 const ViewportFitResult();
             return ExtendedInteractiveViewer(
               key: interactiveViewerKey,

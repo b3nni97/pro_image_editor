@@ -4612,7 +4612,9 @@ class CropRotateEditorState extends State<CropRotateEditor>
   /// Allows seamless transition animations before unlocking the editor interaction grid.
   Widget _buildFakeHero() {
     final double fakeHeroAspectRatio =
-        _fakeHeroTransformConfigs.cropRect.size.aspectRatio;
+        _fakeHeroTransformConfigs.isNotEmpty
+            ? _fakeHeroTransformConfigs.cropRect.size.aspectRatio
+            : _mainImageSize.aspectRatio;
     final fit = cropRotateEditorConfigs.viewportFitBuilder?.call(
           fakeHeroAspectRatio,
         ) ??
