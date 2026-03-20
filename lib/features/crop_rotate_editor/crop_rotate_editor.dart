@@ -214,7 +214,14 @@ class CropRotateEditorState extends State<CropRotateEditor>
   EdgeInsets get _cropViewPadding {
     final fit = cropRotateEditorConfigs.viewportFitBuilder?.call(null) ??
         const ViewportFitResult();
-    return fit.viewPadding ?? fit.boundaryMargin;
+    final EdgeInsets fitMargin = fit.boundaryMargin;
+    return fit.viewPadding ??
+        EdgeInsets.only(
+          left: max(0, fitMargin.left),
+          right: max(0, fitMargin.right),
+          top: max(0, fitMargin.top),
+          bottom: max(0, fitMargin.bottom),
+        );
   }
 
   /// Identifies the editor content widget to allow retrieving its render box for global offset calculations.
@@ -4620,14 +4627,17 @@ class CropRotateEditorState extends State<CropRotateEditor>
         ) ??
         const ViewportFitResult();
 
-    final EdgeInsets fakeHeroPadding = fit.boundaryMargin * fit.editorMinScale;
+    final EdgeInsets fitMargin = fit.boundaryMargin * fit.editorMinScale;
+    final EdgeInsets fakeHeroPadding = fit.viewPadding ??
+        EdgeInsets.only(
+          left: max(0, fitMargin.left),
+          right: max(0, fitMargin.right),
+          top: max(0, fitMargin.top),
+          bottom: max(0, fitMargin.bottom),
+        );
 
     // Compute what the crop editor content uses for its padding
-    final fitForCropContent =
-        cropRotateEditorConfigs.viewportFitBuilder?.call(null) ??
-            const ViewportFitResult();
-    final EdgeInsets cropContentPadding =
-        fitForCropContent.viewPadding ?? fitForCropContent.boundaryMargin;
+    final EdgeInsets cropContentPadding = _cropViewPadding;
 
     // Calculate center offset to compensate for different padding centers.
     // When the aspect ratio changes, viewportFitBuilder returns padding with
