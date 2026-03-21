@@ -24,6 +24,7 @@ class ExtendedInteractiveViewer extends StatefulWidget {
     this.initialMatrix4,
     this.enableExternalGestureDetector = false,
     this.boundaryMargin = EdgeInsets.zero,
+    this.contentInset = EdgeInsets.zero,
     this.minScale = 1.0,
     this.maxScale = 5.0,
   });
@@ -123,6 +124,12 @@ class ExtendedInteractiveViewer extends StatefulWidget {
   /// This defines the margin around the child content that determines
   /// the panning limits.
   final EdgeInsets boundaryMargin;
+
+  /// The internal padding within the child widget where no actual
+  /// content is rendered (e.g., FittedBox letterboxing).
+  ///
+  /// Used to tighten pan boundaries when zoomed in.
+  final EdgeInsets contentInset;
 
   /// The minimum scale the interactive viewer can be zoomed to.
   final double minScale;
@@ -332,6 +339,7 @@ class ExtendedInteractiveViewerState extends State<ExtendedInteractiveViewer>
     }
     return InteractiveViewerScrollPhysics(
       boundaryMargin: widget.boundaryMargin,
+      contentInset: widget.contentInset,
       transformationController: _transformCtrl,
       panEnabled: _enableInteraction,
       scaleEnabled: _enableInteraction,

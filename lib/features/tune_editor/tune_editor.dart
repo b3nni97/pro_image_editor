@@ -455,6 +455,7 @@ class TuneEditorState extends State<TuneEditor>
               key: interactiveViewerKey,
               zoomConfigs: mainConfigs,
               boundaryMargin: fit.boundaryMargin,
+              contentInset: fit.contentInset,
               minScale: fit.editorMinScale,
               maxScale: fit.editorMaxScale,
               initialMatrix4: fit.initialTransform,

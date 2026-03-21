@@ -13,6 +13,7 @@ class ViewportFitResult {
     this.editorMaxScale = 5.0,
     this.initialTransform,
     this.viewPadding,
+    this.contentInset = EdgeInsets.zero,
   });
 
   /// A margin for the visible boundaries of the child.
@@ -48,6 +49,17 @@ class ViewportFitResult {
   ///
   /// Only used by the crop/rotate editor.
   final EdgeInsets? viewPadding;
+
+  /// The internal padding within the child widget where no actual
+  /// content is rendered (e.g., FittedBox letterboxing).
+  ///
+  /// This is used to tighten pan boundaries when zoomed in, preventing
+  /// the visible image from being panned beyond its minScale position.
+  /// The insets describe how much empty space exists on each side of the
+  /// actual content within the child widget (in child coordinates).
+  ///
+  /// Defaults to [EdgeInsets.zero] (no letterboxing).
+  final EdgeInsets contentInset;
 }
 
 /// Signature for the viewport fit builder callback.

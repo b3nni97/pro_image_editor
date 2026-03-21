@@ -387,15 +387,12 @@ class FilterEditorState extends State<FilterEditor>
                     ?.call(effectiveAspectRatio) ??
                 const ViewportFitResult();
 
-            debugPrint('[FilterEditor] viewportFit: '
-                'aspectRatio=$effectiveAspectRatio, '
-                'boundaryMargin=${fit.boundaryMargin}, '
-                'minScale=${fit.editorMinScale}, maxScale=${fit.editorMaxScale}, '
-                'initialTransform=${fit.initialTransform}');
+
             return ExtendedInteractiveViewer(
               key: interactiveViewerKey,
               zoomConfigs: mainConfigs,
               boundaryMargin: fit.boundaryMargin,
+              contentInset: fit.contentInset,
               minScale: fit.editorMinScale,
               maxScale: fit.editorMaxScale,
               initialMatrix4: fit.initialTransform,

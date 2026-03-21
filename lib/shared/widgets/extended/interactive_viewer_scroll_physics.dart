@@ -83,6 +83,7 @@ class InteractiveViewerScrollPhysics extends StatefulWidget {
     this.onWheelDelta,
     this.scrollPhysics,
     this.scrollPhysicsAutoAdjustBoundaries = true,
+    this.contentInset = EdgeInsets.zero,
     required Widget this.child,
   })  : assert(minScale > 0),
         assert(interactionEndFrictionCoefficient > 0),
@@ -131,6 +132,7 @@ class InteractiveViewerScrollPhysics extends StatefulWidget {
     this.onWheelDelta,
     this.scrollPhysics,
     this.scrollPhysicsAutoAdjustBoundaries = true,
+    this.contentInset = EdgeInsets.zero,
     required InteractiveViewerScrollPhysicsWidgetBuilder this.builder,
   })  : assert(minScale > 0),
         assert(interactionEndFrictionCoefficient > 0),
@@ -404,6 +406,13 @@ class InteractiveViewerScrollPhysics extends StatefulWidget {
   /// child size is smaller than the viewport size.
   final bool scrollPhysicsAutoAdjustBoundaries;
 
+  /// The internal padding within the child widget where no actual
+  /// content is rendered (e.g., FittedBox letterboxing).
+  ///
+  /// Used to tighten pan boundaries when zoomed in, so the visible
+  /// content never pans beyond its minScale position.
+  final EdgeInsets contentInset;
+
   /// Returns the closest point to the given point on the given line segment.
   @visibleForTesting
   static Vector3 getNearestPointOnLine(Vector3 point, Vector3 l1, Vector3 l2) {
@@ -586,7 +595,7 @@ class _InteractiveViewerScrollPhysicsState
     return Offset.zero & parentRenderBox.size;
   }
 
-  // Return a new matrix representing the given matrix after applying the given
+// Return a new matrix representing the given matrix after applying the given
   // translation.
   Matrix4 _matrixTranslate(Matrix4 matrix, Offset translation) {
     if (translation == Offset.zero) {
@@ -1012,7 +1021,6 @@ class _InteractiveViewerScrollPhysicsState
       case _GestureType.pan:
         if (widget.scrollPhysics != null) {
           if (_snapController.isAnimating) return;
-          print("IS PAN");
           final Vector3 currentTranslation =
               _transformer.value.getTranslation();
           final Offset currentOffset =
@@ -1362,7 +1370,6 @@ class _InteractiveViewerScrollPhysicsState
           simulationY != null ? -simulationY!.x(t) : translationVector.y;
       final Offset simulationOffset =
           Offset(simulationOffsetX, simulationOffsetY);
-      print(simulationOffset);
       final Offset simulationScene = _transformer.toScene(simulationOffset);
       final Offset translationChangeScene = simulationScene - translationScene;
 
@@ -1377,8 +1384,6 @@ class _InteractiveViewerScrollPhysicsState
         final scale = (simulatedScrollPos / 1000);
 
         final scaleChange = scale / matrix.getMaxScaleOnAxis();
-        // print("T: " + t.toString());
-        print(scale);
         // print("CURRENT: " + _transformer.value.getMaxScaleOnAxis().toString());
         // _transformer.value = _matrixScale(
         //     _transformer.value, scale / _transformer.value.getMaxScaleOnAxis());
@@ -1420,45 +1425,103 @@ class _InteractiveViewerScrollPhysicsState
     required double scale,
     EdgeInsets boundaryMargin = EdgeInsets.zero,
   }) {
-    // If boundaries are infinite, provide very large finite extents to disable clamping
     if (_boundaryRect.isInfinite) {
       return const Rect.fromLTRB(-double.maxFinite, -double.maxFinite,
           double.maxFinite, double.maxFinite);
     }
 
-    // Get the raw child size, which does not include any margin.
     final Size childSize = _childSize();
-    // Calculate the margin in pixels, based on minScale to keep it constant.
-    final double horizontalMargin = boundaryMargin.horizontal * widget.minScale;
-    final double verticalMargin = boundaryMargin.vertical * widget.minScale;
 
-    // Calculate the true "extra" width/height based on the scaled child
-    // and the CONSTANT margin. This is the correct pannable range.
+    final double marginLeft = boundaryMargin.left * widget.minScale;
+    final double marginRight = boundaryMargin.right * widget.minScale;
+    final double marginTop = boundaryMargin.top * widget.minScale;
+    final double marginBottom = boundaryMargin.bottom * widget.minScale;
+    final double horizontalMargin = marginLeft + marginRight;
+    final double verticalMargin = marginTop + marginBottom;
+
     final double extraWidth =
         (childSize.width * scale) + horizontalMargin - viewportSize.width;
     final double extraHeight =
         (childSize.height * scale) + verticalMargin - viewportSize.height;
 
-    // // Compute the full extra size.
-    // final double extraWidth = effectiveWidth - viewportSize.width;
-    final extraBoundaryHorizontal =
+    final double extraBoundaryH =
         extraWidth < 1 && widget.scrollPhysicsAutoAdjustBoundaries
             ? (extraWidth / 2).abs()
-            : 0;
-
-    // final double extraHeight = effectiveHeight - viewportSize.height;
-    final extraBoundaryVertical =
+            : 0.0;
+    final double extraBoundaryV =
         extraHeight < 1 && widget.scrollPhysicsAutoAdjustBoundaries
             ? (extraHeight / 2).abs()
-            : 0;
+            : 0.0;
 
-    final double minX =
-        -((boundaryMargin.left * widget.minScale + extraBoundaryHorizontal));
-    final double minY =
-        -((boundaryMargin.top * widget.minScale + extraBoundaryVertical));
+    // ── Without contentInset: original formula ──
+    if (widget.contentInset == EdgeInsets.zero) {
+      final double minX = -(marginLeft + extraBoundaryH);
+      final double minY = -(marginTop + extraBoundaryV);
+      final double maxX = minX + math.max(0.0, extraWidth);
+      final double maxY = minY + math.max(0.0, extraHeight);
+      return Rect.fromLTRB(minX, minY, maxX, maxY);
+    }
 
-    final double maxX = minX + math.max(0, extraWidth);
-    final double maxY = minY + math.max(0, extraHeight);
+    // ── With contentInset: compute from image-edge constraints ──
+    //
+    // The child contains letterboxing (contentInset). We compute
+    // the resting position at minScale, then derive the exact
+    // pixel range so each image edge never moves past its minScale
+    // position.
+
+    // Resting position at minScale (extraBoundary centers the child)
+    final double baseExtraW = (childSize.width * widget.minScale) +
+        horizontalMargin -
+        viewportSize.width;
+    final double baseExtraH = (childSize.height * widget.minScale) +
+        verticalMargin -
+        viewportSize.height;
+    final double baseExtraBoundaryH =
+        baseExtraW < 1 && widget.scrollPhysicsAutoAdjustBoundaries
+            ? (baseExtraW / 2).abs()
+            : 0.0;
+    final double baseExtraBoundaryV =
+        baseExtraH < 1 && widget.scrollPhysicsAutoAdjustBoundaries
+            ? (baseExtraH / 2).abs()
+            : 0.0;
+
+    final double txRest = marginLeft + baseExtraBoundaryH;
+    final double tyRest = marginTop + baseExtraBoundaryV;
+
+    // Image edges in child coordinates
+    final double imgLeft = widget.contentInset.left;
+    final double imgRight = childSize.width - widget.contentInset.right;
+    final double imgTop = widget.contentInset.top;
+    final double imgBottom = childSize.height - widget.contentInset.bottom;
+
+    // Image positions on screen at minScale resting position
+    final double imgLeftAtRest = txRest + imgLeft * widget.minScale;
+    final double imgRightAtRest = txRest + imgRight * widget.minScale;
+    final double imgTopAtRest = tyRest + imgTop * widget.minScale;
+    final double imgBottomAtRest = tyRest + imgBottom * widget.minScale;
+
+    // Constraints (in pixels = -ty convention):
+    //   imgLeft  * scale - imgLeftAtRest   ≤ pixels_x
+    //   pixels_x ≤ imgRight * scale - imgRightAtRest
+    //   imgTop   * scale - imgTopAtRest    ≤ pixels_y
+    //   pixels_y ≤ imgBottom * scale - imgBottomAtRest
+    double minX = imgLeft * scale - imgLeftAtRest;
+    double maxX = imgRight * scale - imgRightAtRest;
+    double minY = imgTop * scale - imgTopAtRest;
+    double maxY = imgBottom * scale - imgBottomAtRest;
+
+    // Ensure min ≤ max (image smaller than viewport at this scale)
+    if (minX > maxX) {
+      final double mid = (minX + maxX) / 2;
+      minX = mid;
+      maxX = mid;
+    }
+    if (minY > maxY) {
+      final double mid = (minY + maxY) / 2;
+      minY = mid;
+      maxY = mid;
+    }
+
     return Rect.fromLTRB(minX, minY, maxX, maxY);
   }
 
@@ -1576,7 +1639,6 @@ class _InteractiveViewerScrollPhysicsState
   }
 
   void _stopAnimation() {
-    print("STOP ANIMATION");
     _controller.stop();
     _animation?.removeListener(_handleInertiaAnimation);
     _animation = null;
