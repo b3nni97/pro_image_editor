@@ -215,13 +215,19 @@ class CropRotateEditorState extends State<CropRotateEditor>
     final fit = cropRotateEditorConfigs.viewportFitBuilder?.call(null) ??
         const ViewportFitResult();
     final EdgeInsets fitMargin = fit.boundaryMargin;
-    return fit.viewPadding ??
+    final EdgeInsets raw = fit.viewPadding ??
         EdgeInsets.only(
-          left: max(0, fitMargin.left),
-          right: max(0, fitMargin.right),
-          top: max(0, fitMargin.top),
-          bottom: max(0, fitMargin.bottom),
+          left: fitMargin.left,
+          right: fitMargin.right,
+          top: fitMargin.top,
+          bottom: fitMargin.bottom,
         );
+    return EdgeInsets.only(
+      left: max(0, raw.left),
+      right: max(0, raw.right),
+      top: max(0, raw.top),
+      bottom: max(0, raw.bottom),
+    );
   }
 
   /// Identifies the editor content widget to allow retrieving its render box for global offset calculations.
@@ -4622,105 +4628,87 @@ class CropRotateEditorState extends State<CropRotateEditor>
         _fakeHeroTransformConfigs.isNotEmpty
             ? _fakeHeroTransformConfigs.cropRect.size.aspectRatio
             : _mainImageSize.aspectRatio;
-    final fit = cropRotateEditorConfigs.viewportFitBuilder?.call(
-          fakeHeroAspectRatio,
-        ) ??
-        const ViewportFitResult();
 
-    final EdgeInsets fitMargin = fit.boundaryMargin * fit.editorMinScale;
-    final EdgeInsets fakeHeroPadding = fit.viewPadding ??
-        EdgeInsets.only(
-          left: max(0, fitMargin.left),
-          right: max(0, fitMargin.right),
-          top: max(0, fitMargin.top),
-          bottom: max(0, fitMargin.bottom),
-        );
+    final EdgeInsets basePadding = _cropViewPadding;
 
-    // Compute what the crop editor content uses for its padding
-    final EdgeInsets cropContentPadding = _cropViewPadding;
+    // Use editorBodySize when available, otherwise fall back to screen size.
+    // MediaQuery gives us the same dimensions that
+    // MainEditorViewportFit.fromAspectRatio uses internally.
+    final Size bodySize =
+        (editorBodySize.width.isFinite && editorBodySize.height.isFinite)
+            ? editorBodySize
+            : MediaQuery.sizeOf(context);
+    final double contentW = bodySize.width - basePadding.horizontal;
+    final double contentH = bodySize.height - basePadding.vertical;
 
-    // Calculate center offset to compensate for different padding centers.
-    // When the aspect ratio changes, viewportFitBuilder returns padding with
-    // a different vertical center than the crop content padding. We need to
-    // shift the fake hero so its center matches the crop content center.
-    final double bodyW = editorBodySize.width;
-    final double bodyH = editorBodySize.height;
-    double offsetX = 0;
-    double offsetY = 0;
-    if (bodyW.isFinite && bodyH.isFinite && bodyW > 0 && bodyH > 0) {
-      final double fakeHeroCenterY =
-          fakeHeroPadding.top + (bodyH - fakeHeroPadding.vertical) / 2;
-      final double cropContentCenterY =
-          cropContentPadding.top + (bodyH - cropContentPadding.vertical) / 2;
-      offsetY = cropContentCenterY - fakeHeroCenterY;
-
-      final double fakeHeroCenterX =
-          fakeHeroPadding.left + (bodyW - fakeHeroPadding.horizontal) / 2;
-      final double cropContentCenterX =
-          cropContentPadding.left + (bodyW - cropContentPadding.horizontal) / 2;
-      offsetX = cropContentCenterX - fakeHeroCenterX;
+    double gapX = 0;
+    double gapY = 0;
+    if (contentW > 0 && contentH > 0 && fakeHeroAspectRatio > 0) {
+      double imgW = contentW;
+      double imgH = imgW / fakeHeroAspectRatio;
+      if (imgH > contentH) {
+        imgH = contentH;
+        imgW = imgH * fakeHeroAspectRatio;
+      }
+      gapX = (contentW - imgW) / 2;
+      gapY = (contentH - imgH) / 2;
     }
 
-    debugPrint('[CropEditor._buildFakeHero] ===== FAKE HERO POSITIONING =====');
-    debugPrint('[CropEditor._buildFakeHero] '
-        'fakeHeroAspectRatio=$fakeHeroAspectRatio | '
-        'fakeHero effectivePadding=$fakeHeroPadding | '
-        'cropContent effectivePadding=$cropContentPadding');
-    debugPrint('[CropEditor._buildFakeHero] '
-        'centerOffset=Offset($offsetX, $offsetY) | '
-        'editorBodySize=$editorBodySize');
-    debugPrint('[CropEditor._buildFakeHero] ===== END FAKE HERO =====');
+    final EdgeInsets fakeHeroPadding = EdgeInsets.only(
+      top: max(0, basePadding.top + gapY),
+      bottom: max(0, basePadding.bottom + gapY),
+      left: max(0, basePadding.left + gapX),
+      right: max(0, basePadding.right + gapX),
+    );
 
-    return Transform.translate(
-      offset: Offset(offsetX, offsetY),
-      child: Padding(
-        padding: fakeHeroPadding,
-        child: LayoutBuilder(
-          builder: (BuildContext context, BoxConstraints constraints) {
-            return Stack(
-              alignment: Alignment.center,
-              fit: StackFit.expand,
-              children: [
-                Hero(
-                  tag: heroTag,
-                  createRectTween: (Rect? begin, Rect? end) =>
-                      RectTween(begin: begin, end: end),
-                  child: TransformedContentGenerator(
-                    isVideoPlayer: videoController != null,
-                    transformConfigs: _fakeHeroTransformConfigs,
+
+    return Padding(
+      padding: fakeHeroPadding,
+      child: LayoutBuilder(
+        builder: (BuildContext context, BoxConstraints constraints) {
+          return Stack(
+            alignment: Alignment.center,
+            fit: StackFit.expand,
+            children: [
+              Hero(
+                tag: heroTag,
+                createRectTween: (Rect? begin, Rect? end) =>
+                    RectTween(begin: begin, end: end),
+                child: TransformedContentGenerator(
+                  isVideoPlayer: videoController != null,
+                  transformConfigs: _fakeHeroTransformConfigs,
+                  configs: configs,
+                  child: FilteredWidget(
+                    width: _mainImageSize.width,
+                    height: _mainImageSize.height,
                     configs: configs,
-                    child: FilteredWidget(
-                      width: _mainImageSize.width,
-                      height: _mainImageSize.height,
-                      configs: configs,
-                      image: editorImage,
-                      videoPlayer: videoController?.videoPlayer,
-                      blankSize: initConfigs.mainImageSize,
-                      filters: appliedFilters,
-                      tuneAdjustments: appliedTuneAdjustments,
-                      blurFactor: appliedBlurFactor,
-                    ),
+                    image: editorImage,
+                    videoPlayer: videoController?.videoPlayer,
+                    blankSize: initConfigs.mainImageSize,
+                    filters: appliedFilters,
+                    tuneAdjustments: appliedTuneAdjustments,
+                    blurFactor: appliedBlurFactor,
                   ),
                 ),
-                if (cropRotateEditorConfigs.showLayers && layers != null)
-                  LayerStack(
-                    transformHelper: TransformHelper(
-                      mainBodySize: (mainBodySize ?? editorBodySize),
-                      mainImageSize: _mainImageSize,
-                      editorBodySize: constraints.biggest,
-                      transformConfigs: initialTransformConfigs,
-                    ),
-                    configs: configs,
-                    layers: _layers,
-                    clipBehavior: Clip.none,
-                    overlayColor:
-                        cropRotateEditorConfigs.style.background?.call(context) ??
-                            kImageEditorBackground,
+              ),
+              if (cropRotateEditorConfigs.showLayers && layers != null)
+                LayerStack(
+                  transformHelper: TransformHelper(
+                    mainBodySize: (mainBodySize ?? editorBodySize),
+                    mainImageSize: _mainImageSize,
+                    editorBodySize: constraints.biggest,
+                    transformConfigs: initialTransformConfigs,
                   ),
-              ],
-            );
-          },
-        ),
+                  configs: configs,
+                  layers: _layers,
+                  clipBehavior: Clip.none,
+                  overlayColor:
+                      cropRotateEditorConfigs.style.background?.call(context) ??
+                          kImageEditorBackground,
+                ),
+            ],
+          );
+        },
       ),
     );
   }
