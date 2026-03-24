@@ -1,4 +1,6 @@
 // Project imports:
+import 'package:flutter/widgets.dart';
+
 import 'editor_init_configs.dart';
 
 /// Configuration class for initializing the tune editor.
@@ -23,6 +25,14 @@ class TuneEditorInitConfigs extends EditorInitConfigs {
     super.appliedTuneAdjustments,
     super.appliedBlurFactor,
     super.convertToUint8List,
+    this.backgroundImageOverride,
     required super.theme,
   });
+
+  /// An optional widget that overrides the default background image.
+  ///
+  /// Used when the main editor directly embeds this sub-editor,
+  /// allowing the main editor to control the hero and crop animations.
+  /// When null, the sub-editor uses its own background rendering.
+  final Widget? backgroundImageOverride;
 }

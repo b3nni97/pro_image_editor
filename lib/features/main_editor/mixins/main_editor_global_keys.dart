@@ -2,6 +2,7 @@
 import 'package:flutter/widgets.dart';
 
 // Project imports:
+import '/core/enums/editor_mode.dart';
 import '/features/blur_editor/blur_editor.dart';
 import '/features/crop_rotate_editor/crop_rotate_editor.dart';
 import '/features/emoji_editor/emoji_editor.dart';
@@ -46,13 +47,23 @@ mixin MainEditorGlobalKeys {
   /// subeditors via `pushReplacement` to avoid "Duplicate GlobalKey" errors.
   /// This also ensures the `CropRotateEditor` shows its fake hero before its
   /// key is lost, allowing the outgoing hero animation to play.
-  void resetGlobalKeys() {
+  ///
+  /// When [preserve] is set, the corresponding editor's key is kept intact.
+  /// This is used for embedded sub-editors whose key must not be reset
+  /// because they remain in the widget tree permanently.
+  void resetGlobalKeys({SubEditorMode? preserve}) {
     paintEditor = GlobalKey<PaintEditorState>();
     textEditor = GlobalKey<TextEditorState>();
     cropRotateEditor = GlobalKey<CropRotateEditorState>();
-    filterEditor = GlobalKey<FilterEditorState>();
-    tuneEditor = GlobalKey<TuneEditorState>();
-    blurEditor = GlobalKey<BlurEditorState>();
+    if (preserve != SubEditorMode.filter) {
+      filterEditor = GlobalKey<FilterEditorState>();
+    }
+    if (preserve != SubEditorMode.tune) {
+      tuneEditor = GlobalKey<TuneEditorState>();
+    }
+    if (preserve != SubEditorMode.blur) {
+      blurEditor = GlobalKey<BlurEditorState>();
+    }
     emojiEditor = GlobalKey<EmojiEditorState>();
   }
 }

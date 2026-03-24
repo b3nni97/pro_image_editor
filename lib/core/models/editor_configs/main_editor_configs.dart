@@ -26,6 +26,7 @@ class MainEditorConfigs extends ZoomConfigs {
     super.invertTrackpadDirection,
     super.viewportFitBuilder,
     this.transformSetup,
+    this.initialSubEditor,
     this.enableCloseButton = true,
     this.enableKeyboardShortcuts = true,
     this.enableEscapeButton = true,
@@ -84,6 +85,20 @@ class MainEditorConfigs extends ZoomConfigs {
   /// such as cropping, based on the provided setup.
   final MainEditorTransformSetup? transformSetup;
 
+  /// When set, the sub-editor is embedded directly in the main editor's
+  /// widget tree instead of showing the main editor UI.
+  ///
+  /// The hero animation will fly directly to the sub-editor's viewport,
+  /// and the main editor's background image (with crop animation) is passed
+  /// to the sub-editor as an override during the initial animation phase.
+  ///
+  /// Supported values: [SubEditorMode.tune], [SubEditorMode.filter],
+  /// [SubEditorMode.blur].
+  ///
+  /// When the sub-editor is cancelled, the entire editor closes.
+  /// When done, the result is applied and the editor closes.
+  final SubEditorMode? initialSubEditor;
+
   /// Style configuration for the main editor.
   final MainEditorStyle style;
 
@@ -132,6 +147,7 @@ class MainEditorConfigs extends ZoomConfigs {
     bool? enableKeyboardShortcuts,
     bool? enableEscapeButton,
     MainEditorTransformSetup? transformSetup,
+    SubEditorMode? initialSubEditor,
     MainEditorStyle? style,
     MainEditorIcons? icons,
     MainEditorWidgets? widgets,
@@ -155,6 +171,7 @@ class MainEditorConfigs extends ZoomConfigs {
           enableKeyboardShortcuts ?? this.enableKeyboardShortcuts,
       enableEscapeButton: enableEscapeButton ?? this.enableEscapeButton,
       transformSetup: transformSetup ?? this.transformSetup,
+      initialSubEditor: initialSubEditor ?? this.initialSubEditor,
       style: style ?? this.style,
       icons: icons ?? this.icons,
       widgets: widgets ?? this.widgets,

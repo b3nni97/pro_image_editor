@@ -376,84 +376,89 @@ class FilterEditorState extends State<FilterEditor>
         alignment: Alignment.center,
         fit: StackFit.expand,
         children: [
-          Builder(builder: (context) {
-            final double? effectiveAspectRatio =
-                initialTransformConfigs != null &&
-                        initialTransformConfigs!.isNotEmpty
-                    ? initialTransformConfigs!.cropRect.size.aspectRatio
-                    : mainImageSize?.aspectRatio;
+          if (initConfigs.backgroundImageOverride != null)
+            initConfigs.backgroundImageOverride!
+          else
+            Builder(builder: (context) {
+              final double? effectiveAspectRatio =
+                  initialTransformConfigs != null &&
+                          initialTransformConfigs!.isNotEmpty
+                      ? initialTransformConfigs!.cropRect.size.aspectRatio
+                      : (mainImageSize != null &&
+                              mainImageSize != Size.zero
+                          ? mainImageSize!.aspectRatio
+                          : null);
 
-            final fit = mainConfigs.viewportFitBuilder
-                    ?.call(effectiveAspectRatio) ??
-                const ViewportFitResult();
+              final fit = mainConfigs.viewportFitBuilder
+                      ?.call(effectiveAspectRatio) ??
+                  const ViewportFitResult();
 
-
-            return ExtendedInteractiveViewer(
-              key: interactiveViewerKey,
-              zoomConfigs: mainConfigs,
-              boundaryMargin: fit.boundaryMargin,
-              contentInset: fit.contentInset,
-              minScale: fit.editorMinScale,
-              maxScale: fit.editorMaxScale,
-              initialMatrix4: fit.initialTransform,
-              onInteractionStart: (details) {
-                callbacks.filterEditorCallbacks?.onEditorZoomScaleStart
-                    ?.call(details);
-              },
-              onInteractionUpdate: (details) {
-                callbacks.filterEditorCallbacks?.onEditorZoomScaleUpdate
-                    ?.call(details);
-              },
-              onInteractionEnd: (details) {
-                callbacks.filterEditorCallbacks?.onEditorZoomScaleEnd
-                    ?.call(details);
-              },
-              onMatrix4Change: (value) {
-                callbacks.filterEditorCallbacks?.onEditorZoomMatrix4Change
-                    ?.call(value);
-              },
-              child: Stack(
-                alignment: Alignment.center,
-                fit: StackFit.expand,
-                children: [
-                  if (initConfigs.convertToUint8List && isVideoEditor)
-                    _buildBackground(),
-                  ContentRecorder(
-                    controller: screenshotCtrl,
-                    child: Stack(
-                      alignment: Alignment.center,
-                      fit: StackFit.expand,
-                      children: [
-                        if (!initConfigs.convertToUint8List || !isVideoEditor)
-                          _buildBackground(),
-                        if (filterEditorConfigs.showLayers && layers != null)
-                          LayerStack(
-                            transformHelper: TransformHelper(
-                              mainBodySize: getValidSizeOrDefault(
-                                  mainBodySize, editorBodySize),
-                              mainImageSize: getValidSizeOrDefault(
-                                  mainImageSize, editorBodySize),
-                              editorBodySize: editorBodySize,
-                              transformConfigs: initialTransformConfigs,
+              return ExtendedInteractiveViewer(
+                key: interactiveViewerKey,
+                zoomConfigs: mainConfigs,
+                boundaryMargin: fit.boundaryMargin,
+                contentInset: fit.contentInset,
+                minScale: fit.editorMinScale,
+                maxScale: fit.editorMaxScale,
+                initialMatrix4: fit.initialTransform,
+                onInteractionStart: (details) {
+                  callbacks.filterEditorCallbacks?.onEditorZoomScaleStart
+                      ?.call(details);
+                },
+                onInteractionUpdate: (details) {
+                  callbacks.filterEditorCallbacks?.onEditorZoomScaleUpdate
+                      ?.call(details);
+                },
+                onInteractionEnd: (details) {
+                  callbacks.filterEditorCallbacks?.onEditorZoomScaleEnd
+                      ?.call(details);
+                },
+                onMatrix4Change: (value) {
+                  callbacks.filterEditorCallbacks?.onEditorZoomMatrix4Change
+                      ?.call(value);
+                },
+                child: Stack(
+                  alignment: Alignment.center,
+                  fit: StackFit.expand,
+                  children: [
+                    if (initConfigs.convertToUint8List && isVideoEditor)
+                      _buildBackground(),
+                    ContentRecorder(
+                      controller: screenshotCtrl,
+                      child: Stack(
+                        alignment: Alignment.center,
+                        fit: StackFit.expand,
+                        children: [
+                          if (!initConfigs.convertToUint8List || !isVideoEditor)
+                            _buildBackground(),
+                          if (filterEditorConfigs.showLayers && layers != null)
+                            LayerStack(
+                              transformHelper: TransformHelper(
+                                mainBodySize: getValidSizeOrDefault(
+                                    mainBodySize, editorBodySize),
+                                mainImageSize: getValidSizeOrDefault(
+                                    mainImageSize, editorBodySize),
+                                editorBodySize: editorBodySize,
+                                transformConfigs: initialTransformConfigs,
+                              ),
+                              configs: configs,
+                              layers: layers!,
+                              clipBehavior: Clip.none,
+                              overlayColor: filterEditorConfigs.style.background
+                                      ?.call(context) ??
+                                  kImageEditorBackground,
                             ),
-                            configs: configs,
-                            layers: layers!,
-                            clipBehavior: Clip.none,
-                            overlayColor: filterEditorConfigs.style.background
-                                    ?.call(context) ??
-                                kImageEditorBackground,
-                          ),
-                        if (filterEditorConfigs.widgets.bodyItemsRecorded !=
-                            null)
-                          ...filterEditorConfigs.widgets.bodyItemsRecorded!(
-                              this, rebuildController.stream)
-                      ],
+                          if (filterEditorConfigs.widgets.bodyItemsRecorded !=
+                              null)
+                            ...filterEditorConfigs.widgets.bodyItemsRecorded!(
+                                this, rebuildController.stream)
+                        ],
+                      ),
                     ),
-                  ),
-                ],
-              ),
-            );
-          }),
+                  ],
+                ),
+              );
+            }),
           if (filterEditorConfigs.widgets.bodyItems != null)
             ...filterEditorConfigs.widgets.bodyItems!(
                 this, rebuildController.stream),

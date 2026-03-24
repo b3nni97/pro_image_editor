@@ -27,6 +27,7 @@ class MainEditorBackgroundImage extends StatefulWidget {
     required this.heroTag,
     required this.blankSize,
     this.onCropAnimationChanged,
+    this.onAllAnimationsComplete,
   }) : assert(editorImage != null || blankSize != null,
             'Either editorImage or blankSize must be provided');
 
@@ -57,6 +58,11 @@ class MainEditorBackgroundImage extends StatefulWidget {
   /// Called when the crop animation state changes.
   /// `true` when animation starts, `false` when it ends.
   final ValueChanged<bool>? onCropAnimationChanged;
+
+  /// Called once when all initial animations (hero + crop) are complete.
+  /// Used by embedded sub-editors to know when to switch to their own
+  /// background rendering.
+  final VoidCallback? onAllAnimationsComplete;
 
   @override
   State<MainEditorBackgroundImage> createState() =>
@@ -124,6 +130,9 @@ class _MainEditorBackgroundImageState extends State<MainEditorBackgroundImage>
   /// Whether the crop animation has completed.
   bool _cropAnimDone = false;
 
+  /// Whether onAllAnimationsComplete has been called already.
+  bool _didNotifyAnimationsComplete = false;
+
   /// Tracks the previous initialized state to detect transitions.
   bool _wasInitialized = false;
 
@@ -151,6 +160,7 @@ class _MainEditorBackgroundImageState extends State<MainEditorBackgroundImage>
     // Only animate if a crop has actually been applied
     if (tc.isEmpty || tc.originalSize.isInfinite) {
       _cropAnimDone = true;
+      _notifyAllAnimationsCompleteIfReady();
       return;
     }
 
@@ -168,6 +178,7 @@ class _MainEditorBackgroundImageState extends State<MainEditorBackgroundImage>
         (tc.cropRect.width - fullCropRect.width).abs() < 0.5 &&
         (tc.cropRect.height - fullCropRect.height).abs() < 0.5) {
       _cropAnimDone = true;
+      _notifyAllAnimationsCompleteIfReady();
       return;
     }
 
@@ -190,6 +201,7 @@ class _MainEditorBackgroundImageState extends State<MainEditorBackgroundImage>
         setState(() {
           _cropAnimDone = true;
         });
+        _notifyAllAnimationsCompleteIfReady();
       }
     });
 
@@ -209,6 +221,17 @@ class _MainEditorBackgroundImageState extends State<MainEditorBackgroundImage>
     final target = _targetTransformConfigs!;
     final animatedRect = Rect.lerp(_fullRect!, target.cropRect, t)!;
     return target.copyWith(cropRect: animatedRect);
+  }
+
+  /// Notifies the parent that all animations are done (hero settled + crop
+  /// done). Only fires once.
+  void _notifyAllAnimationsCompleteIfReady() {
+    if (_didNotifyAnimationsComplete) return;
+    if (!widget.isInitialized || !_cropAnimDone) return;
+    _didNotifyAnimationsComplete = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      widget.onAllAnimationsComplete?.call();
+    });
   }
 
   @override

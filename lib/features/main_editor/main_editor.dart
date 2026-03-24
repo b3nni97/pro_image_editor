@@ -470,6 +470,10 @@ class ProImageEditorState extends State<ProImageEditor>
   /// Whether the initial crop animation is currently playing.
   bool _isCropAnimating = false;
 
+  /// Whether the background override for embedded sub-editors is still active.
+  /// Starts true and switches to false after hero + crop animations complete.
+  bool _isBackgroundOverrideActive = true;
+
   /// Flag indicating if the image needs decoding.
   bool _isImageNotDecoded = true;
 
@@ -1846,6 +1850,17 @@ class ProImageEditorState extends State<ProImageEditor>
     if (!mounted) return;
     await _commitCurrentSubEditorState();
 
+    // If the embedded sub-editor is already tune, just close the overlay
+    // route to return to it instead of pushing a duplicate.
+    if (mainEditorConfigs.initialSubEditor == SubEditorMode.tune) {
+      if (isSubEditorOpen) {
+        Navigator.pop(context);
+      }
+      tuneEditor = GlobalKey<TuneEditorState>();
+      setState(() {});
+      return;
+    }
+
     List<TuneAdjustmentMatrix>? tuneAdjustments = await openPage(
       HeroMode(
         enabled: enableHero,
@@ -1894,6 +1909,17 @@ class ProImageEditorState extends State<ProImageEditor>
     if (!mounted) return;
     await _commitCurrentSubEditorState();
 
+    // If the embedded sub-editor is already filter, just close the overlay
+    // route to return to it instead of pushing a duplicate.
+    if (mainEditorConfigs.initialSubEditor == SubEditorMode.filter) {
+      if (isSubEditorOpen) {
+        Navigator.pop(context);
+      }
+      filterEditor = GlobalKey<FilterEditorState>();
+      setState(() {});
+      return;
+    }
+
     FilterMatrix? filters = await openPage(
       FilterEditor.autoSource(
         key: filterEditor,
@@ -1929,6 +1955,17 @@ class ProImageEditorState extends State<ProImageEditor>
   void openBlurEditor() async {
     if (!mounted) return;
     await _commitCurrentSubEditorState();
+
+    // If the embedded sub-editor is already blur, just close the overlay
+    // route to return to it instead of pushing a duplicate.
+    if (mainEditorConfigs.initialSubEditor == SubEditorMode.blur) {
+      if (isSubEditorOpen) {
+        Navigator.pop(context);
+      }
+      blurEditor = GlobalKey<BlurEditorState>();
+      setState(() {});
+      return;
+    }
 
     double? blur = await openPage(
       BlurEditor.autoSource(
@@ -2310,7 +2347,10 @@ class ProImageEditorState extends State<ProImageEditor>
   /// to the history before switching to another subeditor. This ensures the
   /// newly opened subeditor receives the most up-to-date image state.
   Future<void> _commitCurrentSubEditorState() async {
-    if (isSubEditorOpen) {
+    // Also commit when an embedded sub-editor is active
+    // (initialSubEditor != null) because the embedded editor has no
+    // navigation route, so isSubEditorOpen may be false.
+    if (isSubEditorOpen || mainEditorConfigs.initialSubEditor != null) {
       if (cropRotateEditor.currentState != null) {
         await cropRotateEditor.currentState!.showFakeHero();
         // After skipAnimation the state might already be gone if the widget
@@ -2350,7 +2390,9 @@ class ProImageEditorState extends State<ProImageEditor>
       }
     }
 
-    resetGlobalKeys();
+    // Preserve the embedded sub-editor's GlobalKey so the LayoutBuilder
+    // does not inflate a new widget tree during layout.
+    resetGlobalKeys(preserve: mainEditorConfigs.initialSubEditor);
   }
 
   /// Captures the final editor image.
@@ -2717,44 +2759,67 @@ class ProImageEditorState extends State<ProImageEditor>
                   bottom: mainEditorConfigs.safeArea.bottom,
                   left: mainEditorConfigs.safeArea.left,
                   right: mainEditorConfigs.safeArea.right,
-                  child: LayoutBuilder(
-                    builder: (context, constraints) {
-                      sizesManager.editorSize = constraints.biggest;
-                      var scaffold = Scaffold(
-                        backgroundColor:
-                            mainEditorConfigs.style.background?.call(context) ??
-                                kImageEditorBackground,
-                        resizeToAvoidBottomInset: false,
-                        appBar: _buildAppBar(),
-                        body: _buildBody(),
-                        bottomNavigationBar: _buildBottomNavBar(),
-                      );
-
-                      if (mainEditorConfigs.enableSubEditorPage) {
-                        return Stack(
+                  // When initialSubEditor is set, the sub-editor is built
+                  // OUTSIDE the LayoutBuilder (as a Stack sibling) to avoid
+                  // creating new RenderRepaintBoundary render objects during
+                  // _RenderLayoutBuilder.performLayout when GlobalKeys are
+                  // reset. The LayoutBuilder only captures constraint sizes.
+                  child: mainEditorConfigs.initialSubEditor != null
+                      ? Stack(
+                          fit: StackFit.expand,
                           children: [
-                            scaffold,
-                            Positioned.fill(
-                              child: IgnorePointer(
-                                ignoring: !isSubEditorOpen,
-                                child: Navigator(
-                                  key: _navigatorKey,
-                                  onGenerateRoute: (settings) =>
-                                      PageRouteBuilder(
-                                    opaque: false,
-                                    pageBuilder: (context, _, __) =>
-                                        const SizedBox.shrink(),
-                                  ),
-                                ),
-                              ),
+                            LayoutBuilder(
+                              builder: (context, constraints) {
+                                sizesManager.editorSize = constraints.biggest;
+                                sizesManager.bodySize = constraints.biggest;
+                                sizesManager.lastScreenSize =
+                                    constraints.biggest;
+                                return const SizedBox.shrink();
+                              },
                             ),
+                            _buildEmbeddedSubEditor(),
                           ],
-                        );
-                      }
+                        )
+                      : LayoutBuilder(
+                          builder: (context, constraints) {
+                            sizesManager.editorSize = constraints.biggest;
 
-                      return scaffold;
-                    },
-                  ),
+                            var scaffold = Scaffold(
+                              backgroundColor: mainEditorConfigs
+                                          .style.background
+                                          ?.call(context) ??
+                                      kImageEditorBackground,
+                              resizeToAvoidBottomInset: false,
+                              appBar: _buildAppBar(),
+                              body: _buildBody(),
+                              bottomNavigationBar: _buildBottomNavBar(),
+                            );
+
+                            if (mainEditorConfigs.enableSubEditorPage) {
+                              return Stack(
+                                children: [
+                                  scaffold,
+                                  Positioned.fill(
+                                    child: IgnorePointer(
+                                      ignoring: !isSubEditorOpen,
+                                      child: Navigator(
+                                        key: _navigatorKey,
+                                        onGenerateRoute: (settings) =>
+                                            PageRouteBuilder(
+                                          opaque: false,
+                                          pageBuilder: (context, _, __) =>
+                                              const SizedBox.shrink(),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              );
+                            }
+
+                            return scaffold;
+                          },
+                        ),
                   // child: LayoutBuilder(builder: (context, constraints) {
                   //   sizesManager.editorSize = constraints.biggest;
                   //   return Scaffold(
@@ -3021,6 +3086,13 @@ class ProImageEditorState extends State<ProImageEditor>
           _isCropAnimating = isAnimating;
         });
       },
+      onAllAnimationsComplete: () {
+        if (_isBackgroundOverrideActive) {
+          setState(() {
+            _isBackgroundOverrideActive = false;
+          });
+        }
+      },
     );
   }
 
@@ -3033,5 +3105,100 @@ class ProImageEditorState extends State<ProImageEditor>
       stateManager: stateManager,
       videoPlayer: widget.videoController!.videoPlayer,
     );
+  }
+
+  /// Builds the embedded sub-editor directly in the main editor's widget tree.
+  ///
+  /// The sub-editor receives the main editor's background image as an override
+  /// so that the hero animation and crop animation are controlled by the main
+  /// editor.
+  Widget _buildEmbeddedSubEditor() {
+    final subEditorMode = mainEditorConfigs.initialSubEditor!;
+
+    // Pass the main editor's full interactive content (with
+    // ExtendedInteractiveViewer, Hero, crop animation, layers, etc.)
+    // as the background override. The sub-editor will use this directly
+    // in its body instead of its own ExtendedInteractiveViewer + background.
+    final Widget? backgroundOverride =
+        _isBackgroundOverrideActive ? _buildInteractiveContent() : null;
+
+    switch (subEditorMode) {
+      case SubEditorMode.tune:
+        return TuneEditor.autoSource(
+          key: tuneEditor,
+          editorImage: widget.blankSize == null
+              ? editorImage
+              : EditorImage(byteArray: kImageEditorTransparentBytes),
+          videoController: widget.videoController,
+          initConfigs: TuneEditorInitConfigs(
+            theme: _theme,
+            configs: configs,
+            callbacks: callbacks,
+            transformConfigs: stateManager.transformConfigs,
+            layers: _layerCopyManager.copyLayerList(activeLayers),
+            mainImageSize: widget.blankSize ?? sizesManager.decodedImageSize,
+            mainBodySize: sizesManager.bodySize,
+            convertToUint8List: false,
+            appliedBlurFactor: stateManager.activeBlur,
+            appliedFilters: stateManager.activeFilters,
+            appliedTuneAdjustments: stateManager.activeTuneAdjustments,
+            backgroundImageOverride: backgroundOverride,
+          ),
+        );
+      case SubEditorMode.filter:
+        return FilterEditor.autoSource(
+          key: filterEditor,
+          editorImage: widget.blankSize == null
+              ? editorImage
+              : EditorImage(byteArray: kImageEditorTransparentBytes),
+          videoController: widget.videoController,
+          initConfigs: FilterEditorInitConfigs(
+            theme: _theme,
+            configs: configs,
+            callbacks: callbacks,
+            transformConfigs: stateManager.transformConfigs,
+            layers: _layerCopyManager.copyLayerList(activeLayers),
+            mainImageSize: widget.blankSize ?? sizesManager.decodedImageSize,
+            mainBodySize: sizesManager.bodySize,
+            convertToUint8List: false,
+            appliedBlurFactor: stateManager.activeBlur,
+            appliedFilters: stateManager.activeFilters,
+            appliedTuneAdjustments: stateManager.activeTuneAdjustments,
+            backgroundImageOverride: backgroundOverride,
+          ),
+        );
+      case SubEditorMode.blur:
+        return BlurEditor.autoSource(
+          key: blurEditor,
+          editorImage: widget.blankSize == null
+              ? editorImage
+              : EditorImage(byteArray: kImageEditorTransparentBytes),
+          videoController: widget.videoController,
+          initConfigs: BlurEditorInitConfigs(
+            theme: _theme,
+            configs: configs,
+            callbacks: callbacks,
+            transformConfigs: stateManager.transformConfigs,
+            layers: _layerCopyManager.copyLayerList(activeLayers),
+            mainImageSize: widget.blankSize ?? sizesManager.decodedImageSize,
+            mainBodySize: sizesManager.bodySize,
+            convertToUint8List: false,
+            appliedBlurFactor: stateManager.activeBlur,
+            appliedFilters: stateManager.activeFilters,
+            appliedTuneAdjustments: stateManager.activeTuneAdjustments,
+            backgroundImageOverride: backgroundOverride,
+          ),
+        );
+      default:
+        // Unsupported sub-editor modes fall back to normal scaffold
+        return Scaffold(
+          backgroundColor: mainEditorConfigs.style.background?.call(context) ??
+              kImageEditorBackground,
+          resizeToAvoidBottomInset: false,
+          appBar: _buildAppBar(),
+          body: _buildBody(),
+          bottomNavigationBar: _buildBottomNavBar(),
+        );
+    }
   }
 }

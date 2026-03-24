@@ -292,37 +292,41 @@ class BlurEditorState extends State<BlurEditor>
         alignment: Alignment.center,
         fit: StackFit.expand,
         children: [
-          if (initConfigs.convertToUint8List && isVideoEditor)
-            _buildBackground(),
-          ContentRecorder(
-            controller: screenshotCtrl,
-            child: Stack(
-              alignment: Alignment.center,
-              fit: StackFit.expand,
-              children: [
-                if (!initConfigs.convertToUint8List || !isVideoEditor)
-                  _buildBackground(),
-                if (blurEditorConfigs.showLayers && layers != null)
-                  LayerStack(
-                    transformHelper: TransformHelper(
-                      mainBodySize:
-                          getValidSizeOrDefault(mainBodySize, editorBodySize),
-                      mainImageSize:
-                          getValidSizeOrDefault(mainImageSize, editorBodySize),
-                      transformConfigs: initialTransformConfigs,
-                      editorBodySize: editorBodySize,
+          if (initConfigs.backgroundImageOverride != null)
+            initConfigs.backgroundImageOverride!
+          else ...[
+            if (initConfigs.convertToUint8List && isVideoEditor)
+              _buildBackground(),
+            ContentRecorder(
+              controller: screenshotCtrl,
+              child: Stack(
+                alignment: Alignment.center,
+                fit: StackFit.expand,
+                children: [
+                  if (!initConfigs.convertToUint8List || !isVideoEditor)
+                    _buildBackground(),
+                  if (blurEditorConfigs.showLayers && layers != null)
+                    LayerStack(
+                      transformHelper: TransformHelper(
+                        mainBodySize:
+                            getValidSizeOrDefault(mainBodySize, editorBodySize),
+                        mainImageSize:
+                            getValidSizeOrDefault(mainImageSize, editorBodySize),
+                        transformConfigs: initialTransformConfigs,
+                        editorBodySize: editorBodySize,
+                      ),
+                      overlayColor: blurEditorConfigs.style.background,
+                      configs: configs,
+                      layers: layers!,
+                      clipBehavior: Clip.none,
                     ),
-                    overlayColor: blurEditorConfigs.style.background,
-                    configs: configs,
-                    layers: layers!,
-                    clipBehavior: Clip.none,
-                  ),
-                if (blurEditorConfigs.widgets.bodyItemsRecorded != null)
-                  ...blurEditorConfigs.widgets.bodyItemsRecorded!(
-                      this, rebuildController.stream),
-              ],
+                  if (blurEditorConfigs.widgets.bodyItemsRecorded != null)
+                    ...blurEditorConfigs.widgets.bodyItemsRecorded!(
+                        this, rebuildController.stream),
+                ],
+              ),
             ),
-          ),
+          ],
           if (blurEditorConfigs.widgets.bodyItems != null)
             ...blurEditorConfigs.widgets.bodyItems!(
                 this, rebuildController.stream),
