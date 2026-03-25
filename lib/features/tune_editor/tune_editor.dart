@@ -211,6 +211,14 @@ class TuneEditorState extends State<TuneEditor>
   /// Determines whether redo can be performed on the current state.
   bool get canRedo => _redoStack.isNotEmpty;
 
+  /// The redo stack, exposed for the main editor to preserve redo entries
+  /// when switching between sub-editors.
+  List<List<TuneAdjustmentMatrix>> get redoStack => _redoStack;
+
+  /// A version counter that increments on every undo/redo.
+  /// Use this in widget keys to force slider recreation after undo/redo.
+  int historyVersion = 0;
+
   @override
   void initState() {
     super.initState();
@@ -294,16 +302,25 @@ class TuneEditorState extends State<TuneEditor>
   /// Moves the last action from the redo stack to the undo stack and restores
   /// the adjustment matrix.
   void redo() {
+    debugPrint('[TuneEditor] redo() called. '
+        'redoStack=${_redoStack.length}, undoStack=${_undoStack.length}');
     if (_redoStack.isNotEmpty) {
       /// Save current state to undo stack
-      _undoStack.add(List.from(tuneAdjustmentMatrix.map((e) => e.copy())));
+      _undoStack.add(tuneAdjustmentMatrix.map((e) => e.copy()).toList());
 
       /// Restore the last state from redo stack
       tuneAdjustmentMatrix = _redoStack.removeLast();
 
       tuneEditorCallbacks?.handleRedo();
 
+      debugPrint('[TuneEditor] redo() done. '
+          'redoStack=${_redoStack.length}, undoStack=${_undoStack.length}, '
+          'canUndo=$canUndo, canRedo=$canRedo');
+      historyVersion++;
+      uiStream.add(null);
       setState(() {});
+    } else {
+      debugPrint('[TuneEditor] redo() -> SKIPPED (redoStack empty)');
     }
   }
 
@@ -312,16 +329,25 @@ class TuneEditorState extends State<TuneEditor>
   /// Moves the last action from the undo stack to the redo stack and restores
   /// the previous adjustment matrix.
   void undo() {
+    debugPrint('[TuneEditor] undo() called. '
+        'undoStack=${_undoStack.length}, redoStack=${_redoStack.length}');
     if (_undoStack.isNotEmpty) {
       /// Save current state to redo stack
-      _redoStack.add(List.from(tuneAdjustmentMatrix.map((e) => e.copy())));
+      _redoStack.add(tuneAdjustmentMatrix.map((e) => e.copy()).toList());
 
       /// Restore the last state from undo stack
       tuneAdjustmentMatrix = _undoStack.removeLast();
 
       tuneEditorCallbacks?.handleUndo();
 
+      debugPrint('[TuneEditor] undo() done. '
+          'undoStack=${_undoStack.length}, redoStack=${_redoStack.length}, '
+          'canUndo=$canUndo, canRedo=$canRedo');
+      historyVersion++;
+      uiStream.add(null);
       setState(() {});
+    } else {
+      debugPrint('[TuneEditor] undo() -> SKIPPED (undoStack empty)');
     }
   }
 
@@ -365,16 +391,24 @@ class TuneEditorState extends State<TuneEditor>
 
   /// Saves the current state to the undo stack before making changes.
   void onChangedStart(double value) {
+    debugPrint('[TuneEditor] onChangedStart($value). '
+        'Saving to undoStack (was ${_undoStack.length}). '
+        'Clearing redoStack (was ${_redoStack.length})');
     // Save current state to undo stack before making changes
     _undoStack.add(
       tuneAdjustmentMatrix.map((e) => e.copy()).toList(),
     );
     // Clear redo stack because a new change is made
     _redoStack.clear();
+    debugPrint('[TuneEditor] onChangedStart done. '
+        'undoStack=${_undoStack.length}, redoStack=${_redoStack.length}, '
+        'canUndo=$canUndo, canRedo=$canRedo');
   }
 
   /// Handles the end of changes in the tune factor value.
   void onChangedEnd(double value) {
+    debugPrint('[TuneEditor] onChangedEnd($value). '
+        'undoStack=${_undoStack.length}, canUndo=$canUndo');
     setState(() {});
 
     tuneEditorCallbacks?.handleTuneFactorChangeEnd(tuneAdjustmentMatrix);
@@ -521,27 +555,29 @@ class TuneEditorState extends State<TuneEditor>
     return Hero(
       tag: heroTag,
       createRectTween: (begin, end) => RectTween(begin: begin, end: end),
-      child: TransformedContentGenerator(
-        isVideoPlayer: videoController != null,
-        configs: configs,
-        transformConfigs: initialTransformConfigs ?? TransformConfigs.empty(),
-        child: StreamBuilder(
-            stream: uiStream.stream,
-            builder: (context, snapshot) {
-              return FilteredWidget(
-                width:
-                    getValidSizeOrDefault(mainImageSize, editorBodySize).width,
-                height:
-                    getValidSizeOrDefault(mainImageSize, editorBodySize).height,
-                configs: configs,
-                image: editorImage,
-                videoPlayer: videoController?.videoPlayer,
-                blankSize: initConfigs.mainImageSize,
-                filters: appliedFilters,
-                tuneAdjustments: tuneAdjustmentMatrix,
-                blurFactor: appliedBlurFactor,
-              );
-            }),
+      child: StreamBuilder(
+        stream: uiStream.stream,
+        builder: (context, snapshot) {
+          return TransformedContentGenerator(
+            isVideoPlayer: videoController != null,
+            configs: configs,
+            transformConfigs:
+                initialTransformConfigs ?? TransformConfigs.empty(),
+            child: FilteredWidget(
+              width:
+                  getValidSizeOrDefault(mainImageSize, editorBodySize).width,
+              height:
+                  getValidSizeOrDefault(mainImageSize, editorBodySize).height,
+              configs: configs,
+              image: editorImage,
+              videoPlayer: videoController?.videoPlayer,
+              blankSize: initConfigs.mainImageSize,
+              filters: appliedFilters,
+              tuneAdjustments: tuneAdjustmentMatrix,
+              blurFactor: appliedBlurFactor,
+            ),
+          );
+        },
       ),
     );
   }

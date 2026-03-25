@@ -541,11 +541,70 @@ class ProImageEditorState extends State<ProImageEditor>
   /// List to store the history of image editor changes.
   List<EditorStateHistory> get stateHistory => stateManager.stateHistory;
 
-  /// Determines whether undo actions can be performed on the current state.
-  bool get canUndo => stateManager.canUndo;
+  /// Determines whether undo actions can be performed.
+  ///
+  /// Checks the active sub-editor first (if any). If the sub-editor can undo,
+  /// returns true. Otherwise, falls through to the main editor's state history.
+  bool get canUndo {
+    if (_isSubEditorActive) {
+      final subUndo = _activeSubEditorCanUndo;
+      if (subUndo != null && subUndo) return true;
+    }
+    return stateManager.canUndo;
+  }
 
-  /// Determines whether redo actions can be performed on the current state.
-  bool get canRedo => stateManager.canRedo;
+  /// Determines whether redo actions can be performed.
+  ///
+  /// Checks the active sub-editor first (if any). If the sub-editor can redo,
+  /// returns true. Otherwise, falls through to the main editor's state history.
+  bool get canRedo {
+    if (_isSubEditorActive) {
+      final subRedo = _activeSubEditorCanRedo;
+      if (subRedo != null && subRedo) return true;
+    }
+    return stateManager.canRedo;
+  }
+
+  /// Whether a sub-editor is currently active (either via page navigation
+  /// or embedded via `initialSubEditor`).
+  bool get _isSubEditorActive =>
+      isSubEditorOpen || mainEditorConfigs.initialSubEditor != null;
+
+  /// Returns the active sub-editor's canUndo, or null if no sub-editor
+  /// with undo support is currently mounted.
+  bool? get _activeSubEditorCanUndo {
+    if (tuneEditor.currentState != null) {
+      return tuneEditor.currentState!.canUndo;
+    }
+    if (filterEditor.currentState != null) {
+      return filterEditor.currentState!.canUndo;
+    }
+    if (paintEditor.currentState != null) {
+      return paintEditor.currentState!.canUndo;
+    }
+    if (cropRotateEditor.currentState != null) {
+      return cropRotateEditor.currentState!.canUndo;
+    }
+    return null;
+  }
+
+  /// Returns the active sub-editor's canRedo, or null if no sub-editor
+  /// with redo support is currently mounted.
+  bool? get _activeSubEditorCanRedo {
+    if (tuneEditor.currentState != null) {
+      return tuneEditor.currentState!.canRedo;
+    }
+    if (filterEditor.currentState != null) {
+      return filterEditor.currentState!.canRedo;
+    }
+    if (paintEditor.currentState != null) {
+      return paintEditor.currentState!.canRedo;
+    }
+    if (cropRotateEditor.currentState != null) {
+      return cropRotateEditor.currentState!.canRedo;
+    }
+    return null;
+  }
 
   /// Indicates whether video editor is enabled.
   late final bool _isVideoEditor = widget.videoController != null;
@@ -730,6 +789,13 @@ class ProImageEditorState extends State<ProImageEditor>
     bool heroScreenshotRequired = false,
     bool blockCaptureScreenshot = false,
   }) {
+    debugPrint('[MainEditor] addHistory() called with: '
+        'layers=${layers?.length ?? "null"}, '
+        'newLayer=${newLayer != null}, '
+        'transformConfigs=${transformConfigs != null}, '
+        'filters=${filters?.length ?? "null"}, '
+        'tuneAdjustments=${tuneAdjustments?.length ?? "null"}, '
+        'blur=$blur');
     List<Layer> activeLayerList = _layerCopyManager.copyLayerList(activeLayers);
 
     stateManager.addHistory(
@@ -2173,39 +2239,177 @@ class ProImageEditorState extends State<ProImageEditor>
 
   /// Undo the last editing action.
   ///
-  /// This function allows the user to undo the most recent editing action
-  /// performed on the image.
-  /// It decreases the edit position, and the image is decoded to reflect
-  /// the previous state.
+  /// If a sub-editor is active and has undo history, the undo is delegated
+  /// to that sub-editor. Otherwise, falls through to the main editor's
+  /// global state history.
   void undoAction() {
+    debugPrint('[MainEditor] undoAction() called. '
+        'canUndo=${stateManager.canUndo}, '
+        'isSubEditorOpen=$isSubEditorOpen, '
+        'historyPointer=${stateManager.historyPointer}, '
+        'historyLength=${stateManager.stateHistory.length}');
     GestureManager.instance.stopPropagation();
+
+    // Try delegating to the active sub-editor first
+    if (_isSubEditorActive && _delegateUndoToSubEditor()) {
+      debugPrint('[MainEditor] undoAction() -> delegated to sub-editor');
+      return;
+    }
+
+    // Fall through to main editor undo
     if (stateManager.canUndo) {
+      debugPrint('[MainEditor] undoAction() -> performing main undo');
       setState(() {
         layerInteractionManager.clearSelectedLayers();
         _checkInteractiveViewer();
         stateManager.undo();
         decodeImage();
       });
+      debugPrint('[MainEditor] undoAction() done. '
+          'New pointer=${stateManager.historyPointer}, '
+          'activeLayers=${activeLayers.length}, '
+          'activeBlur=${stateManager.activeBlur}, '
+          'activeTuneAdj=${stateManager.activeTuneAdjustments.length}, '
+          'activeFilters=${stateManager.activeFilters.length}');
       mainEditorCallbacks?.handleUndo();
+      _notifyActiveSubEditorRebuild();
+    } else {
+      debugPrint('[MainEditor] undoAction() -> SKIPPED (nothing to undo)');
     }
   }
 
   /// Redo the previously undone editing action.
   ///
-  /// This function allows the user to redo an editing action that was
-  /// previously undone using the
-  /// `undoAction` function. It increases the edit position, and the image is
-  /// decoded to reflect
-  /// the next state.
+  /// If a sub-editor is active and has redo history, the redo is delegated
+  /// to that sub-editor. Otherwise, falls through to the main editor's
+  /// global state history.
   void redoAction() {
+    debugPrint('[MainEditor] redoAction() called. '
+        'canRedo=${stateManager.canRedo}, '
+        'isSubEditorOpen=$isSubEditorOpen, '
+        'historyPointer=${stateManager.historyPointer}, '
+        'historyLength=${stateManager.stateHistory.length}');
+
+    // Try delegating to the active sub-editor first
+    if (_isSubEditorActive && _delegateRedoToSubEditor()) {
+      debugPrint('[MainEditor] redoAction() -> delegated to sub-editor');
+      return;
+    }
+
+    // Fall through to main editor redo
     if (stateManager.canRedo) {
+      debugPrint('[MainEditor] redoAction() -> performing main redo');
       setState(() {
         layerInteractionManager.clearSelectedLayers();
         _checkInteractiveViewer();
         stateManager.redo();
         decodeImage();
       });
+      debugPrint('[MainEditor] redoAction() done. '
+          'New pointer=${stateManager.historyPointer}, '
+          'activeLayers=${activeLayers.length}, '
+          'activeBlur=${stateManager.activeBlur}, '
+          'activeTuneAdj=${stateManager.activeTuneAdjustments.length}, '
+          'activeFilters=${stateManager.activeFilters.length}');
       mainEditorCallbacks?.handleRedo();
+      _notifyActiveSubEditorRebuild();
+    } else {
+      debugPrint('[MainEditor] redoAction() -> SKIPPED (nothing to redo)');
+    }
+  }
+
+  /// Attempts to delegate undo to the active sub-editor.
+  /// Returns true if the sub-editor handled the undo (had something to undo).
+  bool _delegateUndoToSubEditor() {
+    debugPrint('[MainEditor] _delegateUndoToSubEditor: '
+        'tune=${tuneEditor.currentState != null}, '
+        'tuneCanUndo=${tuneEditor.currentState?.canUndo}, '
+        'filter=${filterEditor.currentState != null}, '
+        'filterCanUndo=${filterEditor.currentState?.canUndo}, '
+        'paint=${paintEditor.currentState != null}, '
+        'crop=${cropRotateEditor.currentState != null}');
+    if (tuneEditor.currentState != null &&
+        tuneEditor.currentState!.canUndo) {
+      debugPrint('[MainEditor] -> delegating undo to TuneEditor');
+      tuneEditor.currentState!.undo();
+      return true;
+    }
+    if (filterEditor.currentState != null &&
+        filterEditor.currentState!.canUndo) {
+      debugPrint('[MainEditor] -> delegating undo to FilterEditor');
+      filterEditor.currentState!.undo();
+      return true;
+    }
+    if (paintEditor.currentState != null &&
+        paintEditor.currentState!.canUndo) {
+      paintEditor.currentState!.undoAction();
+      return true;
+    }
+    if (cropRotateEditor.currentState != null &&
+        cropRotateEditor.currentState!.canUndo) {
+      cropRotateEditor.currentState!.undoAction();
+      return true;
+    }
+    return false;
+  }
+
+  /// Attempts to delegate redo to the active sub-editor.
+  /// Returns true if the sub-editor handled the redo (had something to redo).
+  bool _delegateRedoToSubEditor() {
+    if (tuneEditor.currentState != null &&
+        tuneEditor.currentState!.canRedo) {
+      tuneEditor.currentState!.redo();
+      return true;
+    }
+    if (filterEditor.currentState != null &&
+        filterEditor.currentState!.canRedo) {
+      filterEditor.currentState!.redo();
+      return true;
+    }
+    if (paintEditor.currentState != null &&
+        paintEditor.currentState!.canRedo) {
+      paintEditor.currentState!.redoAction();
+      return true;
+    }
+    if (cropRotateEditor.currentState != null &&
+        cropRotateEditor.currentState!.canRedo) {
+      cropRotateEditor.currentState!.redoAction();
+      return true;
+    }
+    return false;
+  }
+
+  /// Notifies the active sub-editor to rebuild its UI after a main editor
+  /// undo/redo so that changes to applied filters, tune adjustments, blur,
+  /// etc. are visually reflected in the sub-editor's preview.
+  void _notifyActiveSubEditorRebuild() {
+    if (tuneEditor.currentState != null) {
+      tuneEditor.currentState!.updateAppliedState(
+        filters: stateManager.activeFilters,
+        tuneAdjustments: stateManager.activeTuneAdjustments,
+        blur: stateManager.activeBlur,
+        transformConfigs: stateManager.transformConfigs,
+      );
+      tuneEditor.currentState!.uiStream.add(null);
+    }
+    if (filterEditor.currentState != null) {
+      filterEditor.currentState!.updateAppliedState(
+        filters: stateManager.activeFilters,
+        tuneAdjustments: stateManager.activeTuneAdjustments,
+        blur: stateManager.activeBlur,
+        transformConfigs: stateManager.transformConfigs,
+      );
+      filterEditor.currentState!.uiFilterStream.add(null);
+    }
+    if (blurEditor.currentState != null) {
+      blurEditor.currentState!.updateAppliedState(
+        filters: stateManager.activeFilters,
+        tuneAdjustments: stateManager.activeTuneAdjustments,
+        blur: stateManager.activeBlur,
+        transformConfigs: stateManager.transformConfigs,
+      );
+      // BlurEditor doesn't have a dedicated UI stream; setState from main
+      // editor's rebuild handles it.
     }
   }
 
@@ -2351,23 +2555,79 @@ class ProImageEditorState extends State<ProImageEditor>
     // (initialSubEditor != null) because the embedded editor has no
     // navigation route, so isSubEditorOpen may be false.
     if (isSubEditorOpen || mainEditorConfigs.initialSubEditor != null) {
+      debugPrint('[MainEditor] _commitCurrentSubEditorState: '
+          'isSubEditorOpen=$isSubEditorOpen, '
+          'initialSubEditor=${mainEditorConfigs.initialSubEditor}, '
+          'crop=${cropRotateEditor.currentState != null}, '
+          'filter=${filterEditor.currentState != null}, '
+          'tune=${tuneEditor.currentState != null}, '
+          'blur=${blurEditor.currentState != null}, '
+          'paint=${paintEditor.currentState != null}, '
+          'historyLen=${stateManager.stateHistory.length}');
       if (cropRotateEditor.currentState != null) {
         await cropRotateEditor.currentState!.showFakeHero();
         // After skipAnimation the state might already be gone if the widget
         // was disposed during the pushReplacement, so guard with a null check.
         final cropState = cropRotateEditor.currentState;
         if (cropState != null) {
-          addHistory(
-            transformConfigs: cropState.exportStateHistory(),
-          );
+          final hasChanged = cropState.canUndo;
+          debugPrint('[MainEditor] _commitCurrentSubEditorState: '
+              'crop hasChanged=$hasChanged');
+          if (hasChanged) {
+            addHistory(transformConfigs: cropState.exportStateHistory());
+          }
         }
       } else if (filterEditor.currentState != null) {
-        addHistory(filters: filterEditor.currentState!.exportStateHistory());
+        final exported = filterEditor.currentState!.exportStateHistory();
+        final hasChanged = !listEquals(exported, stateManager.activeFilters);
+        debugPrint('[MainEditor] _commitCurrentSubEditorState: '
+            'filter hasChanged=$hasChanged');
+        if (hasChanged) {
+          addHistory(filters: exported);
+        }
       } else if (tuneEditor.currentState != null) {
-        addHistory(
-            tuneAdjustments: tuneEditor.currentState!.exportStateHistory());
+        final tuneState = tuneEditor.currentState!;
+        final exported = tuneState.exportStateHistory();
+        // Filter out zero-value adjustments for comparison, because the tune
+        // editor initializes all items to 0.0 even when the active state is [].
+        final effectiveExported =
+            exported.where((t) => t.value != 0.0).toList();
+        final effectiveActive = stateManager.activeTuneAdjustments
+            .where((t) => t.value != 0.0)
+            .toList();
+        final hasChanged = !listEquals(effectiveExported, effectiveActive);
+        debugPrint('[MainEditor] _commitCurrentSubEditorState: '
+            'tune hasChanged=$hasChanged '
+            '(exported=${effectiveExported.length}, '
+            'active=${effectiveActive.length}), '
+            'redoStack=${tuneState.redoStack.length}');
+        if (hasChanged) {
+          addHistory(tuneAdjustments: exported);
+        }
+
+        // Preserve redo entries as forward history so that redo survives
+        // switching to another sub-editor.
+        if (tuneState.canRedo) {
+          final redoEntries = tuneState.redoStack;
+          for (final redoState in redoEntries.reversed) {
+            addHistory(
+              tuneAdjustments: redoState,
+              blockCaptureScreenshot: true,
+            );
+          }
+          // Move pointer back so these become redo-able entries
+          for (int i = 0; i < redoEntries.length; i++) {
+            stateManager.undo();
+          }
+        }
       } else if (blurEditor.currentState != null) {
-        addHistory(blur: blurEditor.currentState!.exportStateHistory());
+        final exported = blurEditor.currentState!.exportStateHistory();
+        final hasChanged = exported != stateManager.activeBlur;
+        debugPrint('[MainEditor] _commitCurrentSubEditorState: '
+            'blur hasChanged=$hasChanged');
+        if (hasChanged) {
+          addHistory(blur: exported);
+        }
       } else if (paintEditor.currentState != null) {
         var res = paintEditor.currentState!.exportStateHistory();
         for (var layer in res.removedLayers) {

@@ -50,8 +50,8 @@ class ColorFilterGeneratorState extends State<ColorFilterGenerator> {
   @override
   void didUpdateWidget(covariant ColorFilterGenerator oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.filters.hashCode != widget.filters.hashCode ||
-        oldWidget.tuneAdjustments.hashCode != widget.tuneAdjustments.hashCode) {
+    if (!identical(oldWidget.filters, widget.filters) ||
+        !identical(oldWidget.tuneAdjustments, widget.tuneAdjustments)) {
       _recomputeMatrix();
     }
   }

@@ -203,6 +203,130 @@ class FilterEditorState extends State<FilterEditor>
   /// switching between filters preserves each filter's individual opacity.
   final Map<String, double> _filterOpacityMap = {};
 
+  /// Undo stack: stores committed (filter, opacity) states.
+  final List<_FilterHistoryEntry> _undoStack = [];
+
+  /// Redo stack: stores forward (filter, opacity) states.
+  final List<_FilterHistoryEntry> _redoStack = [];
+
+  /// Timer used to commit a filter selection after a delay.
+  /// Prevents intermediate filters from polluting the undo stack when the
+  /// user scrolls quickly through the filter list.
+  Timer? _commitTimer;
+
+  /// The last filter state that was committed to the undo stack.
+  /// Used to track the "before" state when committing a new change.
+  late _FilterHistoryEntry _lastCommitted = _FilterHistoryEntry(
+    filter: _selectedFilter,
+    opacity: _filterOpacity,
+  );
+
+  /// A version counter that increments on every undo/redo action.
+  /// Use this in widget keys to force slider rebuilds when undo/redo
+  /// changes opacity without changing the selected filter.
+  int historyVersion = 0;
+
+  /// Whether undo actions can be performed.
+  ///
+  /// Returns true if:
+  /// - The current filter opacity is less than 1.0 (can reset to 1.0), or
+  /// - There are committed filter changes in the undo stack, or
+  /// - There is an uncommitted filter change (e.g., timer hasn't fired yet).
+  bool get canUndo =>
+      _filterOpacity < 1.0 ||
+      _undoStack.isNotEmpty ||
+      _lastCommitted.filter != _selectedFilter;
+
+  /// Whether redo actions can be performed.
+  bool get canRedo => _redoStack.isNotEmpty;
+
+  /// Undoes the last filter change.
+  ///
+  /// Two-level behavior:
+  /// 1. If the current filter opacity is less than 1.0, reset it to 1.0.
+  /// 2. If already at 1.0, jump to the previous filter from the undo stack.
+  void undo() {
+    // Commit any pending filter change first
+    commitPendingChange();
+
+    if (_filterOpacity < 1.0) {
+      // Level 1: Reset opacity to 1.0, push current state to redo
+      _redoStack.add(_FilterHistoryEntry(
+        filter: _selectedFilter,
+        opacity: _filterOpacity,
+      ));
+      _filterOpacity = 1.0;
+      _filterOpacityMap[_selectedFilter.name] = 1.0;
+      _lastCommitted = _FilterHistoryEntry(
+        filter: _selectedFilter,
+        opacity: 1.0,
+      );
+      historyVersion++;
+      _uiFilterStream.add(null);
+      setState(() {});
+    } else if (_undoStack.isNotEmpty) {
+      // Level 2: Jump to previous filter
+      _redoStack.add(_FilterHistoryEntry(
+        filter: _selectedFilter,
+        opacity: _filterOpacity,
+      ));
+      final previous = _undoStack.removeLast();
+      _selectedFilter = previous.filter;
+      _filterOpacity = previous.opacity;
+      _filterOpacityMap[_selectedFilter.name] = _filterOpacity;
+      _lastCommitted = _FilterHistoryEntry(
+        filter: _selectedFilter,
+        opacity: _filterOpacity,
+      );
+      historyVersion++;
+      _uiFilterStream.add(null);
+      setState(() {});
+    }
+  }
+
+  /// Redoes the last undone filter change.
+  void redo() {
+    if (_redoStack.isNotEmpty) {
+      _undoStack.add(_FilterHistoryEntry(
+        filter: _selectedFilter,
+        opacity: _filterOpacity,
+      ));
+      final next = _redoStack.removeLast();
+      _selectedFilter = next.filter;
+      _filterOpacity = next.opacity;
+      _filterOpacityMap[_selectedFilter.name] = _filterOpacity;
+      _lastCommitted = _FilterHistoryEntry(
+        filter: _selectedFilter,
+        opacity: _filterOpacity,
+      );
+      historyVersion++;
+      _uiFilterStream.add(null);
+      setState(() {});
+    }
+  }
+
+  /// Commits any pending filter change to the undo stack.
+  ///
+  /// Called when:
+  /// - The commit timer fires (filter selected for >1 second)
+  /// - An opacity slider interaction starts
+  /// - Undo/redo is triggered
+  void commitPendingChange() {
+    _commitTimer?.cancel();
+    if (_lastCommitted.filter != _selectedFilter) {
+      _undoStack.add(_FilterHistoryEntry(
+        filter: _lastCommitted.filter,
+        opacity: _lastCommitted.opacity,
+      ));
+      _redoStack.clear();
+      _lastCommitted = _FilterHistoryEntry(
+        filter: _selectedFilter,
+        opacity: _filterOpacity,
+      );
+      setState(() {});
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -222,6 +346,7 @@ class FilterEditorState extends State<FilterEditor>
 
   @override
   void dispose() {
+    _commitTimer?.cancel();
     _uiFilterStream.close();
     super.dispose();
   }
@@ -235,6 +360,7 @@ class FilterEditorState extends State<FilterEditor>
   /// Handles the "Done" action, either by applying changes or closing the
   /// editor.
   void done() async {
+    commitPendingChange();
     doneEditing(
       editorImage: widget.editorImage,
       returnValue: _getActiveFilters(),
@@ -281,20 +407,43 @@ class FilterEditorState extends State<FilterEditor>
     for (final filter in filterList) {
       if (filter.filters.isNotEmpty &&
           listEquals(filter.filters.first, firstApplied)) {
-        setFilter(filter);
+        _setFilterInternal(filter);
         return;
       }
     }
-    setFilter(FilterModel(name: 'Not-Found', filters: [firstApplied]));
+    _setFilterInternal(
+        FilterModel(name: 'Not-Found', filters: [firstApplied]));
   }
 
   /// Set the current filter.
   ///
   /// Automatically restores the previously saved opacity for this filter
   /// (defaults to 1.0 if no opacity was saved).
+  ///
+  /// The filter change is not immediately committed to the undo stack.
+  /// Instead, a 1-second timer is started. If the user scrolls quickly
+  /// through filters, only the final "settled" filter will be committed.
   void setFilter(FilterModel filter) {
+    if (_selectedFilter == filter) return;
+
+    _commitTimer?.cancel();
     _selectedFilter = filter;
     _filterOpacity = _filterOpacityMap[filter.name] ?? 1.0;
+    _uiFilterStream.add(null);
+
+    // Commit after 1 second of being settled on this filter
+    _commitTimer = Timer(const Duration(seconds: 1), commitPendingChange);
+  }
+
+  /// Internal filter setter that doesn't start a commit timer.
+  /// Used during initialization.
+  void _setFilterInternal(FilterModel filter) {
+    _selectedFilter = filter;
+    _filterOpacity = _filterOpacityMap[filter.name] ?? 1.0;
+    _lastCommitted = _FilterHistoryEntry(
+      filter: _selectedFilter,
+      opacity: _filterOpacity,
+    );
     _uiFilterStream.add(null);
   }
 
@@ -308,6 +457,12 @@ class FilterEditorState extends State<FilterEditor>
     filterEditorCallbacks?.handleFilterFactorChange(value);
   }
 
+  /// Called when the opacity slider interaction starts.
+  /// Commits any pending filter change before the opacity modification.
+  void onChangedStart(double value) {
+    commitPendingChange();
+  }
+
   /// Handles changes in the filter factor value.
   void onChanged(double value) {
     setFilterOpacity(value);
@@ -316,6 +471,7 @@ class FilterEditorState extends State<FilterEditor>
   /// Handles the end of changes in the filter factor value.
   void onChangedEnd(double value) {
     filterEditorCallbacks?.handleFilterFactorChangeEnd(value);
+    setState(() {});
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       takeScreenshot();
     });
@@ -471,27 +627,29 @@ class FilterEditorState extends State<FilterEditor>
     return Hero(
       tag: heroTag,
       createRectTween: (begin, end) => RectTween(begin: begin, end: end),
-      child: TransformedContentGenerator(
-        isVideoPlayer: videoController != null,
-        configs: configs,
-        transformConfigs: initialTransformConfigs ?? TransformConfigs.empty(),
-        child: StreamBuilder(
-            stream: _uiFilterStream.stream,
-            builder: (context, snapshot) {
-              return FilteredWidget(
-                width:
-                    getValidSizeOrDefault(mainImageSize, editorBodySize).width,
-                height:
-                    getValidSizeOrDefault(mainImageSize, editorBodySize).height,
-                configs: configs,
-                image: editorImage,
-                videoPlayer: videoController?.videoPlayer,
-                blankSize: initConfigs.mainImageSize,
-                filters: _getActiveFilters(),
-                tuneAdjustments: appliedTuneAdjustments,
-                blurFactor: appliedBlurFactor,
-              );
-            }),
+      child: StreamBuilder(
+        stream: _uiFilterStream.stream,
+        builder: (context, snapshot) {
+          return TransformedContentGenerator(
+            isVideoPlayer: videoController != null,
+            configs: configs,
+            transformConfigs:
+                initialTransformConfigs ?? TransformConfigs.empty(),
+            child: FilteredWidget(
+              width:
+                  getValidSizeOrDefault(mainImageSize, editorBodySize).width,
+              height:
+                  getValidSizeOrDefault(mainImageSize, editorBodySize).height,
+              configs: configs,
+              image: editorImage,
+              videoPlayer: videoController?.videoPlayer,
+              blankSize: initConfigs.mainImageSize,
+              filters: _getActiveFilters(),
+              tuneAdjustments: appliedTuneAdjustments,
+              blurFactor: appliedBlurFactor,
+            ),
+          );
+        },
       ),
     );
   }
@@ -566,6 +724,7 @@ class FilterEditorState extends State<FilterEditor>
                                   max: 1,
                                   divisions: 100,
                                   value: filterOpacity,
+                                  onChangeStart: onChangedStart,
                                   onChanged: onChanged,
                                   onChangeEnd: onChangedEnd,
                                 ),
@@ -650,4 +809,15 @@ class FilterEditorState extends State<FilterEditor>
         filterEditorConfigs.enableMultiSelection ? appliedFilters : [],
       ));
   }
+}
+
+/// Internal helper class to store a filter + opacity pair for undo/redo.
+class _FilterHistoryEntry {
+  _FilterHistoryEntry({
+    required this.filter,
+    required this.opacity,
+  });
+
+  final FilterModel filter;
+  final double opacity;
 }

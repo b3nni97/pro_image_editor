@@ -339,27 +339,29 @@ class BlurEditorState extends State<BlurEditor>
     return Hero(
       tag: heroTag,
       createRectTween: (begin, end) => RectTween(begin: begin, end: end),
-      child: TransformedContentGenerator(
-        isVideoPlayer: videoController != null,
-        configs: configs,
-        transformConfigs: initialTransformConfigs ?? TransformConfigs.empty(),
-        child: StreamBuilder(
-            stream: _uiBlurStream.stream,
-            builder: (context, snapshot) {
-              return FilteredWidget(
-                width:
-                    getValidSizeOrDefault(mainImageSize, editorBodySize).width,
-                height:
-                    getValidSizeOrDefault(mainImageSize, editorBodySize).height,
-                configs: configs,
-                image: editorImage,
-                videoPlayer: videoController?.videoPlayer,
-                blankSize: initConfigs.mainImageSize,
-                filters: appliedFilters,
-                tuneAdjustments: appliedTuneAdjustments,
-                blurFactor: blurFactor,
-              );
-            }),
+      child: StreamBuilder(
+        stream: _uiBlurStream.stream,
+        builder: (context, snapshot) {
+          return TransformedContentGenerator(
+            isVideoPlayer: videoController != null,
+            configs: configs,
+            transformConfigs:
+                initialTransformConfigs ?? TransformConfigs.empty(),
+            child: FilteredWidget(
+              width:
+                  getValidSizeOrDefault(mainImageSize, editorBodySize).width,
+              height:
+                  getValidSizeOrDefault(mainImageSize, editorBodySize).height,
+              configs: configs,
+              image: editorImage,
+              videoPlayer: videoController?.videoPlayer,
+              blankSize: initConfigs.mainImageSize,
+              filters: appliedFilters,
+              tuneAdjustments: appliedTuneAdjustments,
+              blurFactor: blurFactor,
+            ),
+          );
+        },
       ),
     );
   }

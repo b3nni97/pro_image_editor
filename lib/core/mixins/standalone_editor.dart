@@ -68,20 +68,52 @@ mixin StandaloneEditorState<T extends StatefulWidget,
   ThemeData get theme => initConfigs.theme;
 
   /// Returns the initial transformation configurations for the editor.
-  TransformConfigs? get initialTransformConfigs => initConfigs.transformConfigs;
+  /// If [_transformConfigsOverride] is set (via [updateAppliedState]), uses
+  /// that instead of the original initConfigs value.
+  TransformConfigs? get initialTransformConfigs =>
+      _transformConfigsOverride ?? initConfigs.transformConfigs;
+  TransformConfigs? _transformConfigsOverride;
 
   /// Returns the layers in the editor.
   List<Layer>? get layers => initConfigs.layers;
 
   /// Returns the applied blur factor.
-  double get appliedBlurFactor => initConfigs.appliedBlurFactor;
+  /// If [_appliedBlurOverride] is set (via [updateAppliedState]), uses that
+  /// instead of the original initConfigs value.
+  double get appliedBlurFactor =>
+      _appliedBlurOverride ?? initConfigs.appliedBlurFactor;
+  double? _appliedBlurOverride;
 
   /// Returns the applied filters.
-  FilterMatrix get appliedFilters => initConfigs.appliedFilters;
+  /// If [_appliedFiltersOverride] is set (via [updateAppliedState]), uses that
+  /// instead of the original initConfigs value.
+  FilterMatrix get appliedFilters =>
+      _appliedFiltersOverride ?? initConfigs.appliedFilters;
+  FilterMatrix? _appliedFiltersOverride;
 
   /// Returns the applied tune adjustments.
+  /// If [_appliedTuneOverride] is set (via [updateAppliedState]), uses that
+  /// instead of the original initConfigs value.
   List<TuneAdjustmentMatrix> get appliedTuneAdjustments =>
-      initConfigs.appliedTuneAdjustments;
+      _appliedTuneOverride ?? initConfigs.appliedTuneAdjustments;
+  List<TuneAdjustmentMatrix>? _appliedTuneOverride;
+
+  /// Updates the applied state overrides for this sub-editor.
+  ///
+  /// Called by the main editor after a global undo/redo to push the
+  /// reverted state to the active sub-editor, ensuring its preview
+  /// reflects the correct applied filters, tune adjustments, and blur.
+  void updateAppliedState({
+    required FilterMatrix filters,
+    required List<TuneAdjustmentMatrix> tuneAdjustments,
+    required double blur,
+    TransformConfigs? transformConfigs,
+  }) {
+    _appliedFiltersOverride = filters;
+    _appliedTuneOverride = tuneAdjustments;
+    _appliedBlurOverride = blur;
+    _transformConfigsOverride = transformConfigs;
+  }
 
   /// Returns the body size with layers.
   Size? get mainBodySize => initConfigs.mainBodySize;

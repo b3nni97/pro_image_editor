@@ -392,6 +392,7 @@ mixin CropAreaHistory
     cropRect = activeHistory.cropRect;
     perspectiveX = activeHistory.perspectiveX;
     perspectiveY = activeHistory.perspectiveY;
+    straightenAngle = activeHistory.straightenAngle;
     aspectRatio = activeHistory.aspectRatio < 0
         ? cropRect.size.aspectRatio
         : activeHistory.aspectRatio;
