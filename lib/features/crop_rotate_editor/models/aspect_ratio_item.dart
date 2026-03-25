@@ -32,10 +32,13 @@
 class AspectRatioItem {
   /// Creates an instance of the `AspectRatioItem` class with the specified
   /// properties.
-  const AspectRatioItem({this.value, required this.text});
+  const AspectRatioItem({this.value, required this.text, this.inverseText});
 
   /// The text for this aspect ratio item.
   final String text;
+
+  /// The text for the inversed aspect ratio of this item.
+  final String? inverseText;
 
   /// The numerical value representing the aspect ratio.
   final double? value;

@@ -1054,6 +1054,82 @@ class CropRotateEditorState extends State<CropRotateEditor>
     _updateAllStates();
   }
 
+  @override
+  void addHistory({double? scaleRotation, double? angle}) {
+    super.addHistory(scaleRotation: scaleRotation, angle: angle);
+    rebuildController.add(null);
+  }
+
+  @override
+  void undoAction() {
+    super.undoAction();
+    _invalidatePerspectiveBoundsCache();
+    _updateAllStates();
+    rebuildController.add(null);
+  }
+
+  @override
+  void redoAction() {
+    super.redoAction();
+    _invalidatePerspectiveBoundsCache();
+    _updateAllStates();
+    rebuildController.add(null);
+  }
+
+  /// Applies transform configs pushed by the main editor during undo/redo.
+  ///
+  /// This re-initializes the crop editor's internal state from the provided
+  /// [configs] so that the visual preview stays in sync with the main
+  /// editor's global history.
+  void applyExternalTransformConfigs(TransformConfigs? configs) {
+    if (configs == null || configs.isEmpty) {
+      reset(skipAddHistory: true);
+      _invalidatePerspectiveBoundsCache();
+      _updateAllStates();
+      return;
+    }
+
+    flipX = configs.flipX;
+    flipY = configs.flipY;
+    translate = configs.offset;
+    userScaleFactor = configs.scaleUser;
+    cropRect = configs.cropRect;
+    perspectiveX = configs.perspectiveX;
+    perspectiveY = configs.perspectiveY;
+    straightenAngle = configs.straightenAngle;
+    aspectRatio = configs.aspectRatio < 0
+        ? cropRect.size.aspectRatio
+        : configs.aspectRatio;
+    setCropMode(configs.cropMode, updateHistory: false);
+    rotationCount = (configs.angle * 2 / pi).abs().toInt();
+    rotateAnimation =
+        Tween<double>(begin: rotateAnimation.value, end: configs.angle)
+            .animate(
+      CurvedAnimation(
+        parent: rotateCtrl,
+        curve: cropRotateEditorConfigs.rotateAnimationCurve,
+      ),
+    );
+    rotateCtrl
+      ..reset()
+      ..forward();
+
+    calcCropRect();
+    calcFitToScreen();
+
+    if (configs.aspectRatio < 0) {
+      aspectRatio = -1;
+    }
+
+    // Also reset the crop editor's own history to match the external state
+    // so that canUndo reflects the main editor's position.
+    setInitHistory(configs);
+    screenshotHistoryPosition = 0;
+
+    _invalidatePerspectiveBoundsCache();
+    _updateAllStates();
+  }
+
   /// Initiates an animated 90-degree orthogonal rotation operation.
   ///
   /// Triggers structural updates to bounding constraints and recalculates fit scaling.
@@ -1083,6 +1159,69 @@ class CropRotateEditorState extends State<CropRotateEditor>
     cropRotateEditorCallbacks?.handleRotateStart(rotateAnimation.value);
   }
 
+  /// Finalizes any pending changes by updating the current history entry
+  /// to match the actual state. This ensures that when a new operation
+  /// starts, the history accurately reflects the intermediate state.
+  void _commitPendingChanges() {
+    if (screenshotHistoryPosition >= 0 &&
+        screenshotHistoryPosition < history.length) {
+      history[screenshotHistoryPosition] = TransformConfigs(
+        cropEditorScreenRatio: cropEditorScreenRatio,
+        angle: rotateAnimation.value,
+        cropRect: cropRect,
+        originalSize: originalSize,
+        scaleUser: userScaleFactor,
+        scaleRotation: scaleAnimation.value,
+        aspectRatio: aspectRatio,
+        flipX: flipX,
+        flipY: flipY,
+        offset: translate,
+        cropMode: cropMode,
+        straightenAngle: straightenAngle,
+        perspectiveX: perspectiveX,
+        perspectiveY: perspectiveY,
+      );
+    }
+  }
+
+  /// Call before starting a straighten slider drag gesture.
+  ///
+  /// Saves the current state to the undo history so that the complete
+  /// gesture can be undone in a single step. Follow the pattern:
+  /// ```
+  /// onDragStart: () => cropEditorState.onStraightenStart(),
+  /// onChanged: (v) => cropEditorState.setStraightenAngle(v),
+  /// ```
+  void onStraightenStart() {
+    _commitPendingChanges();
+    addHistory(scaleRotation: oldScaleFactor);
+    fadeOutBlur();
+  }
+
+  /// Call after finishing a straighten slider drag gesture (optional).
+  void onStraightenEnd() {
+    fadeInBlur();
+    setState(() {});
+  }
+
+  /// Call before starting a perspective slider drag gesture.
+  ///
+  /// Saves the current state to the undo history so that the complete
+  /// gesture can be undone in a single step. Follow the pattern:
+  /// ```
+  /// onDragStart: () => cropEditorState.onPerspectiveStart(),
+  /// onChanged: (v) => cropEditorState.setPerspective(x, y),
+  /// ```
+  void onPerspectiveStart() {
+    _commitPendingChanges();
+    addHistory(scaleRotation: oldScaleFactor);
+  }
+
+  /// Call after finishing a perspective slider drag gesture (optional).
+  void onPerspectiveEnd() {
+    setState(() {});
+  }
+
   /// Adjusts the angular rotation mapped via a fine-tune straightening slider.
   ///
   /// Clamps boundaries against layout clipping to maintain an edge-to-edge frame.
@@ -1101,7 +1240,6 @@ class CropRotateEditorState extends State<CropRotateEditor>
       _setOffsetLimits();
     }
     _updateAllStates();
-    addHistory(scaleRotation: oldScaleFactor);
   }
 
   /// Toggles the user interface to display the manual straightening widget.
@@ -1176,6 +1314,11 @@ class CropRotateEditorState extends State<CropRotateEditor>
     Offset? oldTranslate,
     Offset? targetTranslate,
   }) {
+    // Keep _straightenScale in sync with straightenAngle (critical for
+    // undo/redo/reset which set straightenAngle without going through
+    // setStraightenAngle).
+    _straightenScale = _calculateStraightenScale(straightenAngle);
+
     if (!animated) {
       scaleCtrl.duration = Duration.zero;
     } else if (duration != null) {
@@ -2925,6 +3068,11 @@ class CropRotateEditorState extends State<CropRotateEditor>
         _scaleStarted = false;
 
         if (cropRect == _viewRect) {
+          // Commit a single history entry for straighten/perspective
+          // drag gestures that didn't resize the crop rect.
+          if (_isStraightenModeActive || _isPerspectiveModeActive) {
+            addHistory(scaleRotation: oldScaleFactor);
+          }
           loopWithTransitionTiming(
             (double curveT) {
               _interactionOpacityProgress = 1.0 - 1.0 * curveT;

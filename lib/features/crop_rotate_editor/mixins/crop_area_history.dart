@@ -442,6 +442,7 @@ mixin CropAreaHistory
     flipY = false;
     perspectiveX = 0.0;
     perspectiveY = 0.0;
+    straightenAngle = 0.0;
     translate = Offset.zero;
     setCropMode(
       cropRotateEditorConfigs.initialCropMode,

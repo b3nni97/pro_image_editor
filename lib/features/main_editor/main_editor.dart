@@ -2253,6 +2253,7 @@ class ProImageEditorState extends State<ProImageEditor>
     // Try delegating to the active sub-editor first
     if (_isSubEditorActive && _delegateUndoToSubEditor()) {
       debugPrint('[MainEditor] undoAction() -> delegated to sub-editor');
+      setState(() {});
       return;
     }
 
@@ -2293,6 +2294,7 @@ class ProImageEditorState extends State<ProImageEditor>
     // Try delegating to the active sub-editor first
     if (_isSubEditorActive && _delegateRedoToSubEditor()) {
       debugPrint('[MainEditor] redoAction() -> delegated to sub-editor');
+      setState(() {});
       return;
     }
 
@@ -2410,6 +2412,10 @@ class ProImageEditorState extends State<ProImageEditor>
       );
       // BlurEditor doesn't have a dedicated UI stream; setState from main
       // editor's rebuild handles it.
+    }
+    if (cropRotateEditor.currentState != null) {
+      cropRotateEditor.currentState!
+          .applyExternalTransformConfigs(stateManager.transformConfigs);
     }
   }
 
@@ -2570,11 +2576,12 @@ class ProImageEditorState extends State<ProImageEditor>
         // was disposed during the pushReplacement, so guard with a null check.
         final cropState = cropRotateEditor.currentState;
         if (cropState != null) {
-          final hasChanged = cropState.canUndo;
+          final exported = cropState.exportStateHistory();
+          final hasChanged = exported != stateManager.transformConfigs;
           debugPrint('[MainEditor] _commitCurrentSubEditorState: '
               'crop hasChanged=$hasChanged');
           if (hasChanged) {
-            addHistory(transformConfigs: cropState.exportStateHistory());
+            addHistory(transformConfigs: exported);
           }
         }
       } else if (filterEditor.currentState != null) {
