@@ -52,6 +52,7 @@ class TransformConfigs {
     this.straightenAngle = 0.0,
     this.perspectiveX = 0.0,
     this.perspectiveY = 0.0,
+    this.isFlipped = false,
   });
 
   /// Creates a [TransformConfigs] instance from a map.
@@ -89,6 +90,7 @@ class TransformConfigs {
       straightenAngle: safeParseDouble(map['straightenAngle'], fallback: 0.0),
       perspectiveX: safeParseDouble(map['perspectiveX'], fallback: 0.0),
       perspectiveY: safeParseDouble(map['perspectiveY'], fallback: 0.0),
+      isFlipped: safeParseBool(map['isFlipped']),
     );
   }
 
@@ -112,6 +114,7 @@ class TransformConfigs {
       straightenAngle: 0.0,
       perspectiveX: 0.0,
       perspectiveY: 0.0,
+      isFlipped: false,
     );
   }
 
@@ -207,6 +210,13 @@ class TransformConfigs {
   /// The vertical perspective applied to the image.
   final double perspectiveY;
 
+  /// Whether the aspect ratio should be forced to landscape orientation.
+  ///
+  /// When `true`, portrait ratios (w/h < 1) are internally flipped to
+  /// landscape for crop calculations, while [aspectRatio] retains its
+  /// original value for external consumers.
+  final bool isFlipped;
+
   /// Checks if the transformation configurations are empty.
   ///
   /// This property returns `true` if all properties are in their default states
@@ -297,6 +307,7 @@ class TransformConfigs {
       'straightenAngle': straightenAngle.roundSmart(maxDecimalPlaces),
       'perspectiveX': perspectiveX.roundSmart(maxDecimalPlaces),
       'perspectiveY': perspectiveY.roundSmart(maxDecimalPlaces),
+      if (isFlipped) 'isFlipped': isFlipped,
     };
   }
 
@@ -372,6 +383,7 @@ class TransformConfigs {
     double? straightenAngle,
     double? perspectiveX,
     double? perspectiveY,
+    bool? isFlipped,
   }) {
     return TransformConfigs(
       cropMode: cropMode ?? this.cropMode,
@@ -389,6 +401,7 @@ class TransformConfigs {
       straightenAngle: straightenAngle ?? this.straightenAngle,
       perspectiveX: perspectiveX ?? this.perspectiveX,
       perspectiveY: perspectiveY ?? this.perspectiveY,
+      isFlipped: isFlipped ?? this.isFlipped,
     );
   }
 
@@ -410,7 +423,8 @@ class TransformConfigs {
         other.cropMode == cropMode &&
         other.straightenAngle == straightenAngle &&
         other.perspectiveX == perspectiveX &&
-        other.perspectiveY == perspectiveY;
+        other.perspectiveY == perspectiveY &&
+        other.isFlipped == isFlipped;
   }
 
   @override
@@ -428,7 +442,8 @@ class TransformConfigs {
         cropMode.hashCode ^
         straightenAngle.hashCode ^
         perspectiveX.hashCode ^
-        perspectiveY.hashCode;
+        perspectiveY.hashCode ^
+        isFlipped.hashCode;
   }
 }
 

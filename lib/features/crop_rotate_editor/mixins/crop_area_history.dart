@@ -174,6 +174,12 @@ mixin CropAreaHistory
     return activeHistory.aspectRatio;
   }
 
+  /// Whether the aspect ratio is forced to landscape orientation.
+  ///
+  /// When `true`, portrait ratios are internally flipped for crop
+  /// calculations while [aspectRatio] keeps its original value.
+  bool isFlipped = false;
+
   /// Indicates whether the image is flipped horizontally.
   ///
   /// This flag tracks the horizontal flip state, affecting how the image is
@@ -326,6 +332,7 @@ mixin CropAreaHistory
         straightenAngle: straightenAngle,
         perspectiveX: perspectiveX,
         perspectiveY: perspectiveY,
+        isFlipped: isFlipped,
       ),
     );
     screenshotHistoryPosition++;
@@ -393,6 +400,7 @@ mixin CropAreaHistory
     perspectiveX = activeHistory.perspectiveX;
     perspectiveY = activeHistory.perspectiveY;
     straightenAngle = activeHistory.straightenAngle;
+    isFlipped = activeHistory.isFlipped;
     aspectRatio = activeHistory.aspectRatio < 0
         ? cropRect.size.aspectRatio
         : activeHistory.aspectRatio;
@@ -443,6 +451,7 @@ mixin CropAreaHistory
     perspectiveX = 0.0;
     perspectiveY = 0.0;
     straightenAngle = 0.0;
+    isFlipped = false;
     translate = Offset.zero;
     setCropMode(
       cropRotateEditorConfigs.initialCropMode,

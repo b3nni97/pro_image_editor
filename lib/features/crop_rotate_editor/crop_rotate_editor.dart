@@ -444,8 +444,11 @@ class CropRotateEditorState extends State<CropRotateEditor>
   /// Calculates the transformation ratio applied to the crop calculations.
   ///
   /// Derived from the current layout aspect ratio compared against the actual image dimensions.
-  double get _ratio =>
-      1 / (aspectRatio == 0.0 ? _mainImageSize.aspectRatio : aspectRatio);
+  double get _ratio {
+    double r = aspectRatio == 0.0 ? _mainImageSize.aspectRatio : aspectRatio;
+    if (isFlipped && r < 1.0) r = 1 / r;
+    return 1 / r;
+  }
 
   /// Computes the correct target size of the rendered image, accounting for rotations.
   ///
@@ -990,6 +993,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
       straightenAngle: straightenAngle,
       perspectiveX: perspectiveX,
       perspectiveY: perspectiveY,
+      isFlipped: isFlipped,
     );
   }
 
@@ -1100,6 +1104,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
     aspectRatio = configs.aspectRatio < 0
         ? cropRect.size.aspectRatio
         : configs.aspectRatio;
+    isFlipped = configs.isFlipped;
     setCropMode(configs.cropMode, updateHistory: false);
     rotationCount = (configs.angle * 2 / pi).abs().toInt();
     rotateAnimation =
@@ -1180,6 +1185,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
         straightenAngle: straightenAngle,
         perspectiveX: perspectiveX,
         perspectiveY: perspectiveY,
+        isFlipped: isFlipped,
       );
     }
   }
@@ -1467,18 +1473,40 @@ class CropRotateEditorState extends State<CropRotateEditor>
     });
   }
 
+  /// Returns `true` if [ratio] is within the configured min/max aspect ratio
+  /// constraints.
+  bool _fitsAspectRatioConstraints(double ratio) {
+    if (cropRotateEditorConfigs.minAspectRatio != null &&
+        ratio < cropRotateEditorConfigs.minAspectRatio!) {
+      return false;
+    }
+    if (cropRotateEditorConfigs.maxAspectRatio != null &&
+        ratio > cropRotateEditorConfigs.maxAspectRatio!) {
+      return false;
+    }
+    return true;
+  }
+
   /// Sets the currently active aspect ratio dimension target for the crop boundary.
   ///
   /// Emits updates cascading to bounding validation routines.
-  void updateAspectRatio(double value) {
+  void updateAspectRatio(double value, {bool isFlipped = false}) {
+    this.isFlipped = isFlipped;
+
+    // For original aspect ratio, validate that isFlipped produces a ratio
+    // within min/max constraints. If not, try the opposite orientation.
     if (value == 0.0) {
-      double originalRatio = _mainImageSize.aspectRatio;
-      if (cropRotateEditorConfigs.minAspectRatio != null &&
-          originalRatio < cropRotateEditorConfigs.minAspectRatio!) {
-        value = cropRotateEditorConfigs.minAspectRatio!;
-      } else if (cropRotateEditorConfigs.maxAspectRatio != null &&
-          originalRatio > cropRotateEditorConfigs.maxAspectRatio!) {
-        value = cropRotateEditorConfigs.maxAspectRatio!;
+      final double originalRatio = _mainImageSize.aspectRatio;
+      final double effectiveRatio =
+          (this.isFlipped) ? 1 / originalRatio : originalRatio;
+
+      if (!_fitsAspectRatioConstraints(effectiveRatio)) {
+        // Try the opposite orientation.
+        final double oppositeRatio =
+            (!this.isFlipped) ? 1 / originalRatio : originalRatio;
+        if (_fitsAspectRatioConstraints(oppositeRatio)) {
+          this.isFlipped = !this.isFlipped;
+        }
       }
     }
 
