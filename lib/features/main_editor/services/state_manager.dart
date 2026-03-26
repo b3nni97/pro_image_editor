@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+
 
 import '/core/models/editor_image.dart';
 import '/core/models/history/state_history.dart';
@@ -202,20 +202,10 @@ class StateManager {
   bool? get activeScreenshotIsBroken => activeScreenshot?.broken;
 
   /// Determines whether undo actions can be performed on the current state.
-  bool get canUndo {
-    final result = _historyPointer > 0;
-    debugPrint('[StateManager] canUndo: $result '
-        '(pointer=$_historyPointer, historyLength=${_stateHistory.length})');
-    return result;
-  }
+  bool get canUndo => _historyPointer > 0;
 
   /// Determines whether redo actions can be performed on the current state.
-  bool get canRedo {
-    final result = _historyPointer < _stateHistory.length - 1;
-    debugPrint('[StateManager] canRedo: $result '
-        '(pointer=$_historyPointer, historyLength=${_stateHistory.length})');
-    return result;
-  }
+  bool get canRedo => _historyPointer < _stateHistory.length - 1;
 
   /// Clean forward changes in the history.
   ///
@@ -285,26 +275,11 @@ class StateManager {
     int historyLimit = 1000,
     bool enableScreenshotLimit = true,
   }) {
-    debugPrint('[StateManager] addHistory called. '
-        'Before: pointer=$_historyPointer, '
-        'historyLength=${_stateHistory.length}');
-    debugPrint('[StateManager] addHistory entry: '
-        'blur=${history.blur}, '
-        'layers=${history.layers.length}, '
-        'filters=${history.filters.length}, '
-        'tuneAdj=${history.tuneAdjustments.length}, '
-        'transform=${history.transformConfigs}');
     _cleanForwardChanges();
     _stateHistory.add(history);
     historyPointer = _stateHistory.length - 1;
     setHistoryLimit(historyLimit, enableScreenshotLimit);
     updateActiveItems();
-    debugPrint('[StateManager] addHistory done. '
-        'After: pointer=$_historyPointer, '
-        'historyLength=${_stateHistory.length}, '
-        'canUndo=${_historyPointer > 0}, '
-        'canRedo=${_historyPointer < _stateHistory.length - 1}');
-    _dumpHistory();
   }
 
   /// Redoes the last undone change, moving the history pointer forward by one
@@ -312,17 +287,8 @@ class StateManager {
   /// If there is no forward change available, this operation will throw an
   /// error due to out-of-bounds access handled by the `historyPointer` setter.
   void redo() {
-    debugPrint('[StateManager] redo() called. '
-        'pointer=$_historyPointer -> ${_historyPointer + 1}, '
-        'historyLength=${_stateHistory.length}');
     historyPointer = _historyPointer + 1;
     updateActiveItems();
-    debugPrint('[StateManager] redo() done. '
-        'Active: blur=$_activeBlur, '
-        'filters=${_activeFilters.length}, '
-        'tuneAdj=${_activeTuneAdjustments.length}, '
-        'layers=${activeLayers.length}');
-    _dumpHistory();
   }
 
   /// Undoes the last change by moving the history pointer back by one step.
@@ -330,17 +296,8 @@ class StateManager {
   /// If there is no previous state available, this operation will throw an
   /// error due to out-of-bounds access handled by the `historyPointer` setter.
   void undo() {
-    debugPrint('[StateManager] undo() called. '
-        'pointer=$_historyPointer -> ${_historyPointer - 1}, '
-        'historyLength=${_stateHistory.length}');
     historyPointer = _historyPointer - 1;
     updateActiveItems();
-    debugPrint('[StateManager] undo() done. '
-        'Active: blur=$_activeBlur, '
-        'filters=${_activeFilters.length}, '
-        'tuneAdj=${_activeTuneAdjustments.length}, '
-        'layers=${activeLayers.length}');
-    _dumpHistory();
   }
 
   /// Locks or unlocks all layers based on the provided parameters.
@@ -376,23 +333,4 @@ class StateManager {
     }
   }
 
-  /// Prints the full history state for debugging.
-  void _dumpHistory() {
-    debugPrint('╔══ HISTORY DUMP (pointer=$_historyPointer, '
-        'total=${_stateHistory.length}) ══');
-    for (int i = 0; i < _stateHistory.length; i++) {
-      final h = _stateHistory[i];
-      final marker = i == _historyPointer ? ' ◄── CURRENT' : '';
-      final tuneIds = h.tuneAdjustments
-          .map((t) => '${t.id}=${t.value.toStringAsFixed(2)}')
-          .join(', ');
-      debugPrint('║ [$i]$marker  '
-          'blur=${h.blur ?? "null"}, '
-          'filters=${h.filters.length}, '
-          'tune=[${tuneIds.isEmpty ? "none" : tuneIds}], '
-          'layers=${h.layers.length}, '
-          'transform=${h.transformConfigs != null ? "yes" : "null"}');
-    }
-    debugPrint('╚════════════════════════════════════════');
-  }
 }

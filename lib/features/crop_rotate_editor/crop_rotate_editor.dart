@@ -655,14 +655,6 @@ class CropRotateEditorState extends State<CropRotateEditor>
     _flingCtrl = AnimationController(vsync: this);
     _fakeHeroTransformConfigs =
         initialTransformConfigs ?? TransformConfigs.empty();
-    final _initTC = initialTransformConfigs;
-    debugPrint('[CropEditor.initState] '
-        'initialTransformConfigs=${_initTC != null ? "provided" : "null"} | '
-        'fakeHeroTransformConfigs.cropRect='
-        '${_fakeHeroTransformConfigs.cropRect} | '
-        'fakeHeroTransformConfigs.aspectRatio='
-        '${_fakeHeroTransformConfigs.aspectRatio} | '
-        'enableFakeHero=$enableFakeHero');
     _interactiveCornerArea = isDesktop
         ? cropRotateEditorConfigs.desktopCornerDragArea
         : cropRotateEditorConfigs.mobileCornerDragArea;
@@ -850,19 +842,6 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
     _showFakeHero = enableFakeHero;
     _fakeHeroTransformConfigs = transformC;
-
-    debugPrint('[CropEditor.done] '
-        'enableFakeHero=$enableFakeHero | '
-        'transformC.cropRect=${transformC.cropRect} | '
-        'transformC.cropRect.aspectRatio='
-        '${transformC.cropRect.size.aspectRatio} | '
-        'transformC.aspectRatio=${transformC.aspectRatio} | '
-        'transformC.originalSize=${transformC.originalSize} | '
-        'transformC.scaleRotation=${transformC.scaleRotation} | '
-        'transformC.scaleUser=${transformC.scaleUser} | '
-        'transformC.offset=${transformC.offset} | '
-        'current cropRect=$cropRect | '
-        'current aspectRatio=$aspectRatio');
 
     _updateAllStates();
 
@@ -1786,20 +1765,6 @@ class CropRotateEditorState extends State<CropRotateEditor>
     if (!mounted) return;
     final int id = ++_heroAnimationId;
     _fakeHeroTransformConfigs = exportStateHistory();
-
-    debugPrint('[CropEditor.showFakeHero] '
-        'skipAnimation=$skipAnimation | '
-        'fakeHeroTransformConfigs.cropRect=${_fakeHeroTransformConfigs.cropRect} | '
-        'fakeHeroTransformConfigs.cropRect.aspectRatio=${_fakeHeroTransformConfigs.cropRect.size.aspectRatio} | '
-        'fakeHeroTransformConfigs.aspectRatio=${_fakeHeroTransformConfigs.aspectRatio} | '
-        'fakeHeroTransformConfigs.originalSize=${_fakeHeroTransformConfigs.originalSize} | '
-        'fakeHeroTransformConfigs.scaleRotation=${_fakeHeroTransformConfigs.scaleRotation} | '
-        'fakeHeroTransformConfigs.scaleUser=${_fakeHeroTransformConfigs.scaleUser} | '
-        'fakeHeroTransformConfigs.offset=${_fakeHeroTransformConfigs.offset} | '
-        'current cropRect=$cropRect | '
-        'current aspectRatio=$aspectRatio | '
-        'editorBodySize=$editorBodySize | '
-        '_cropViewPadding=$_cropViewPadding');
 
     if (skipAnimation) {
       // Instant transition — no blocking await.

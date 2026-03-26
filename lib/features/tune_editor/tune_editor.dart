@@ -2,6 +2,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -302,8 +303,6 @@ class TuneEditorState extends State<TuneEditor>
   /// Moves the last action from the redo stack to the undo stack and restores
   /// the adjustment matrix.
   void redo() {
-    debugPrint('[TuneEditor] redo() called. '
-        'redoStack=${_redoStack.length}, undoStack=${_undoStack.length}');
     if (_redoStack.isNotEmpty) {
       /// Save current state to undo stack
       _undoStack.add(tuneAdjustmentMatrix.map((e) => e.copy()).toList());
@@ -313,14 +312,9 @@ class TuneEditorState extends State<TuneEditor>
 
       tuneEditorCallbacks?.handleRedo();
 
-      debugPrint('[TuneEditor] redo() done. '
-          'redoStack=${_redoStack.length}, undoStack=${_undoStack.length}, '
-          'canUndo=$canUndo, canRedo=$canRedo');
       historyVersion++;
       uiStream.add(null);
       setState(() {});
-    } else {
-      debugPrint('[TuneEditor] redo() -> SKIPPED (redoStack empty)');
     }
   }
 
@@ -329,8 +323,6 @@ class TuneEditorState extends State<TuneEditor>
   /// Moves the last action from the undo stack to the redo stack and restores
   /// the previous adjustment matrix.
   void undo() {
-    debugPrint('[TuneEditor] undo() called. '
-        'undoStack=${_undoStack.length}, redoStack=${_redoStack.length}');
     if (_undoStack.isNotEmpty) {
       /// Save current state to redo stack
       _redoStack.add(tuneAdjustmentMatrix.map((e) => e.copy()).toList());
@@ -340,14 +332,9 @@ class TuneEditorState extends State<TuneEditor>
 
       tuneEditorCallbacks?.handleUndo();
 
-      debugPrint('[TuneEditor] undo() done. '
-          'undoStack=${_undoStack.length}, redoStack=${_redoStack.length}, '
-          'canUndo=$canUndo, canRedo=$canRedo');
       historyVersion++;
       uiStream.add(null);
       setState(() {});
-    } else {
-      debugPrint('[TuneEditor] undo() -> SKIPPED (undoStack empty)');
     }
   }
 
@@ -391,24 +378,16 @@ class TuneEditorState extends State<TuneEditor>
 
   /// Saves the current state to the undo stack before making changes.
   void onChangedStart(double value) {
-    debugPrint('[TuneEditor] onChangedStart($value). '
-        'Saving to undoStack (was ${_undoStack.length}). '
-        'Clearing redoStack (was ${_redoStack.length})');
     // Save current state to undo stack before making changes
     _undoStack.add(
       tuneAdjustmentMatrix.map((e) => e.copy()).toList(),
     );
     // Clear redo stack because a new change is made
     _redoStack.clear();
-    debugPrint('[TuneEditor] onChangedStart done. '
-        'undoStack=${_undoStack.length}, redoStack=${_redoStack.length}, '
-        'canUndo=$canUndo, canRedo=$canRedo');
   }
 
   /// Handles the end of changes in the tune factor value.
   void onChangedEnd(double value) {
-    debugPrint('[TuneEditor] onChangedEnd($value). '
-        'undoStack=${_undoStack.length}, canUndo=$canUndo');
     setState(() {});
 
     tuneEditorCallbacks?.handleTuneFactorChangeEnd(tuneAdjustmentMatrix);

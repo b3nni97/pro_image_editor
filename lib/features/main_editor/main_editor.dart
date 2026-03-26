@@ -789,13 +789,6 @@ class ProImageEditorState extends State<ProImageEditor>
     bool heroScreenshotRequired = false,
     bool blockCaptureScreenshot = false,
   }) {
-    debugPrint('[MainEditor] addHistory() called with: '
-        'layers=${layers?.length ?? "null"}, '
-        'newLayer=${newLayer != null}, '
-        'transformConfigs=${transformConfigs != null}, '
-        'filters=${filters?.length ?? "null"}, '
-        'tuneAdjustments=${tuneAdjustments?.length ?? "null"}, '
-        'blur=$blur');
     List<Layer> activeLayerList = _layerCopyManager.copyLayerList(activeLayers);
 
     stateManager.addHistory(
@@ -2243,39 +2236,24 @@ class ProImageEditorState extends State<ProImageEditor>
   /// to that sub-editor. Otherwise, falls through to the main editor's
   /// global state history.
   void undoAction() {
-    debugPrint('[MainEditor] undoAction() called. '
-        'canUndo=${stateManager.canUndo}, '
-        'isSubEditorOpen=$isSubEditorOpen, '
-        'historyPointer=${stateManager.historyPointer}, '
-        'historyLength=${stateManager.stateHistory.length}');
     GestureManager.instance.stopPropagation();
 
     // Try delegating to the active sub-editor first
     if (_isSubEditorActive && _delegateUndoToSubEditor()) {
-      debugPrint('[MainEditor] undoAction() -> delegated to sub-editor');
       setState(() {});
       return;
     }
 
     // Fall through to main editor undo
     if (stateManager.canUndo) {
-      debugPrint('[MainEditor] undoAction() -> performing main undo');
       setState(() {
         layerInteractionManager.clearSelectedLayers();
         _checkInteractiveViewer();
         stateManager.undo();
         decodeImage();
       });
-      debugPrint('[MainEditor] undoAction() done. '
-          'New pointer=${stateManager.historyPointer}, '
-          'activeLayers=${activeLayers.length}, '
-          'activeBlur=${stateManager.activeBlur}, '
-          'activeTuneAdj=${stateManager.activeTuneAdjustments.length}, '
-          'activeFilters=${stateManager.activeFilters.length}');
       mainEditorCallbacks?.handleUndo();
       _notifyActiveSubEditorRebuild();
-    } else {
-      debugPrint('[MainEditor] undoAction() -> SKIPPED (nothing to undo)');
     }
   }
 
@@ -2285,60 +2263,35 @@ class ProImageEditorState extends State<ProImageEditor>
   /// to that sub-editor. Otherwise, falls through to the main editor's
   /// global state history.
   void redoAction() {
-    debugPrint('[MainEditor] redoAction() called. '
-        'canRedo=${stateManager.canRedo}, '
-        'isSubEditorOpen=$isSubEditorOpen, '
-        'historyPointer=${stateManager.historyPointer}, '
-        'historyLength=${stateManager.stateHistory.length}');
-
     // Try delegating to the active sub-editor first
     if (_isSubEditorActive && _delegateRedoToSubEditor()) {
-      debugPrint('[MainEditor] redoAction() -> delegated to sub-editor');
       setState(() {});
       return;
     }
 
     // Fall through to main editor redo
     if (stateManager.canRedo) {
-      debugPrint('[MainEditor] redoAction() -> performing main redo');
       setState(() {
         layerInteractionManager.clearSelectedLayers();
         _checkInteractiveViewer();
         stateManager.redo();
         decodeImage();
       });
-      debugPrint('[MainEditor] redoAction() done. '
-          'New pointer=${stateManager.historyPointer}, '
-          'activeLayers=${activeLayers.length}, '
-          'activeBlur=${stateManager.activeBlur}, '
-          'activeTuneAdj=${stateManager.activeTuneAdjustments.length}, '
-          'activeFilters=${stateManager.activeFilters.length}');
       mainEditorCallbacks?.handleRedo();
       _notifyActiveSubEditorRebuild();
-    } else {
-      debugPrint('[MainEditor] redoAction() -> SKIPPED (nothing to redo)');
     }
   }
 
   /// Attempts to delegate undo to the active sub-editor.
   /// Returns true if the sub-editor handled the undo (had something to undo).
   bool _delegateUndoToSubEditor() {
-    debugPrint('[MainEditor] _delegateUndoToSubEditor: '
-        'tune=${tuneEditor.currentState != null}, '
-        'tuneCanUndo=${tuneEditor.currentState?.canUndo}, '
-        'filter=${filterEditor.currentState != null}, '
-        'filterCanUndo=${filterEditor.currentState?.canUndo}, '
-        'paint=${paintEditor.currentState != null}, '
-        'crop=${cropRotateEditor.currentState != null}');
     if (tuneEditor.currentState != null &&
         tuneEditor.currentState!.canUndo) {
-      debugPrint('[MainEditor] -> delegating undo to TuneEditor');
       tuneEditor.currentState!.undo();
       return true;
     }
     if (filterEditor.currentState != null &&
         filterEditor.currentState!.canUndo) {
-      debugPrint('[MainEditor] -> delegating undo to FilterEditor');
       filterEditor.currentState!.undo();
       return true;
     }
@@ -2561,15 +2514,6 @@ class ProImageEditorState extends State<ProImageEditor>
     // (initialSubEditor != null) because the embedded editor has no
     // navigation route, so isSubEditorOpen may be false.
     if (isSubEditorOpen || mainEditorConfigs.initialSubEditor != null) {
-      debugPrint('[MainEditor] _commitCurrentSubEditorState: '
-          'isSubEditorOpen=$isSubEditorOpen, '
-          'initialSubEditor=${mainEditorConfigs.initialSubEditor}, '
-          'crop=${cropRotateEditor.currentState != null}, '
-          'filter=${filterEditor.currentState != null}, '
-          'tune=${tuneEditor.currentState != null}, '
-          'blur=${blurEditor.currentState != null}, '
-          'paint=${paintEditor.currentState != null}, '
-          'historyLen=${stateManager.stateHistory.length}');
       if (cropRotateEditor.currentState != null) {
         await cropRotateEditor.currentState!.showFakeHero();
         // After skipAnimation the state might already be gone if the widget
@@ -2578,8 +2522,6 @@ class ProImageEditorState extends State<ProImageEditor>
         if (cropState != null) {
           final exported = cropState.exportStateHistory();
           final hasChanged = exported != stateManager.transformConfigs;
-          debugPrint('[MainEditor] _commitCurrentSubEditorState: '
-              'crop hasChanged=$hasChanged');
           if (hasChanged) {
             addHistory(transformConfigs: exported);
           }
@@ -2587,8 +2529,6 @@ class ProImageEditorState extends State<ProImageEditor>
       } else if (filterEditor.currentState != null) {
         final exported = filterEditor.currentState!.exportStateHistory();
         final hasChanged = !listEquals(exported, stateManager.activeFilters);
-        debugPrint('[MainEditor] _commitCurrentSubEditorState: '
-            'filter hasChanged=$hasChanged');
         if (hasChanged) {
           addHistory(filters: exported);
         }
@@ -2603,11 +2543,6 @@ class ProImageEditorState extends State<ProImageEditor>
             .where((t) => t.value != 0.0)
             .toList();
         final hasChanged = !listEquals(effectiveExported, effectiveActive);
-        debugPrint('[MainEditor] _commitCurrentSubEditorState: '
-            'tune hasChanged=$hasChanged '
-            '(exported=${effectiveExported.length}, '
-            'active=${effectiveActive.length}), '
-            'redoStack=${tuneState.redoStack.length}');
         if (hasChanged) {
           addHistory(tuneAdjustments: exported);
         }
@@ -2630,8 +2565,6 @@ class ProImageEditorState extends State<ProImageEditor>
       } else if (blurEditor.currentState != null) {
         final exported = blurEditor.currentState!.exportStateHistory();
         final hasChanged = exported != stateManager.activeBlur;
-        debugPrint('[MainEditor] _commitCurrentSubEditorState: '
-            'blur hasChanged=$hasChanged');
         if (hasChanged) {
           addHistory(blur: exported);
         }
