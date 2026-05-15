@@ -1,3 +1,6 @@
+// Flutter imports:
+import 'package:flutter/widgets.dart';
+
 // Project imports:
 import '/core/models/custom_widgets/utils/custom_widgets_typedef.dart';
 import '/shared/widgets/reactive_widgets/reactive_custom_appbar.dart';
@@ -22,6 +25,7 @@ abstract class CustomWidgetsStandaloneEditor<EditorState> {
   ///     super.bottomBar,
   ///     super.bodyItems,
   ///     super.bodyItemsRecorded,
+  ///     super.wrapBody,
   ///   });
   /// }
   /// ```
@@ -30,6 +34,7 @@ abstract class CustomWidgetsStandaloneEditor<EditorState> {
     this.bottomBar,
     this.bodyItems,
     this.bodyItemsRecorded,
+    this.wrapBody,
   });
 
   /// A custom app bar widget.
@@ -66,6 +71,24 @@ abstract class CustomWidgetsStandaloneEditor<EditorState> {
 
   /// {@macro customBodyItemRecorded}
   final CustomBodyItems<EditorState>? bodyItemsRecorded;
+
+  /// Wraps the editor's body content area with a custom widget.
+  ///
+  /// This wraps the core content (image, layers, interactive viewer) but
+  /// does **not** wrap the appBar, bottomBar, or bodyItems overlays.
+  ///
+  /// **Example:**
+  /// ```dart
+  /// wrapBody: (editorState, content) {
+  ///   return MyCustomWrapper(
+  ///     child: content,
+  ///   );
+  /// },
+  /// ```
+  final Widget Function(
+    EditorState editorState,
+    Widget content,
+  )? wrapBody;
 
   /// An abstract method to enforce implementation of the `copyWith` method
   /// in all subclasses.

@@ -3924,7 +3924,10 @@ class CropRotateEditorState extends State<CropRotateEditor>
                                 (!kIsWeb && Platform.isAndroid ? 0.9 : 1.0)),
                         child: Stack(
                           children: [
-                            _buildBody(),
+                            cropRotateEditorConfigs.widgets.wrapBody != null
+                                ? cropRotateEditorConfigs.widgets.wrapBody!(
+                                    this, _buildBody())
+                                : _buildBody(),
                             Positioned(
                               bottom: 0,
                               child: _buildBottomAppBar() ?? Container(),

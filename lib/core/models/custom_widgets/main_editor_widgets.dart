@@ -74,10 +74,21 @@ class MainEditorWidgets {
   /// {@macro removeLayerArea}
   final RemoveLayerArea? removeLayerArea;
 
-  /// This is helpful when you want to interact with the full body.
+  /// Wraps the editor's body content area with a custom widget.
+  ///
+  /// This wraps the core content (image, layers, interactive viewer) but
+  /// does **not** wrap the appBar, bottomBar, or bodyItems overlays.
+  ///
+  /// **Example:**
+  /// ```dart
+  /// wrapBody: (editor, content) {
+  ///   return MyCustomWrapper(
+  ///     child: content,
+  ///   );
+  /// },
+  /// ```
   final Widget Function(
     ProImageEditorState editor,
-    Stream<void> rebuildStream,
     Widget content,
   )? wrapBody;
 
@@ -137,7 +148,6 @@ class MainEditorWidgets {
     RemoveLayerArea? removeLayerArea,
     Widget Function(
       ProImageEditorState editor,
-      Stream<void> rebuildStream,
       Widget content,
     )? wrapBody,
     ReactiveAppbar? Function(

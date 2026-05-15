@@ -25,6 +25,7 @@ class PaintEditorWidgets
     super.bottomBar,
     super.bodyItems,
     super.bodyItemsRecorded,
+    super.wrapBody,
     this.lineWidthCloseButton,
     this.changeOpacityCloseButton,
     this.sliderLineWidth,

@@ -107,25 +107,6 @@ class _WhatsAppExampleState extends State<WhatsAppExample>
     widgets: MainEditorWidgets(
       appBar: (editor, rebuildStream) => null,
       bottomBar: (editor, rebuildStream, key) => null,
-      wrapBody: (editor, rebuildStream, content) {
-        return Stack(
-          alignment: Alignment.center,
-          fit: StackFit.expand,
-          clipBehavior: Clip.none,
-          children: [
-            Transform.scale(
-              transformHitTests: false,
-              scale: 1 /
-                  editor.sizesManager.bodySize.height *
-                  (editor.sizesManager.bodySize.height -
-                      _whatsAppHelper.filterShowHelper * 2),
-              child: content,
-            ),
-            if (!editor.isLayerBeingTransformed)
-              ..._buildWhatsAppWidgets(editor),
-          ],
-        );
-      },
     ),
   );
   late final _paintEditorConfigs = PaintEditorConfigs(

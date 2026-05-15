@@ -295,7 +295,7 @@ class ExtendedInteractiveViewerState extends State<ExtendedInteractiveViewer>
   void onScaleStart(ScaleStartDetails details) {
     _helperScaledStarted = true;
     if (!widget.zoomConfigs.enableZoom) return;
-    _rawViewerKey.currentState!.onScaleStart(details);
+    _rawViewerKey.currentState?.onScaleStart(details);
   }
 
   /// Handles the scale update gesture by forwarding the [details] to the
@@ -307,7 +307,7 @@ class ExtendedInteractiveViewerState extends State<ExtendedInteractiveViewer>
   /// gesture.
   void onScaleUpdate(ScaleUpdateDetails details) {
     if (!widget.zoomConfigs.enableZoom) return;
-    _rawViewerKey.currentState!.onScaleUpdate(details);
+    _rawViewerKey.currentState?.onScaleUpdate(details);
   }
 
   /// Handles the end of a scaling gesture by forwarding the [details]
@@ -322,7 +322,7 @@ class ExtendedInteractiveViewerState extends State<ExtendedInteractiveViewer>
   void onScaleEnd(ScaleEndDetails details) {
     if (!_helperScaledStarted || !widget.zoomConfigs.enableZoom) return;
     _helperScaledStarted = false;
-    _rawViewerKey.currentState!.onScaleEnd(details);
+    _rawViewerKey.currentState?.onScaleEnd(details);
   }
 
   @override

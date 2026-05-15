@@ -30,6 +30,7 @@ class CropRotateEditorWidgets
     super.appBar,
     super.bottomBar,
     super.bodyItems,
+    super.wrapBody,
     this.aspectRatioOptions,
     this.slider,
     this.cropCornerWidget,

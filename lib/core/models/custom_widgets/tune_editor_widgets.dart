@@ -23,6 +23,7 @@ class TuneEditorWidgets extends CustomWidgetsStandaloneEditor<TuneEditorState> {
     super.bottomBar,
     super.bodyItems,
     super.bodyItemsRecorded,
+    super.wrapBody,
     this.slider,
   });
 

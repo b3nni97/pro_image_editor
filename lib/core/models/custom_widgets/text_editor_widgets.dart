@@ -35,6 +35,7 @@ class TextEditorWidgets extends CustomWidgetsStandaloneEditor<TextEditorState> {
     super.appBar,
     super.bottomBar,
     super.bodyItems,
+    super.wrapBody,
     this.bodyItemsOverlay,
     this.colorPicker,
     this.sliderFontSize,

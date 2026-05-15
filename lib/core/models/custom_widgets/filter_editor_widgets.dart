@@ -25,6 +25,7 @@ class FilterEditorWidgets
     super.bottomBar,
     super.bodyItems,
     super.bodyItemsRecorded,
+    super.wrapBody,
     this.slider,
     this.filterButton,
     this.filterList,

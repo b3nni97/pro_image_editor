@@ -970,7 +970,8 @@ class PaintEditorState extends State<PaintEditor>
   Widget _buildBody() {
     return LayoutBuilder(builder: (context, constraints) {
       editorBodySize = constraints.biggest;
-      return Theme(
+
+      Widget content = Theme(
         data: theme,
         child: Material(
           color:
@@ -987,6 +988,12 @@ class PaintEditorState extends State<PaintEditor>
           ),
         ),
       );
+
+      if (paintEditorConfigs.widgets.wrapBody != null) {
+        content = paintEditorConfigs.widgets.wrapBody!(this, content);
+      }
+
+      return content;
     });
   }
 

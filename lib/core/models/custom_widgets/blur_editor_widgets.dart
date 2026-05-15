@@ -30,6 +30,7 @@ class BlurEditorWidgets extends CustomWidgetsStandaloneEditor<BlurEditorState> {
     super.bottomBar,
     super.bodyItems,
     super.bodyItemsRecorded,
+    super.wrapBody,
     this.slider,
   });
 

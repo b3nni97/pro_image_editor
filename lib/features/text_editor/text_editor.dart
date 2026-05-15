@@ -429,16 +429,11 @@ class TextEditorState extends State<TextEditor>
     return LayoutBuilder(builder: (_, constraints) {
       editorBodySize = constraints.biggest;
 
-      return GestureDetector(
+      Widget content = GestureDetector(
         behavior: HitTestBehavior.translucent,
         onTap: textEditorConfigs.enableTapOutsideToSave ? done : null,
         child: Stack(
           children: [
-            if (textEditorConfigs.widgets.bodyItems != null)
-              ...textEditorConfigs.widgets.bodyItems!(
-                this,
-                _rebuildController.stream,
-              ),
             _buildTextField(),
             _buildColorPicker(),
             if (textEditorConfigs.showSelectFontStyleBottomBar)
@@ -453,13 +448,28 @@ class TextEditorState extends State<TextEditor>
                   onFontChange: setTextStyle,
                 ),
               ),
-            if (textEditorConfigs.widgets.bodyItemsOverlay != null)
-              ...textEditorConfigs.widgets.bodyItemsOverlay!(
-                this,
-                _rebuildController.stream,
-              ),
           ],
         ),
+      );
+
+      if (textEditorConfigs.widgets.wrapBody != null) {
+        content = textEditorConfigs.widgets.wrapBody!(this, content);
+      }
+
+      return Stack(
+        children: [
+          content,
+          if (textEditorConfigs.widgets.bodyItems != null)
+            ...textEditorConfigs.widgets.bodyItems!(
+              this,
+              _rebuildController.stream,
+            ),
+          if (textEditorConfigs.widgets.bodyItemsOverlay != null)
+            ...textEditorConfigs.widgets.bodyItemsOverlay!(
+              this,
+              _rebuildController.stream,
+            ),
+        ],
       );
     });
   }

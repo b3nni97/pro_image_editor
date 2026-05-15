@@ -3141,7 +3141,6 @@ class ProImageEditorState extends State<ProImageEditor>
                 onScaleEnd: _onScaleEnd,
                 child: mainEditorConfigs.widgets.wrapBody?.call(
                       this,
-                      _rebuildController.stream,
                       _buildInteractiveContent(),
                     ) ??
                     _buildInteractiveContent(),
