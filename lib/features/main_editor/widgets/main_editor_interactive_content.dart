@@ -63,6 +63,7 @@ class MainEditorInteractiveContent extends StatelessWidget {
     required this.isVideoEditor,
     required this.videoController,
     required this.layerDragSelectionService,
+    this.wrapBody,
     this.isCropAnimating = false,
   });
 
@@ -120,6 +121,15 @@ class MainEditorInteractiveContent extends StatelessWidget {
   /// Manages the drag-to-select layer interaction.
   final LayerDragSelectionService layerDragSelectionService;
 
+  /// An optional callback to wrap only the interactive viewer content.
+  ///
+  /// When provided, this wraps the image/layers viewer while keeping
+  /// overlays (helper lines, remove area, body items) on top.
+  final Widget Function(
+    ProImageEditorState editor,
+    Widget content,
+  )? wrapBody;
+
   /// Whether the initial crop animation is currently playing.
   final bool isCropAnimating;
 
@@ -139,7 +149,8 @@ class MainEditorInteractiveContent extends StatelessWidget {
                     bottom: sizesManager.bottomBarHeight,
                   )
                 : EdgeInsets.zero,
-            child: _buildInteractiveViewer(),
+            child: wrapBody?.call(state, _buildInteractiveViewer()) ??
+                _buildInteractiveViewer(),
           ),
 
           /// Build crop area overlay

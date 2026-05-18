@@ -3139,11 +3139,7 @@ class ProImageEditorState extends State<ProImageEditor>
                 onScaleStart: _onScaleStart,
                 onScaleUpdate: _onScaleUpdate,
                 onScaleEnd: _onScaleEnd,
-                child: mainEditorConfigs.widgets.wrapBody?.call(
-                      this,
-                      _buildInteractiveContent(),
-                    ) ??
-                    _buildInteractiveContent(),
+                child: _buildInteractiveContent(),
               ),
             );
     });
@@ -3169,6 +3165,7 @@ class ProImageEditorState extends State<ProImageEditor>
       videoController: widget.videoController,
       isVideoEditor: _isVideoEditor,
       layerDragSelectionService: _layerDragSelectionService,
+      wrapBody: mainEditorConfigs.widgets.wrapBody,
       isCropAnimating: _isCropAnimating,
     );
   }
