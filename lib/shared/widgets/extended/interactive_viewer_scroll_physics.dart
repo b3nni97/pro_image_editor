@@ -554,6 +554,8 @@ class _InteractiveViewerScrollPhysicsState
   Offset? _scaleRecoveryFocalPoint; // Preserved from last scale gesture
   bool _gestureBlocked =
       false; // True when gestures are blocked during recovery
+  bool _scaleRecoveryActive =
+      false; // True from scale recovery start until animation completes
   DateTime _lastScaleGestureTime = DateTime(0); // Suppress fling after pinch
   // end ScrollPhysics
 
@@ -895,14 +897,42 @@ class _InteractiveViewerScrollPhysicsState
 
     // ── Block gestures during scale recovery ──
     // When the scale is bouncing back to [minScale, maxScale] via the
-    // inertia animation, don't allow new gestures to interrupt it.
-    // This prevents the complex interaction between recovery and
-    // user gestures that causes jumps and boundary violations.
-    if (_controller.isAnimating && simulationScale != null) {
-      _gestureBlocked = true;
-      return;
+    // inertia animation, don't allow single-finger (pan) gestures to
+    // interrupt it. Two-finger (scale) gestures cancel recovery so the
+    // user can resume zooming.
+    if (_scaleRecoveryActive) {
+      if (details.pointerCount >= 2) {
+        // Pinch gesture — cancel recovery and allow.
+
+        _scaleRecoveryActive = false;
+        _controller.stop();
+        _controller.reset();
+        _animation?.removeListener(_handleInertiaAnimation);
+        _animation = null;
+      } else {
+        // Single finger — check if scale is close enough to target.
+        final double currentScale = _transformer.value.getMaxScaleOnAxis();
+        final double targetScale =
+            currentScale.clamp(widget.minScale, widget.maxScale);
+        if ((currentScale - targetScale).abs() < 0.1) {
+          // Close enough — stop animation and allow gesture.
+
+          _scaleRecoveryActive = false;
+          _controller.stop();
+          _controller.reset();
+        } else {
+          // Still too far — block and ensure recovery is running.
+
+          _gestureBlocked = true;
+          if (!_controller.isAnimating) {
+            _restartScaleRecovery(currentScale, targetScale);
+          }
+          return;
+        }
+      }
     }
     _gestureBlocked = false;
+
 
     if (_controller.isAnimating) {
       _controller.stop();
@@ -1034,7 +1064,11 @@ class _InteractiveViewerScrollPhysicsState
   void _onScaleEnd(ScaleEndDetails details) {
     // If _onScaleStart was blocked (e.g. during scale recovery),
     // ignore this gesture end.
-    if (_gestureBlocked) return;
+    if (_gestureBlocked) {
+      widget.onInteractionEnd?.call(details);
+      return;
+    }
+
 
     widget.onInteractionEnd?.call(details);
     _rotationStart = null;
@@ -1115,7 +1149,7 @@ class _InteractiveViewerScrollPhysicsState
           // Don't use scale recovery for negligible scale differences —
           // otherwise the SCALE-RECOVERY path swallows pan fling momentum.
           if (simulationScale != null &&
-              (endScale - targetScale).abs() < 0.01) {
+              (endScale - targetScale).abs() < 0.1) {
             simulationScale = null;
           }
 
@@ -1126,6 +1160,8 @@ class _InteractiveViewerScrollPhysicsState
 
           // Pre-compute scale recovery matrices if scale needs correction
           if (simulationScale != null) {
+
+            _scaleRecoveryActive = true;
             _scaleRecoveryStartMatrix = _transformer.value.clone();
             _scaleRecoveryStartScale = endScale;
             _scaleRecoveryTargetScale = targetScale;
@@ -1224,7 +1260,7 @@ class _InteractiveViewerScrollPhysicsState
           // Don't use scale recovery for negligible scale differences —
           // otherwise the SCALE-RECOVERY path swallows pan fling momentum.
           if (simulationScale != null &&
-              (endScale - targetScale).abs() < 0.01) {
+              (endScale - targetScale).abs() < 0.1) {
             simulationScale = null;
           }
 
@@ -1235,6 +1271,8 @@ class _InteractiveViewerScrollPhysicsState
 
           // Pre-compute scale recovery matrices if scale needs correction
           if (simulationScale != null) {
+
+            _scaleRecoveryActive = true;
             _scaleRecoveryStartMatrix = _transformer.value.clone();
             _scaleRecoveryStartScale = endScale;
             _scaleRecoveryTargetScale = targetScale;
@@ -1397,6 +1435,8 @@ class _InteractiveViewerScrollPhysicsState
         _animation = null;
       }
       _controller.reset();
+
+      _scaleRecoveryActive = false;
 
       return;
     }
@@ -1640,6 +1680,51 @@ class _InteractiveViewerScrollPhysicsState
     final double clampedY = -pixelsY.clamp(minPxY, maxPxY);
 
     return matrix.clone()..setTranslation(Vector3(clampedX, clampedY, 0.0));
+  }
+
+  /// Restart a scale recovery animation when the previous one ended
+  /// before the scale fully converged to the target.
+  void _restartScaleRecovery(double currentScale, double targetScale) {
+    // Set up scale simulation
+    final ScrollMetrics scaleMetrics = FixedScrollMetrics(
+      pixels: currentScale * 1000,
+      minScrollExtent: widget.minScale * 1000,
+      maxScrollExtent: widget.maxScale * 1000,
+      viewportDimension: 0,
+      axisDirection: AxisDirection.down,
+      devicePixelRatio: MediaQuery.of(context).devicePixelRatio,
+    );
+    simulationScale = widget.scrollPhysics!
+        .createBallisticSimulation(scaleMetrics, 0.0);
+    if (simulationScale == null) {
+      _scaleRecoveryActive = false;
+      return;
+    }
+
+    // Compute recovery matrices
+    _scaleRecoveryStartMatrix = _transformer.value.clone();
+    _scaleRecoveryStartScale = currentScale;
+    _scaleRecoveryTargetScale = targetScale;
+    final Offset focalScene = _transformer.toScene(_snapFocalPoint);
+    final Matrix4 target = _transformer.value.clone()
+      ..translateByDouble(focalScene.dx, focalScene.dy, 0.0, 1.0)
+      ..scaleByDouble(targetScale / currentScale, targetScale / currentScale,
+          targetScale / currentScale, 1.0)
+      ..translateByDouble(-focalScene.dx, -focalScene.dy, 0.0, 1.0);
+    _scaleRecoveryTargetMatrix = _matrixClamp(target);
+
+    // No pan simulations needed
+    simulationX = null;
+    simulationY = null;
+
+    final combined = _getCombinedSimulation(null, null, simulationScale);
+    if (combined == null) {
+      _scaleRecoveryActive = false;
+      return;
+    }
+
+    _controller.addListener(_handleInertiaAnimation);
+    _controller.animateWith(combined);
   }
 
   /// Determines whether [proposedScale] can be applied without clamping,
