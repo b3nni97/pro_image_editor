@@ -9,6 +9,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '/shared/widgets/smart_hero.dart';
+
 import '/core/constants/image_constants.dart';
 import '/core/mixins/converted_callbacks.dart';
 import '/core/mixins/converted_configs.dart';
@@ -999,7 +1001,7 @@ class PaintEditorState extends State<PaintEditor>
 
   List<Widget> _buildFakeHero() {
     return [
-      Hero(
+      SmartHero(
         tag: configs.heroTag,
         child: AutoImage(
           EditorImage(byteArray: _fakeHeroBytes),

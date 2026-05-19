@@ -86,6 +86,7 @@ class ProImageEditorConfigs {
   const ProImageEditorConfigs({
     this.theme,
     this.heroTag = kImageEditorHeroTag,
+    this.heroTransitionDuration,
     this.i18n = const I18n(),
     this.mainEditor = const MainEditorConfigs(),
     this.paintEditor = const PaintEditorConfigs(),
@@ -111,6 +112,13 @@ class ProImageEditorConfigs {
 
   /// A unique hero tag for the Image Editor widget.
   final String heroTag;
+
+  /// The duration of the Hero transition animation.
+  ///
+  /// When set, the initial crop animation will be delayed by this duration
+  /// to allow the Hero animation to complete first. If `null`, the crop
+  /// animation starts immediately after initialization.
+  final Duration? heroTransitionDuration;
 
   /// Internationalization settings for the Image Editor.
   final I18n i18n;
@@ -171,6 +179,7 @@ class ProImageEditorConfigs {
   ProImageEditorConfigs copyWith({
     ThemeData? theme,
     String? heroTag,
+    Duration? heroTransitionDuration,
     I18n? i18n,
     HelperLineConfigs? helperLines,
     LayerInteractionConfigs? layerInteraction,
@@ -193,6 +202,8 @@ class ProImageEditorConfigs {
     return ProImageEditorConfigs(
       theme: theme ?? this.theme,
       heroTag: heroTag ?? this.heroTag,
+      heroTransitionDuration:
+          heroTransitionDuration ?? this.heroTransitionDuration,
       i18n: i18n ?? this.i18n,
       helperLines: helperLines ?? this.helperLines,
       layerInteraction: layerInteraction ?? this.layerInteraction,

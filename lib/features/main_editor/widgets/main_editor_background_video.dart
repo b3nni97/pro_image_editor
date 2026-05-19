@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '/shared/widgets/smart_hero.dart';
+
 import '/core/models/editor_configs/pro_image_editor_configs.dart';
 import '/features/filter_editor/widgets/filter_generator.dart';
 import '/shared/widgets/transform/transformed_content_generator.dart';
@@ -50,9 +52,8 @@ class MainEditorBackgroundVideo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Hero(
+    return SmartHero(
       tag: configs.heroTag,
-      createRectTween: (begin, end) => RectTween(begin: begin, end: end),
       child: !isInitialized
           ? videoPlayer
           : TransformedContentGenerator(

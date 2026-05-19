@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '/shared/widgets/smart_hero.dart';
+
 import '/core/models/editor_configs/pro_image_editor_configs.dart';
 import '/core/models/editor_image.dart';
 import '/features/filter_editor/widgets/filter_generator.dart';
@@ -205,14 +207,24 @@ class _MainEditorBackgroundImageState extends State<MainEditorBackgroundImage>
       }
     });
 
-    // Start after the current frame so the hero transition settles first
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        // Notify parent that crop animation is starting
-        widget.onCropAnimationChanged?.call(true);
-        _cropAnimCtrl!.forward();
-      }
-    });
+    // Start after the hero transition settles.
+    // If heroTransitionDuration is set, wait for it before starting.
+    final heroDelay = widget.configs.heroTransitionDuration;
+    if (heroDelay != null) {
+      Future.delayed(heroDelay, () {
+        if (mounted) {
+          widget.onCropAnimationChanged?.call(true);
+          _cropAnimCtrl!.forward();
+        }
+      });
+    } else {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          widget.onCropAnimationChanged?.call(true);
+          _cropAnimCtrl!.forward();
+        }
+      });
+    }
   }
 
   /// Returns interpolated transform configs during the crop animation.
@@ -238,9 +250,8 @@ class _MainEditorBackgroundImageState extends State<MainEditorBackgroundImage>
   Widget build(BuildContext context) {
     final w = widget;
 
-    return Hero(
+    return SmartHero(
       tag: w.heroTag,
-      createRectTween: (begin, end) => RectTween(begin: begin, end: end),
       child: _buildContent(),
     );
   }

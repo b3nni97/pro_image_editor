@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 
+import '/shared/widgets/smart_hero.dart';
+
 import '../../../core/constants/editor_style_constants.dart';
 import '/core/models/editor_callbacks/pro_image_editor_callbacks.dart';
 import '/core/models/editor_configs/pro_image_editor_configs.dart';
@@ -269,7 +271,7 @@ class MainEditorInteractiveContent extends StatelessWidget {
   }
 
   Widget _buildCropAreaOverlay() {
-    return Hero(
+    return SmartHero(
       tag: 'crop_layer_painter_hero',
       child: StreamBuilder(
         stream: controllers.cropLayerPainterCtrl.stream,

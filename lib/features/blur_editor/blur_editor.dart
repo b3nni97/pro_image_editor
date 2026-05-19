@@ -6,6 +6,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '/shared/widgets/smart_hero.dart';
+
 import '/core/mixins/converted_callbacks.dart';
 import '/core/mixins/converted_configs.dart';
 import '/core/mixins/standalone_editor.dart';
@@ -348,9 +350,8 @@ class BlurEditorState extends State<BlurEditor>
   }
 
   Widget _buildBackground() {
-    return Hero(
+    return SmartHero(
       tag: heroTag,
-      createRectTween: (begin, end) => RectTween(begin: begin, end: end),
       child: StreamBuilder(
         stream: _uiBlurStream.stream,
         builder: (context, snapshot) {

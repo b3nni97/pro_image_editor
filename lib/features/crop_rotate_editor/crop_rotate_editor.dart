@@ -9,6 +9,8 @@ import 'package:flutter/material.dart' hide Image;
 import 'package:flutter/services.dart';
 import 'package:vector_math/vector_math_64.dart' as vector_math;
 
+import '/shared/widgets/smart_hero.dart';
+
 import '../../shared/widgets/extended/interactive_viewer_scroll_physics.dart';
 import '/core/mixins/converted_callbacks.dart';
 import '/core/mixins/converted_configs.dart';
@@ -4814,10 +4816,8 @@ class CropRotateEditorState extends State<CropRotateEditor>
             alignment: Alignment.center,
             fit: StackFit.expand,
             children: [
-              Hero(
+              SmartHero(
                 tag: heroTag,
-                createRectTween: (Rect? begin, Rect? end) =>
-                    RectTween(begin: begin, end: end),
                 child: TransformedContentGenerator(
                   isVideoPlayer: videoController != null,
                   transformConfigs: _fakeHeroTransformConfigs,

@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '/shared/widgets/smart_hero.dart';
+
 import '../../core/mixins/editor_callbacks_mixin.dart';
 import '../../shared/widgets/extended/interactive_viewer/extended_interactive_viewer.dart';
 import '/core/constants/image_constants.dart';
@@ -334,7 +336,9 @@ class FilterEditorState extends State<FilterEditor>
     _uiFilterStream.stream.listen((_) => rebuildController.add(null));
 
     final isMultiSelectionDisabled = !filterEditorConfigs.enableMultiSelection;
-    if (isMultiSelectionDisabled && appliedFilters.isNotEmpty) {
+    if (isMultiSelectionDisabled &&
+        appliedFilters.isNotEmpty &&
+        !listEquals(appliedFilters.first, identityMatrix)) {
       _initializeFilterFromApplied();
     }
 
@@ -400,10 +404,15 @@ class FilterEditorState extends State<FilterEditor>
   /// Searches through the available filter list to find a filter whose matrix
   /// matches the first applied filter. If found, sets it as the selected
   /// filter.
+  ///
+  /// Because the exported filter matrix may have been lerped with an opacity
+  /// value (via [lerpColorMatrix]), both an exact match and a fuzzy
+  /// reverse-lerp match are attempted.
   void _initializeFilterFromApplied() {
     final filterList = filterEditorConfigs.filterList ?? presetFiltersList;
     final firstApplied = appliedFilters.first;
 
+    // Pass 1: Exact match (opacity was 1.0)
     for (final filter in filterList) {
       if (filter.filters.isNotEmpty &&
           listEquals(filter.filters.first, firstApplied)) {
@@ -411,9 +420,73 @@ class FilterEditorState extends State<FilterEditor>
         return;
       }
     }
+
+    // Pass 2: Fuzzy match — the applied matrix might be
+    // lerp(identity, rawFilter, opacity) with opacity < 1.0.
+    // Try to reverse-engineer the opacity and verify the match.
+    for (final filter in filterList) {
+      if (filter.filters.isEmpty) continue;
+      final raw = filter.filters.first;
+      final opacity = _inferOpacityFromLerp(firstApplied, raw);
+      if (opacity != null) {
+        _setFilterInternal(filter);
+        _filterOpacity = opacity;
+        _filterOpacityMap[filter.name] = opacity;
+        _lastCommitted = _FilterHistoryEntry(
+          filter: _selectedFilter,
+          opacity: _filterOpacity,
+        );
+        return;
+      }
+    }
+
     _setFilterInternal(
         FilterModel(name: 'Not-Found', filters: [firstApplied]));
   }
+
+  /// Tries to derive the opacity `t` such that
+  /// `lerp(identity, raw, t) ≈ applied` for all 20 matrix elements.
+  ///
+  /// Returns `t` if a consistent opacity is found, or `null` otherwise.
+  double? _inferOpacityFromLerp(
+      List<double> applied, List<double> raw) {
+    if (applied.length != 20 || raw.length != 20) return null;
+
+    const identity = [
+      1.0, 0, 0, 0, 0, //
+      0, 1.0, 0, 0, 0, //
+      0, 0, 1.0, 0, 0, //
+      0, 0, 0, 1.0, 0, //
+    ];
+
+    double? inferredT;
+    const eps = 1e-6;
+
+    for (int i = 0; i < 20; i++) {
+      final identVal = identity[i];
+      final rawVal = raw[i];
+      final span = rawVal - identVal;
+      if (span.abs() < eps) {
+        // identity[i] ≈ raw[i], so applied[i] should also ≈ identity[i]
+        if ((applied[i] - identVal).abs() > 0.01) return null;
+        continue;
+      }
+      final t = (applied[i] - identVal) / span;
+      if (t < -eps || t > 1.0 + eps) return null;
+      if (inferredT == null) {
+        inferredT = t;
+      } else if ((t - inferredT).abs() > 0.01) {
+        return null; // inconsistent opacity across elements
+      }
+    }
+    // Reject near-zero opacity: t ≈ 0 means the applied matrix is
+    // essentially the identity (no filter), which shouldn't match.
+    final result = inferredT?.clamp(0.0, 1.0);
+    if (result == null || result < 0.01) return null;
+    return result;
+  }
+
+
 
   /// Set the current filter.
   ///
@@ -627,9 +700,8 @@ class FilterEditorState extends State<FilterEditor>
   }
 
   Widget _buildBackground() {
-    return Hero(
+    return SmartHero(
       tag: heroTag,
-      createRectTween: (begin, end) => RectTween(begin: begin, end: end),
       child: StreamBuilder(
         stream: _uiFilterStream.stream,
         builder: (context, snapshot) {

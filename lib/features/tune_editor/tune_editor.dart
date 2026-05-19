@@ -6,6 +6,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '/shared/widgets/smart_hero.dart';
+
 import '../../shared/widgets/extended/interactive_viewer/extended_interactive_viewer.dart';
 import '/core/mixins/converted_callbacks.dart';
 import '/core/mixins/converted_configs.dart';
@@ -539,9 +541,8 @@ class TuneEditorState extends State<TuneEditor>
   }
 
   Widget _buildBackground() {
-    return Hero(
+    return SmartHero(
       tag: heroTag,
-      createRectTween: (begin, end) => RectTween(begin: begin, end: end),
       child: StreamBuilder(
         stream: uiStream.stream,
         builder: (context, snapshot) {
