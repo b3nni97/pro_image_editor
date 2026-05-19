@@ -1,6 +1,3 @@
-// Dart imports:
-import 'dart:math';
-
 // Flutter imports:
 import 'package:flutter/material.dart';
 
@@ -10,6 +7,7 @@ import '/core/models/editor_image.dart';
 import '/features/tune_editor/models/tune_adjustment_matrix.dart';
 import '/shared/widgets/animated/fade_in_up.dart';
 import '/shared/widgets/editor_scrollbar.dart';
+import '/shared/widgets/transform/transformed_content_generator.dart';
 import '../types/filter_matrix.dart';
 import '../utils/filter_generator/filter_model.dart';
 import '../utils/filter_generator/filter_presets.dart';
@@ -275,27 +273,6 @@ class _FilterEditorItemListState extends State<FilterEditorItemList> {
     TransformConfigs transformConfigs =
         widget.transformConfigs ?? TransformConfigs.empty();
 
-    bool emptyConfigs = transformConfigs.isEmpty && widget.editorImage != null;
-
-    Size imageSize = emptyConfigs || transformConfigs.cropRect == Rect.largest
-        ? widget.mainImageSize
-        : transformConfigs.cropRect.size;
-
-    double offsetFactor =
-        emptyConfigs ? 1 : widget.mainImageSize.longestSide / size.shortestSide;
-    double fitCoverScale = emptyConfigs
-        ? 1
-        : max(
-            max(widget.mainImageSize.aspectRatio,
-                1 / widget.mainImageSize.aspectRatio),
-            max(imageSize.aspectRatio, 1 / imageSize.aspectRatio),
-          );
-
-    Offset offset = transformConfigs.offset / offsetFactor;
-    double scale = fitCoverScale * transformConfigs.scaleUser;
-    if (scale.isInfinite || scale.isNaN) scale = 1;
-    if (offset.isInfinite) offset = Offset.zero;
-
     return Container(
       height: size.height,
       width: size.width,
@@ -303,36 +280,25 @@ class _FilterEditorItemListState extends State<FilterEditorItemList> {
       decoration: decoration,
       child: ClipRRect(
         borderRadius: borderRadius,
-        child: Transform.rotate(
-          angle: transformConfigs.angle,
-          alignment: Alignment.center,
-          child: Transform.flip(
-            flipX: transformConfigs.flipX,
-            flipY: transformConfigs.flipY,
-            child: Transform.scale(
-              scale: scale,
-              child: Transform.translate(
-                offset: offset,
-                child: FilteredWidget(
-                  enableCachedSize: true,
-                  image: widget.editorImage,
-                  videoPlayer: widget.image,
-                  blankSize: widget.mainImageSize,
-                  fit: transformConfigs.isNotEmpty
-                      ? BoxFit.contain
-                      : BoxFit.cover,
-                  width: size.width,
-                  height: size.height,
-                  filters: [
-                    ...(widget.activeFilters ?? []),
-                    ...filter.filters,
-                  ],
-                  tuneAdjustments: widget.activeTuneAdjustments,
-                  configs: widget.configs,
-                  blurFactor: widget.blurFactor ?? 0,
-                ),
-              ),
-            ),
+        child: TransformedContentGenerator(
+          transformConfigs: transformConfigs,
+          configs: widget.configs,
+          fit: BoxFit.cover,
+          child: FilteredWidget(
+            enableCachedSize: true,
+            image: widget.editorImage,
+            videoPlayer: widget.image,
+            blankSize: widget.mainImageSize,
+            fit: transformConfigs.isNotEmpty ? BoxFit.contain : BoxFit.cover,
+            width: size.width,
+            height: size.height,
+            filters: [
+              ...(widget.activeFilters ?? []),
+              ...filter.filters,
+            ],
+            tuneAdjustments: widget.activeTuneAdjustments,
+            configs: widget.configs,
+            blurFactor: widget.blurFactor ?? 0,
           ),
         ),
       ),

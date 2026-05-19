@@ -18,6 +18,7 @@ class TransformedContentGenerator extends StatelessWidget {
     required this.configs,
     this.isVideoPlayer = false,
     this.enableCropClip = true,
+    this.fit = BoxFit.contain,
     super.key,
   });
 
@@ -38,6 +39,12 @@ class TransformedContentGenerator extends StatelessWidget {
   /// Set to `false` during animated crop transitions to prevent the
   /// dark background from showing through the clipped area.
   final bool enableCropClip;
+
+  /// How to fit the transformed content into the available space.
+  ///
+  /// Defaults to [BoxFit.contain]. Use [BoxFit.cover] for preview
+  /// thumbnails where the content should fill the entire area.
+  final BoxFit fit;
 
   TransformConfigs get _transformConfigs => transformConfigs;
 
@@ -99,6 +106,8 @@ class TransformedContentGenerator extends StatelessWidget {
         final Size originalSize = _transformConfigs.originalSize;
 
         return FittedBox(
+          fit: fit,
+          clipBehavior: fit == BoxFit.cover ? Clip.hardEdge : Clip.none,
           child: SizedBox(
             width: originalSize.isInfinite ? null : originalSize.width,
             height: originalSize.isInfinite ? null : originalSize.height,
