@@ -10,7 +10,7 @@ import 'package:flutter/material.dart';
 ///
 /// [SmartHero] detects this case and hides the shuttle while keeping the
 /// child visible in-place via [placeholderBuilder].
-class SmartHero extends StatelessWidget {
+class SmartHero extends StatefulWidget {
   /// Creates a [SmartHero] that suppresses no-op hero flights.
   const SmartHero({
     super.key,
@@ -37,15 +37,28 @@ class SmartHero extends StatelessWidget {
   /// considered identical.
   static const double _positionThreshold = 2.0;
 
+  /// Tags currently in an active (non-suppressed) hero flight.
+  /// Shared between source and destination hero instances so both
+  /// placeholderBuilders can hide their children during real flights.
+  static final Set<Object> _flyingTags = {};
+
+  @override
+  State<SmartHero> createState() => _SmartHeroState();
+}
+
+class _SmartHeroState extends State<SmartHero> {
   @override
   Widget build(BuildContext context) {
     return Hero(
-      tag: tag,
+      tag: widget.tag,
       createRectTween:
-          createRectTween ?? (begin, end) => RectTween(begin: begin, end: end),
-      flightShuttleBuilder: enabled ? _flightShuttleBuilder : null,
-      placeholderBuilder: enabled ? _placeholderBuilder : null,
-      child: child,
+          widget.createRectTween ??
+          (begin, end) => RectTween(begin: begin, end: end),
+      flightShuttleBuilder:
+          widget.enabled ? _flightShuttleBuilder : null,
+      placeholderBuilder:
+          widget.enabled ? _placeholderBuilder : null,
+      child: widget.child,
     );
   }
 
@@ -61,27 +74,52 @@ class SmartHero extends StatelessWidget {
     final fromPos = fromBox.localToGlobal(Offset.zero);
     final toPos = toBox.localToGlobal(Offset.zero);
 
-    final samePosition = (fromPos - toPos).distance < _positionThreshold &&
-        (fromBox.size.width - toBox.size.width).abs() < _positionThreshold &&
-        (fromBox.size.height - toBox.size.height).abs() < _positionThreshold;
+    final samePosition =
+        (fromPos - toPos).distance < SmartHero._positionThreshold &&
+        (fromBox.size.width - toBox.size.width).abs() <
+            SmartHero._positionThreshold &&
+        (fromBox.size.height - toBox.size.height).abs() <
+            SmartHero._positionThreshold;
 
     if (samePosition) {
+      SmartHero._flyingTags.remove(widget.tag);
       // Same position — hide shuttle so it doesn't overlay shadows.
       return const SizedBox.shrink();
     }
 
-    // Normal flight — show destination widget.
+    // Mark this tag as actively flying so BOTH source and destination
+    // placeholderBuilders hide their children.
+    SmartHero._flyingTags.add(widget.tag);
+
+    // Clean up when the flight animation completes.
+    void statusListener(AnimationStatus status) {
+      if (status == AnimationStatus.completed ||
+          status == AnimationStatus.dismissed) {
+        SmartHero._flyingTags.remove(widget.tag);
+        animation.removeStatusListener(statusListener);
+      }
+    }
+    animation.addStatusListener(statusListener);
+
+    // Normal flight — show destination widget's content.
+    final toHero = toHeroContext.widget as Hero;
+    final fromHero = fromHeroContext.widget as Hero;
     return direction == HeroFlightDirection.push
-        ? toHeroContext.widget
-        : fromHeroContext.widget;
+        ? toHero.child
+        : fromHero.child;
   }
 
-  static Widget _placeholderBuilder(
+  Widget _placeholderBuilder(
     BuildContext context,
     Size heroSize,
     Widget child,
   ) {
-    // Keep the child visible in both routes during flight so the
+    if (SmartHero._flyingTags.contains(widget.tag)) {
+      // Real flight in progress — hide the original so it doesn't
+      // show as a "ghost" behind the flying shuttle.
+      return SizedBox(width: heroSize.width, height: heroSize.height);
+    }
+    // Suppressed flight — keep the child visible in-place so the
     // image doesn't disappear when the shuttle is hidden.
     return child;
   }

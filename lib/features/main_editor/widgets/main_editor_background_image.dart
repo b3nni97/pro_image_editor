@@ -258,7 +258,6 @@ class _MainEditorBackgroundImageState extends State<MainEditorBackgroundImage>
   @override
   Widget build(BuildContext context) {
     final w = widget;
-
     return SmartHero(
       tag: w.heroTag,
       child: _buildContent(),

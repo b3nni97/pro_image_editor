@@ -2529,6 +2529,7 @@ class ProImageEditorState extends State<ProImageEditor>
   /// to the history before switching to another subeditor. This ensures the
   /// newly opened subeditor receives the most up-to-date image state.
   Future<void> _commitCurrentSubEditorState() async {
+
     // Also commit when an embedded sub-editor is active
     // (initialSubEditor != null) because the embedded editor has no
     // navigation route, so isSubEditorOpen may be false.

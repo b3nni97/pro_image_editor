@@ -1,5 +1,6 @@
 // ignore_for_file: deprecated_member_use_from_same_package
 // TODO: Remove the deprecated values when releasing version 12.0.0.
+import 'dart:async';
 import 'dart:math';
 import 'dart:ui' as ui;
 
@@ -401,6 +402,12 @@ class CropRotateEditorState extends State<CropRotateEditor>
   /// Indicates whether the image size has successfully finished decoding.
   bool _imageSizeIsDecoded = true;
 
+  /// Completes when the crop editor's layout initialization (calcFitToScreen,
+  /// calcCropRect etc.) has finished running in the nested post-frame
+  /// callbacks. [hideFakeHero] awaits this so it never fires before the
+  /// transform chain is properly configured.
+  final Completer<void> _layoutReadyCompleter = Completer<void>();
+
   /// Tracks if a fake hero transition is enabled via configuration.
   bool enableFakeHero = false;
 
@@ -718,10 +725,6 @@ class CropRotateEditorState extends State<CropRotateEditor>
       _straightenScale = _calculateStraightenScale(straightenAngle);
       setInitHistory(initialTransformConfigs!);
     }
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      // Removed temporary 5-second log
-    });
-
     enableFakeHero = initConfigs.enableFakeHero;
     _showFakeHero = enableFakeHero;
 
@@ -779,16 +782,23 @@ class CropRotateEditorState extends State<CropRotateEditor>
       if (originalSizeVal != null && !originalSizeVal.isInfinite) {
         WidgetsBinding.instance.addPostFrameCallback((_) async {
           final double oldScaleAnimationValue = scaleAnimation.value;
-          scaleCtrl.duration = Duration.zero;
 
           if (cropRect.width > 0 && cropRect.height > 0) {
             calcCropRect(newRatio: 1.0 / cropRect.size.aspectRatio);
           }
 
-          calcFitToScreen();
+          calcFitToScreen(animated: false);
           scaleCtrl.duration = cropRotateEditorConfigs.animationDuration;
           _setCropRectBounding(oldScaleAnimationValue: oldScaleAnimationValue);
+          if (!_layoutReadyCompleter.isCompleted) {
+            _layoutReadyCompleter.complete();
+          }
         });
+      } else {
+        // No nested init needed — mark layout as ready immediately.
+        if (!_layoutReadyCompleter.isCompleted) {
+          _layoutReadyCompleter.complete();
+        }
       }
     });
   }
@@ -1344,9 +1354,15 @@ class CropRotateEditorState extends State<CropRotateEditor>
     final double targetScale = scale;
     final double startScale = scaleAnimation.value;
 
-    scaleCtrl
-      ..reset()
-      ..forward();
+    if (scaleCtrl.duration == Duration.zero) {
+      // Synchronous update — avoids the 1-frame delay where the controller
+      // sits at 0.0 after reset() before forward() ticks to 1.0.
+      scaleCtrl.value = 1.0;
+    } else {
+      scaleCtrl
+        ..reset()
+        ..forward();
+    }
 
     oldScaleFactor = scale;
 
@@ -1731,8 +1747,17 @@ class CropRotateEditorState extends State<CropRotateEditor>
     });
   }
 
-  void hideFakeHero() {
+  void hideFakeHero() async {
     final int id = ++_heroAnimationId;
+
+    // Wait for the crop editor's layout initialization (calcFitToScreen etc.)
+    // to finish before switching away from the FakeHero. Without this, the
+    // route animation can complete before the nested post-frame callbacks
+    // have calculated scaleAnimation, originalSize, and cropRect.
+    if (!_layoutReadyCompleter.isCompleted) {
+      await _layoutReadyCompleter.future;
+    }
+    if (!mounted || _heroAnimationId != id) return;
     _showFakeHero = false;
     showWidgets = true;
 
@@ -4806,7 +4831,6 @@ class CropRotateEditorState extends State<CropRotateEditor>
       left: max(0, basePadding.left + gapX),
       right: max(0, basePadding.right + gapX),
     );
-
 
     return Padding(
       padding: fakeHeroPadding,
