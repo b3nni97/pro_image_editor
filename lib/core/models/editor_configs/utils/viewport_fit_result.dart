@@ -60,6 +60,47 @@ class ViewportFitResult {
   ///
   /// Defaults to [EdgeInsets.zero] (no letterboxing).
   final EdgeInsets contentInset;
+
+  /// Computes the [contentInset] for a `FittedBox(fit: BoxFit.contain)`
+  /// layout given the effective content [aspectRatio] and the
+  /// [viewportSize] (which equals the child widget size when
+  /// `constrained: true`).
+  ///
+  /// When the content aspect ratio differs from the viewport aspect
+  /// ratio, `FittedBox.contain` creates letterbox padding. This method
+  /// calculates that padding so the pan-boundary logic can correctly
+  /// clamp the image.
+  ///
+  /// Returns [EdgeInsets.zero] if [aspectRatio] is `null`, zero,
+  /// infinite, or NaN.
+  static EdgeInsets computeContentInset({
+    required double? aspectRatio,
+    required Size viewportSize,
+  }) {
+    if (aspectRatio == null ||
+        aspectRatio <= 0 ||
+        aspectRatio.isNaN ||
+        aspectRatio.isInfinite ||
+        viewportSize.isEmpty) {
+      return EdgeInsets.zero;
+    }
+
+    final double viewportAR = viewportSize.aspectRatio;
+
+    if (aspectRatio >= viewportAR) {
+      // Content is wider than (or equal to) viewport → fills width,
+      // letterbox top/bottom.
+      final double imageHeight = viewportSize.width / aspectRatio;
+      final double verticalInset = (viewportSize.height - imageHeight) / 2;
+      return EdgeInsets.symmetric(vertical: verticalInset);
+    } else {
+      // Content is taller than viewport → fills height,
+      // letterbox left/right.
+      final double imageWidth = viewportSize.height * aspectRatio;
+      final double horizontalInset = (viewportSize.width - imageWidth) / 2;
+      return EdgeInsets.symmetric(horizontal: horizontalInset);
+    }
+  }
 }
 
 /// Signature for the viewport fit builder callback.

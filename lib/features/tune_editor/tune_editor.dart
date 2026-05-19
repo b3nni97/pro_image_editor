@@ -472,11 +472,21 @@ class TuneEditorState extends State<TuneEditor>
                 final fit = mainConfigs.viewportFitBuilder
                         ?.call(effectiveAspectRatio) ??
                     const ViewportFitResult();
+
+                // Auto-compute contentInset from the effective aspect
+                // ratio so the pan boundaries correctly account for
+                // FittedBox letterboxing after a crop change.
+                final EdgeInsets effectiveContentInset =
+                    ViewportFitResult.computeContentInset(
+                  aspectRatio: effectiveAspectRatio,
+                  viewportSize: editorBodySize,
+                );
+
                 return ExtendedInteractiveViewer(
                   key: interactiveViewerKey,
                   zoomConfigs: mainConfigs,
                   boundaryMargin: fit.boundaryMargin,
-                  contentInset: fit.contentInset,
+                  contentInset: effectiveContentInset,
                   minScale: fit.editorMinScale,
                   maxScale: fit.editorMaxScale,
                   initialMatrix4: fit.initialTransform,
