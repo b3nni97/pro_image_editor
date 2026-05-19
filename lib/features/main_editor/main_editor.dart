@@ -1149,6 +1149,25 @@ class ProImageEditorState extends State<ProImageEditor>
     sizesManager.originalImageSize ??= _imageInfos!.rawSize;
     sizesManager.decodedImageSize = _imageInfos!.renderedSize;
 
+    // Proactively mark the crop overlay as animating so the very first frame
+    // rendered after initialization already hides it. This prevents a 1-frame
+    // flicker where the dark crop overlay briefly appears before the
+    // background image's crop animation starts.
+    final tc = stateManager.transformConfigs;
+    if (tc.isNotEmpty && !tc.originalSize.isInfinite) {
+      final origSize = tc.originalSize;
+      final fullRect = Rect.fromLTWH(0, 0, origSize.width, origSize.height);
+      final cropRect = tc.cropRect;
+      final needsCropAnim =
+          (cropRect.left - fullRect.left).abs() >= 0.5 ||
+          (cropRect.top - fullRect.top).abs() >= 0.5 ||
+          (cropRect.width - fullRect.width).abs() >= 0.5 ||
+          (cropRect.height - fullRect.height).abs() >= 0.5;
+      if (needsCropAnim) {
+        _isCropAnimating = true;
+      }
+    }
+
     _isInitialized = true;
     if (!_decodeImageCompleter.isCompleted) {
       _decodeImageCompleter.complete(true);

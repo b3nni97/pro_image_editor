@@ -188,6 +188,17 @@ class _MainEditorBackgroundImageState extends State<MainEditorBackgroundImage>
     _fullRect = fullCropRect;
     _cropAnimDone = false;
 
+    // Notify that a crop animation is pending so the overlay is hidden.
+    // This is deferred to a post-frame callback because didUpdateWidget runs
+    // during the build phase and the callback triggers setState in the parent.
+    // The main editor already proactively sets _isCropAnimating = true at
+    // initialization time, so the first frame is correct regardless.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        widget.onCropAnimationChanged?.call(true);
+      }
+    });
+
     _cropAnimCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 400),
@@ -213,14 +224,12 @@ class _MainEditorBackgroundImageState extends State<MainEditorBackgroundImage>
     if (heroDelay != null) {
       Future.delayed(heroDelay, () {
         if (mounted) {
-          widget.onCropAnimationChanged?.call(true);
           _cropAnimCtrl!.forward();
         }
       });
     } else {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
-          widget.onCropAnimationChanged?.call(true);
           _cropAnimCtrl!.forward();
         }
       });
