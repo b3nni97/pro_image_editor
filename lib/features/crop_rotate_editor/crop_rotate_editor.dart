@@ -1099,8 +1099,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
     setCropMode(configs.cropMode, updateHistory: false);
     rotationCount = (configs.angle * 2 / pi).abs().toInt();
     rotateAnimation =
-        Tween<double>(begin: rotateAnimation.value, end: configs.angle)
-            .animate(
+        Tween<double>(begin: rotateAnimation.value, end: configs.angle).animate(
       CurvedAnimation(
         parent: rotateCtrl,
         curve: cropRotateEditorConfigs.rotateAnimationCurve,
@@ -1333,7 +1332,6 @@ class CropRotateEditorState extends State<CropRotateEditor>
       editorBodySize.width - margin.horizontal,
       editorBodySize.height - margin.vertical,
     );
-
 
     final double activeCropSpaceHorizontal =
         _rotated90deg ? _cropSpaceVertical : _cropSpaceHorizontal;
@@ -4146,8 +4144,6 @@ class CropRotateEditorState extends State<CropRotateEditor>
         },
         child: Stack(
           children: [
-            // FakeHero behind everything (visible during fade-out
-            // transition or when fully transitioned)
             if (_showFakeHero) _buildFakeHero(),
             if (!_showFakeHero &&
                 !_imageSizeIsDecoded &&
@@ -4263,7 +4259,8 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
             // Crop corner widget – outside Transform.scale so it
             // keeps its fixed size regardless of scale animations.
-            if (cropRotateEditorConfigs.widgets.cropCornerWidget != null)
+            if (!_showFakeHero &&
+                cropRotateEditorConfigs.widgets.cropCornerWidget != null)
               Positioned.fill(
                 child: Opacity(
                   opacity: _isFadingToFakeHero ? _heroTransitionOpacity : 1.0,
@@ -4795,10 +4792,9 @@ class CropRotateEditorState extends State<CropRotateEditor>
   ///
   /// Allows seamless transition animations before unlocking the editor interaction grid.
   Widget _buildFakeHero() {
-    final double fakeHeroAspectRatio =
-        _fakeHeroTransformConfigs.isNotEmpty
-            ? _fakeHeroTransformConfigs.cropRect.size.aspectRatio
-            : _mainImageSize.aspectRatio;
+    final double fakeHeroAspectRatio = _fakeHeroTransformConfigs.isNotEmpty
+        ? _fakeHeroTransformConfigs.cropRect.size.aspectRatio
+        : _mainImageSize.aspectRatio;
 
     final EdgeInsets basePadding = _cropViewPadding;
 
@@ -4865,11 +4861,12 @@ class CropRotateEditorState extends State<CropRotateEditor>
                     mainBodySize: (mainBodySize ?? editorBodySize),
                     mainImageSize: _mainImageSize,
                     editorBodySize: constraints.biggest,
-                    transformConfigs: initialTransformConfigs,
+                    transformConfigs: _fakeHeroTransformConfigs,
                   ),
                   configs: configs,
                   layers: _layers,
                   clipBehavior: Clip.none,
+                  cutOutsideImageArea: false,
                   overlayColor:
                       cropRotateEditorConfigs.style.background?.call(context) ??
                           kImageEditorBackground,
