@@ -24,7 +24,7 @@ import '/pro_image_editor.dart';
 import '/shared/mixins/editor_zoom.mixin.dart';
 import '/shared/services/content_recorder/widgets/content_recorder.dart';
 import '/shared/services/import_export/export_state_history.dart';
-import '/shared/services/layer_transform_generator.dart';
+
 import '/shared/utils/file_constructor_utils.dart';
 import '/shared/utils/transparent_image_generator_utils.dart';
 import '/shared/widgets/adaptive_dialog.dart';
@@ -1880,20 +1880,10 @@ class ProImageEditorState extends State<ProImageEditor>
           appliedFilters: stateManager.activeFilters,
           appliedTuneAdjustments: stateManager.activeTuneAdjustments,
           onDone: (transformConfigs, fitToScreenFactor, imageInfos) async {
-            List<Layer> updatedLayers = LayerTransformGenerator(
-              layers: stateManager.activeLayers,
-              activeTransformConfigs: stateManager.transformConfigs,
-              newTransformConfigs: transformConfigs,
-              layerDrawAreaSize: sizesManager.bodySize,
-              undoChanges: false,
-              fitToScreenFactor: fitToScreenFactor,
-            ).updatedLayers;
-
             _imageInfos = null;
             unawaited(decodeImage(transformConfigs));
             addHistory(
               transformConfigs: transformConfigs,
-              layers: updatedLayers,
               heroScreenshotRequired: true,
             );
 

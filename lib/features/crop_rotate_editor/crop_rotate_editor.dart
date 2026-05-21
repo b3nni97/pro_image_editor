@@ -27,7 +27,6 @@ import '/pro_image_editor.dart';
 import '/shared/extensions/double_extension.dart';
 import '/shared/mixins/extended_loop.dart';
 import '/shared/services/content_recorder/widgets/record_invisible_widget.dart';
-import '/shared/services/layer_transform_generator.dart';
 import '/shared/utils/file_constructor_utils.dart';
 import '/shared/utils/transparent_image_generator_utils.dart';
 import '/shared/widgets/extended/extended_custom_paint.dart';
@@ -858,17 +857,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
     _updateAllStates();
 
     if (!initConfigs.convertToUint8List) {
-      final List<Layer> updatedLayers = LayerTransformGenerator(
-        layers: initConfigs.layers ?? [],
-        activeTransformConfigs:
-            initConfigs.transformConfigs ?? TransformConfigs.empty(),
-        newTransformConfigs: transformC,
-        layerDrawAreaSize: originalSize,
-        fitToScreenFactor: _transformHelperScale,
-        undoChanges: false,
-      ).updatedLayers;
-
-      _layers = updatedLayers;
+      _layers = initConfigs.layers ?? [];
       _updateAllStates();
 
       if (cropRotateEditorConfigs.enableProvideImageInfos &&
@@ -1664,17 +1653,9 @@ class CropRotateEditorState extends State<CropRotateEditor>
   void _setRawLayers({bool refit = false}) {
     if (refit) calcFitToScreen(animated: false);
 
-    _rawLayers = LayerTransformGenerator(
-      layers: _layers,
-      activeTransformConfigs: _fakeHeroTransformConfigs,
-      newTransformConfigs: TransformConfigs.empty(),
-      layerDrawAreaSize: originalSize.isInfinite || originalSize.isEmpty
-          ? mainBodySize ?? Size.zero
-          : originalSize,
-      undoChanges: true,
-      fitToScreenFactor: _transformHelperScale,
-      transformHelperScale: _transformHelperScale,
-    ).updatedLayers;
+    // Layers are not affected by crop/rotate transforms,
+    // so _rawLayers is simply the original layers.
+    _rawLayers = _layers;
   }
 
   void _updateAllStates() {
@@ -4201,6 +4182,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
               _buildDarkenOverlay(),
               _buildBlurOverlay(),
               _buildSharpCropRestore(),
+              _buildLayerOverlay(),
               // Crop handles above blur so they're not blurred
               Positioned.fill(
                 child: Opacity(
@@ -4655,6 +4637,76 @@ class CropRotateEditorState extends State<CropRotateEditor>
     );
   }
 
+  /// Renders layers (text, stickers, etc.) as a flat overlay on top of the
+  /// image area. The layers are NOT affected by rotation, flip, straighten,
+  /// or perspective transforms — they are always displayed upright.
+  Widget _buildLayerOverlay() {
+    if (!cropRotateEditorConfigs.showLayers ||
+        !cropRotateEditorConfigs.enableTransformLayers ||
+        layers == null ||
+        _isScreenResized ||
+        !_imageSizeIsDecoded) {
+      return const SizedBox.shrink();
+    }
+
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: AnimatedBuilder(
+          animation: scaleCtrl,
+          builder: (context, child) {
+            return Transform.scale(
+              scale: scaleAnimation.value,
+              alignment: _contentCenterAlignment,
+              child: child,
+            );
+          },
+          child: Builder(
+            builder: (context) {
+              final EdgeInsets margin = _cropViewPadding;
+              final Size imgSize = _renderedImgSize;
+              final Size bodySize = editorBodySize;
+              final double imgOriginX = margin.left +
+                  (bodySize.width - margin.horizontal - imgSize.width) / 2;
+              final double imgOriginY = margin.top +
+                  (bodySize.height - margin.vertical - imgSize.height) / 2;
+
+              return Stack(
+                children: [
+                  Positioned(
+                    left: imgOriginX,
+                    top: imgOriginY,
+                    width: imgSize.width,
+                    height: imgSize.height,
+                    child: ClipRRect(
+                      clipBehavior: Clip.hardEdge,
+                      child: LayerStack(
+                        cutOutsideImageArea: false,
+                        enableHero: false,
+                        transformHelper: TransformHelper(
+                          mainBodySize:
+                              mainBodySize ?? editorBodySize,
+                          mainImageSize: _mainImageSize,
+                          editorBodySize: imgSize,
+                        ),
+                        configs: configs,
+                        layers: _rawLayers,
+                        clipBehavior: Clip.none,
+                        overlayColor: cropRotateEditorConfigs
+                                .style.background
+                                ?.call(context) ??
+                            kImageEditorBackground,
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
   /// Non-interactive image with the same visual transforms,
   /// used to restore the sharp view inside the crop rect.
   Widget _buildSharpRestoreContent() {
@@ -4745,43 +4797,16 @@ class CropRotateEditorState extends State<CropRotateEditor>
           _renderedImgConstraints = constraints;
           originalSize = constraints.biggest;
 
-          return Stack(
-            fit: StackFit.expand,
-            alignment: Alignment.center,
-            children: [
-              FilteredWidget(
-                filters: appliedFilters,
-                tuneAdjustments: appliedTuneAdjustments,
-                blurFactor: appliedBlurFactor,
-                configs: configs,
-                width: _imgWidth,
-                height: _imgHeight,
-                image: editorImage,
-                videoPlayer: videoController?.videoPlayer,
-                blankSize: initConfigs.mainImageSize,
-              ),
-              if (cropRotateEditorConfigs.showLayers &&
-                  cropRotateEditorConfigs.enableTransformLayers &&
-                  layers != null &&
-                  !_isScreenResized)
-                ClipRRect(
-                  clipBehavior: Clip.hardEdge,
-                  child: LayerStack(
-                    cutOutsideImageArea: false,
-                    transformHelper: TransformHelper(
-                      mainBodySize: Size.zero,
-                      mainImageSize: Size.zero,
-                      editorBodySize: originalSize,
-                    ),
-                    configs: configs,
-                    layers: _rawLayers,
-                    clipBehavior: Clip.none,
-                    overlayColor: cropRotateEditorConfigs.style.background
-                            ?.call(context) ??
-                        kImageEditorBackground,
-                  ),
-                ),
-            ],
+          return FilteredWidget(
+            filters: appliedFilters,
+            tuneAdjustments: appliedTuneAdjustments,
+            blurFactor: appliedBlurFactor,
+            configs: configs,
+            width: _imgWidth,
+            height: _imgHeight,
+            image: editorImage,
+            videoPlayer: videoController?.videoPlayer,
+            blankSize: initConfigs.mainImageSize,
           );
         },
       ),
@@ -4857,6 +4882,7 @@ class CropRotateEditorState extends State<CropRotateEditor>
               ),
               if (cropRotateEditorConfigs.showLayers && layers != null)
                 LayerStack(
+                  enableHero: true,
                   transformHelper: TransformHelper(
                     mainBodySize: (mainBodySize ?? editorBodySize),
                     mainImageSize: _mainImageSize,

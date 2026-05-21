@@ -37,6 +37,7 @@ class LayerStack extends StatelessWidget {
     required this.overlayColor,
     this.cutOutsideImageArea,
     this.enableLayerKey = false,
+    this.enableHero = true,
     this.transformHelper = const TransformHelper(
       editorBodySize: Size.zero,
       mainBodySize: Size.zero,
@@ -84,6 +85,13 @@ class LayerStack extends StatelessWidget {
   /// disabled.
   final bool enableLayerKey;
 
+  /// Whether to wrap layer widgets in [Hero] widgets.
+  ///
+  /// Set to `false` when this stack is rendered as a non-interactive duplicate
+  /// (e.g. the sharp-restore overlay) to avoid [GlobalKey] conflicts from
+  /// duplicate Hero tags.
+  final bool enableHero;
+
   bool get _cutOutsideImageArea =>
       cutOutsideImageArea ?? configs.imageGeneration.cropToImageBounds;
 
@@ -107,18 +115,15 @@ class LayerStack extends StatelessWidget {
                     key: enableLayerKey ? layerItem.key : null,
                     layer: layerItem,
                     configs: configs,
+                    enableHero: enableHero,
                     editorBodySize: transformHelper.editorBodySize,
                   );
                 }).toList()),
           ),
           if (configs.imageGeneration.cropToImageBounds)
             RepaintBoundary(
-              child: Hero(
+              child: _maybeBuildHero(
                 tag: 'crop_layer_painter_hero',
-                flightShuttleBuilder:
-                    (context, animation, direction, fromCtx, toCtx) {
-                  return const SizedBox.shrink();
-                },
                 child: CustomPaint(
                   foregroundPainter:
                       _cutOutsideImageArea ? _buildCropPainter() : null,
@@ -128,6 +133,18 @@ class LayerStack extends StatelessWidget {
             ),
         ],
       ),
+    );
+  }
+
+  Widget _maybeBuildHero({required String tag, required Widget child}) {
+    if (!enableHero) return child;
+    return Hero(
+      tag: tag,
+      flightShuttleBuilder:
+          (context, animation, direction, fromCtx, toCtx) {
+        return const SizedBox.shrink();
+      },
+      child: child,
     );
   }
 

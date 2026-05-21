@@ -40,6 +40,7 @@ class LayerWidget extends StatefulWidget with SimpleConfigsAccess {
     this.onDuplicate,
     this.isInteractive = false,
     this.enableMouseCursor = true,
+    this.enableHero = true,
     this.callbacks = const ProImageEditorCallbacks(),
   });
   @override
@@ -73,6 +74,12 @@ class LayerWidget extends StatefulWidget with SimpleConfigsAccess {
   /// A flag indicating whether the mouse cursor should be enabled for this
   /// widget.
   final bool enableMouseCursor;
+
+  /// Whether to wrap this layer in a [Hero] widget.
+  ///
+  /// Set to `false` when rendering a non-interactive duplicate of the layer
+  /// stack (e.g. the sharp-restore overlay) to prevent [GlobalKey] conflicts.
+  final bool enableHero;
 
   @override
   createState() => _LayerWidgetState();
@@ -323,9 +330,7 @@ class _LayerWidgetState extends State<LayerWidget>
       child: RepaintBoundary(
         child: FractionalTranslation(
           translation: _fractionalOffset,
-          child: Hero(
-            // Important that hero is above transform
-            createRectTween: (begin, end) => RectTween(begin: begin, end: end),
+          child: _maybeBuildHero(
             tag: _layer.id,
             child: Transform(
               transform: transformMatrix,
@@ -335,6 +340,15 @@ class _LayerWidgetState extends State<LayerWidget>
           ),
         ),
       ),
+    );
+  }
+
+  Widget _maybeBuildHero({required String tag, required Widget child}) {
+    if (!widget.enableHero) return child;
+    return Hero(
+      createRectTween: (begin, end) => RectTween(begin: begin, end: end),
+      tag: tag,
+      child: child,
     );
   }
 
@@ -373,7 +387,7 @@ class _LayerWidgetState extends State<LayerWidget>
                         ? EdgeInsets.zero
                         : layerInteraction.style.overlayPadding,
                     child: FittedBox(
-                      key: _layer.keyInternalSize,
+                      key: widget.enableHero ? _layer.keyInternalSize : null,
                       child: _buildContent(),
                     ),
                   ),
