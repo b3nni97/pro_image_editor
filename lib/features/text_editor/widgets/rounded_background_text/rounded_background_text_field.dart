@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '/core/constants/editor_style_constants.dart';
 import '/core/models/editor_configs/pro_image_editor_configs.dart';
 import 'rounded_background_text.dart';
 
@@ -20,6 +21,7 @@ class RoundedBackgroundTextField extends StatefulWidget {
     required this.backgroundColor,
     required this.textAlign,
     required this.focusNode,
+    this.textFieldBuilder,
     this.maxTextWidth = double.infinity,
     this.cursorWidth = 2.0,
     this.cursorHeight,
@@ -81,6 +83,26 @@ class RoundedBackgroundTextField extends StatefulWidget {
 
   /// {@macro flutter.widgets.editableText.onSubmitted}
   final ValueChanged<String>? onSubmitted;
+
+  /// Optional builder to replace the default Material [TextField]
+  /// with a custom text field widget.
+  final Widget Function(
+    BuildContext context, {
+    required TextEditingController controller,
+    required FocusNode focusNode,
+    required TextStyle style,
+    required TextAlign textAlign,
+    required ValueChanged<String>? onChanged,
+    required ScrollController scrollController,
+    bool autofocus,
+    String? hintText,
+    TextStyle? hintStyle,
+    Color? cursorColor,
+    double cursorWidth,
+    double? cursorHeight,
+    VoidCallback? onEditingComplete,
+    ValueChanged<String>? onSubmitted,
+  })? textFieldBuilder;
 
   @override
   State<RoundedBackgroundTextField> createState() =>
@@ -164,6 +186,35 @@ class _RoundedBackgroundTextFieldState
   }
 
   Widget _buildEditableText({required double fontSize}) {
+    final style = widget.style.copyWith(
+      fontSize: fontSize,
+      leadingDistribution: TextLeadingDistribution.proportional,
+      height: widget.configs.style.textHeight,
+    );
+
+    if (widget.textFieldBuilder != null) {
+      return widget.textFieldBuilder!(
+        context,
+        controller: _textController,
+        focusNode: widget.focusNode,
+        style: style,
+        textAlign: widget.textAlign,
+        onChanged: widget.onChanged,
+        scrollController: _scrollCtrl,
+        autofocus: widget.autofocus,
+        hintText: _textController.text.isEmpty ? widget.hint : '',
+        hintStyle: (widget.hintStyle ??
+                TextStyle(color: Theme.of(context).hintColor))
+            .copyWith(fontSize: fontSize),
+        cursorColor: widget.configs.style.inputCursorColor?.call(context) ??
+            kImageEditorPrimaryColor,
+        cursorWidth: widget.cursorWidth,
+        cursorHeight: widget.cursorHeight,
+        onEditingComplete: widget.onEditingComplete,
+        onSubmitted: widget.onSubmitted,
+      );
+    }
+
     return Material(
       type: MaterialType.transparency,
       child: TextField(
@@ -180,11 +231,7 @@ class _RoundedBackgroundTextFieldState
         scrollPhysics: const NeverScrollableScrollPhysics(),
         scrollController: _scrollCtrl,
         scrollPadding: EdgeInsets.zero,
-        style: widget.style.copyWith(
-          fontSize: fontSize,
-          leadingDistribution: TextLeadingDistribution.proportional,
-          height: widget.configs.style.textHeight,
-        ),
+        style: style,
         decoration: InputDecoration.collapsed(
           hintText: _textController.text.isEmpty ? widget.hint : '',
           hintStyle: (widget.hintStyle ??
@@ -197,7 +244,8 @@ class _RoundedBackgroundTextFieldState
         keyboardType: TextInputType.multiline,
         textCapitalization: TextCapitalization.sentences,
         textInputAction: TextInputAction.newline,
-        cursorColor: widget.configs.style.inputCursorColor,
+        cursorColor: widget.configs.style.inputCursorColor?.call(context) ??
+            kImageEditorPrimaryColor,
         cursorWidth: widget.cursorWidth,
         cursorHeight: widget.cursorHeight,
         cursorRadius: widget.cursorRadius,

@@ -31,6 +31,7 @@ class MainEditorConfigs extends ZoomConfigs {
     this.enableKeyboardShortcuts = true,
     this.enableEscapeButton = true,
     this.canZoomWhenLayerSelected = true,
+    this.resizeToAvoidBottomInset = false,
     this.mobilePanInteraction = MobilePanInteraction.move,
     this.tools = const [
       SubEditorMode.paint,
@@ -80,6 +81,16 @@ class MainEditorConfigs extends ZoomConfigs {
   /// If set to `true`, users can zoom in or out while a layer is selected.
   /// If set to `false`, zooming is disabled when a layer is selected.
   final bool canZoomWhenLayerSelected;
+
+  /// Whether the Scaffold should resize to avoid the bottom inset (keyboard).
+  ///
+  /// When set to `false` (default), the keyboard will overlay the editor
+  /// content instead of resizing it. This prevents layers from being
+  /// squished when the keyboard opens (e.g. during text editing).
+  ///
+  /// When set to `true`, the Scaffold body will shrink to make room
+  /// for the keyboard.
+  final bool resizeToAvoidBottomInset;
 
   /// Initializes the editor with pre-configured transformations,
   /// such as cropping, based on the provided setup.
@@ -154,6 +165,7 @@ class MainEditorConfigs extends ZoomConfigs {
     bool? enableZoom,
     bool? enableDoubleTapZoom,
     bool? canZoomWhenLayerSelected,
+    bool? resizeToAvoidBottomInset,
     MobilePanInteraction? mobilePanInteraction,
     bool? invertTrackpadDirection,
     double? doubleTapZoomFactor,
@@ -170,6 +182,8 @@ class MainEditorConfigs extends ZoomConfigs {
       enableKeyboardShortcuts:
           enableKeyboardShortcuts ?? this.enableKeyboardShortcuts,
       enableEscapeButton: enableEscapeButton ?? this.enableEscapeButton,
+      resizeToAvoidBottomInset:
+          resizeToAvoidBottomInset ?? this.resizeToAvoidBottomInset,
       transformSetup: transformSetup ?? this.transformSetup,
       initialSubEditor: initialSubEditor ?? this.initialSubEditor,
       style: style ?? this.style,

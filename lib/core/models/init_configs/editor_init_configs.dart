@@ -1,6 +1,7 @@
 // Flutter imports:
 import 'package:flutter/material.dart';
 
+import '/core/models/history/editor_history_scope.dart';
 import '/features/filter_editor/types/filter_matrix.dart';
 import '/features/tune_editor/models/tune_adjustment_matrix.dart';
 import '../editor_callbacks/pro_image_editor_callbacks.dart';
@@ -41,6 +42,7 @@ abstract class EditorInitConfigs {
     this.layers,
     this.convertToUint8List = false,
     this.enableCloseButton = true,
+    this.historyScope,
   });
 
   /// Determines whether the close button is displayed on the widget.
@@ -79,4 +81,11 @@ abstract class EditorInitConfigs {
   /// Determines whether to return the image as a Uint8List when closing the
   /// editor.
   final bool convertToUint8List;
+
+  /// Optional scope providing access to the main editor's global history.
+  ///
+  /// When provided, the sub-editor writes every change directly to the
+  /// global undo/redo history instead of maintaining a local undo stack.
+  /// This enables unified undo/redo across all editors.
+  final EditorHistoryScope? historyScope;
 }

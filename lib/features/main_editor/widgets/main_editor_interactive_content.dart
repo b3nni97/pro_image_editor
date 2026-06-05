@@ -50,8 +50,6 @@ class MainEditorInteractiveContent extends StatelessWidget {
     required this.buildImage,
     required this.buildVideo,
     required this.buildLayers,
-    required this.buildHelperLines,
-    required this.buildRemoveArea,
     required this.callbacks,
     required this.sizesManager,
     required this.configs,
@@ -78,11 +76,6 @@ class MainEditorInteractiveContent extends StatelessWidget {
   /// A builder function to create the layer widgets.
   final Widget Function() buildLayers;
 
-  /// A builder function to create the helper lines widget.
-  final Widget Function() buildHelperLines;
-
-  /// A builder function to create the remove icon widget.
-  final Widget Function() buildRemoveArea;
 
   /// Manages the state of the editor.
   final StateManager stateManager;
@@ -175,8 +168,6 @@ class MainEditorInteractiveContent extends StatelessWidget {
 
           /// Build helper content
           if (!processFinalImage) ...[
-            buildHelperLines(),
-            buildRemoveArea(),
             _buildLayerSelector(),
           ],
 

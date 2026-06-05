@@ -87,7 +87,9 @@ class PaintEditorConfigs extends ZoomConfigs
     this.showOpacityAdjustmentButton = true,
     this.isInitiallyFilled = false,
     this.showLayers = true,
+    this.enableInteractiveLayers = false,
     this.enableShareZoomMatrix = true,
+    this.resizeToAvoidBottomInset = false,
     this.polygonConnectionThreshold = 20,
     this.minStrokeWidth = 1.0,
     this.maxStrokeWidth = 40.0,
@@ -219,8 +221,21 @@ class PaintEditorConfigs extends ZoomConfigs
   /// Show the layers from the main-editor.
   final bool showLayers;
 
+  /// Whether layers in the editor can be interacted with (moved, scaled,
+  /// rotated, and edited).
+  ///
+  /// When `true`, the user can directly manipulate layers within the paint
+  /// editor. When `false` (default), layers are displayed as a static preview.
+  final bool enableInteractiveLayers;
+
   /// Shares the zoom matrix between the main and paint editor.
   final bool enableShareZoomMatrix;
+
+  /// Whether the Scaffold should resize to avoid the bottom inset (keyboard).
+  ///
+  /// When set to `false` (default), the keyboard will overlay the editor
+  /// content instead of resizing it.
+  final bool resizeToAvoidBottomInset;
 
   /// Indicates the initial paint mode.
   final PaintMode initialPaintMode;
@@ -380,7 +395,9 @@ class PaintEditorConfigs extends ZoomConfigs
     bool? showOpacityAdjustmentButton,
     bool? isInitiallyFilled,
     bool? showLayers,
+    bool? enableInteractiveLayers,
     bool? enableShareZoomMatrix,
+    bool? resizeToAvoidBottomInset,
     PaintMode? initialPaintMode,
     EraserMode? eraserMode,
     double? eraserSize,
@@ -435,8 +452,12 @@ class PaintEditorConfigs extends ZoomConfigs
           showOpacityAdjustmentButton ?? this.showOpacityAdjustmentButton,
       isInitiallyFilled: isInitiallyFilled ?? this.isInitiallyFilled,
       showLayers: showLayers ?? this.showLayers,
+      enableInteractiveLayers:
+          enableInteractiveLayers ?? this.enableInteractiveLayers,
       enableShareZoomMatrix:
           enableShareZoomMatrix ?? this.enableShareZoomMatrix,
+      resizeToAvoidBottomInset:
+          resizeToAvoidBottomInset ?? this.resizeToAvoidBottomInset,
       initialPaintMode: initialPaintMode ?? this.initialPaintMode,
       eraserMode: eraserMode ?? this.eraserMode,
       eraserSize: eraserSize ?? this.eraserSize,

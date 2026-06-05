@@ -36,6 +36,7 @@ environment:
 
 dependencies:
   cassowary: ^0.4.3
+  dynamic_color: ^1.7.0
   flutter:
     sdk: flutter
 

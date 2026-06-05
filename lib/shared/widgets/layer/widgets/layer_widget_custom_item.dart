@@ -22,6 +22,7 @@ class LayerWidgetCustomItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Content renders at actual scale. The layout expands naturally.
     return SizedBox(
       width: (layer.width ?? stickerEditorConfigs.initWidth) * layer.scale,
       child: FittedBox(

@@ -6,6 +6,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' hide Layer;
 
 import '/core/constants/editor_various_constants.dart';
 import '/core/mixins/converted_configs.dart';
@@ -15,7 +16,7 @@ import '/core/models/editor_configs/pro_image_editor_configs.dart';
 import '/core/models/layers/layer.dart';
 import '/core/services/gesture_manager.dart';
 import '/features/main_editor/services/layer_interaction_manager.dart';
-import '/features/main_editor/services/main_editor_layers_service.dart';
+import '/shared/widgets/layer/services/base_layer_interaction_service.dart';
 import '/features/paint_editor/enums/paint_editor_enum.dart';
 import '/shared/widgets/layer/enums/layer_widget_type_enum.dart';
 import '/shared/widgets/layer/services/layer_widget_context_menu.dart';
@@ -41,6 +42,7 @@ class LayerWidget extends StatefulWidget with SimpleConfigsAccess {
     this.isInteractive = false,
     this.enableMouseCursor = true,
     this.enableHero = true,
+    this.editorScaleFactor = 1.0,
     this.callbacks = const ProImageEditorCallbacks(),
   });
   @override
@@ -51,7 +53,7 @@ class LayerWidget extends StatefulWidget with SimpleConfigsAccess {
 
   /// Service for managing editor layers such as adding, removing, or
   /// updating them.
-  final MainEditorLayersService? layersService;
+  final BaseLayerInteractionService? layersService;
 
   /// Handles user interactions with layers, like selecting or dragging them.
   final LayerInteractionManager? layerInteractionManager;
@@ -80,6 +82,10 @@ class LayerWidget extends StatefulWidget with SimpleConfigsAccess {
   /// Set to `false` when rendering a non-interactive duplicate of the layer
   /// stack (e.g. the sharp-restore overlay) to prevent [GlobalKey] conflicts.
   final bool enableHero;
+
+  /// The combined scale factor of the interactive viewer and transform helper.
+  /// Used to compute zoom-independent touch padding.
+  final double editorScaleFactor;
 
   @override
   createState() => _LayerWidgetState();
@@ -181,6 +187,7 @@ class _LayerWidgetState extends State<LayerWidget>
 
   /// Handles a pointer down event on the layer.
   void _onPointerDown(PointerDownEvent event) {
+
     if (GestureManager.instance.isBlocked) return;
     bool isLayerSelected = _isSelected;
 
@@ -189,8 +196,12 @@ class _LayerWidgetState extends State<LayerWidget>
     _temporaryLayerHash = _layer.hashCode;
     _tapDownTimestamp = DateTime.now();
 
-    if (_isOutsideHitBox()) return;
+    if (!widget.isInteractive && _isOutsideHitBox()) {
+
+      return;
+    }
     if (!isDesktop || event.buttons != kSecondaryMouseButton) {
+
       _layersService?.handleTapDown(_layer, event);
     }
     // Start long press detection
@@ -218,8 +229,12 @@ class _LayerWidgetState extends State<LayerWidget>
   void _onPointerUp(PointerUpEvent event) {
     _longPressTimer?.cancel();
     if (GestureManager.instance.isBlocked) return;
-    // Notify optional onTapUp callback
-    _layersService?.handleTapUp(_layer);
+    // Determine if this pointer-up constitutes a genuine tap (minimal
+    // movement) vs. the end of a drag/pinch gesture. handleTapUp uses
+    // this to decide whether to clear the selection on mobile.
+    final bool isTap = _lastDownEvent != null &&
+        (event.position - _lastDownEvent!.position).distance < tapSlop;
+    _layersService?.handleTapUp(_layer, isTap: isTap);
 
     /// Important: To avoid gesture conflicts, we need to create our own
     /// onTap event using the Listener widget instead of GestureDetector.
@@ -245,7 +260,8 @@ class _LayerWidgetState extends State<LayerWidget>
       // Fire onTap only if selection/edit is enabled and pointer is inside hit box
       final bool canSelect = interaction.enableSelection;
       final bool canEdit = interaction.enableEdit;
-      final bool insideHitBox = !_isOutsideHitBox();
+      final bool insideHitBox =
+          widget.isInteractive || !_isOutsideHitBox();
       final bool isStylus = event.kind == PointerDeviceKind.stylus;
       final bool isTextLayer = _layerType == LayerWidgetType.text;
 
@@ -284,14 +300,26 @@ class _LayerWidgetState extends State<LayerWidget>
     return _layer.isTextLayer && !(_layer as TextLayer).hit;
   }
 
-  /// Calculates the transformation matrix for the layer's position and
-  /// rotation.
+  /// Calculates the transformation matrix for the layer's rotation and flip.
+  ///
+  /// During a pinch gesture, the visual scale ratio (scale / gestureBaseScale)
+  /// is applied here via the GPU, so the content doesn't need to re-render
+  /// (no text re-layout every frame = no flickering).
   Matrix4 _calcTransformMatrix() {
-    return Matrix4.identity()
-      ..setEntry(3, 2, 0.001) // Add a small z-offset to avoid rendering issues
+    final matrix = Matrix4.identity()
       ..rotateX(_layer.flipY ? pi : 0)
       ..rotateY(_layer.flipX ? pi : 0)
       ..rotateZ(_layer.rotation);
+
+    // During gesture: content stays at gestureBaseScale, the visual
+    // difference is applied as a GPU transform.
+    final base = _layer.gestureBaseScale;
+    if (base != null && base > 0) {
+      final visualScale = _layer.scale / base;
+      matrix.scale(visualScale, visualScale);
+    }
+
+    return matrix;
   }
 
   void _onHoverEnter() {
@@ -316,27 +344,30 @@ class _LayerWidgetState extends State<LayerWidget>
   Widget build(BuildContext context) {
     Matrix4 transformMatrix = _calcTransformMatrix();
 
-    final overlayPadding =
-        _isSelected ? layerInteraction.style.overlayPadding : EdgeInsets.zero;
+    // When the layer is interactive (sub-editor) but not selected, add
+    // transparent padding so the touch target is larger and easier to hit.
+    // Padding is zoom-compensated: divided by scaleFactor so it stays a
+    // constant size on screen regardless of IV zoom level.
+    final EdgeInsets overlayPadding;
+    if (_isSelected) {
+      overlayPadding = layerInteraction.style.overlayPadding;
+    } else if (widget.isInteractive) {
+      final compensated = 12.0 / widget.editorScaleFactor;
+      overlayPadding = EdgeInsets.all(compensated);
+    } else {
+      overlayPadding = EdgeInsets.zero;
+    }
 
-    final adjustedLeft =
-        offsetX - overlayPadding.horizontal * (_fractionalOffset.dx + 0.5);
-    final adjustedTop =
-        offsetY - overlayPadding.vertical * (_fractionalOffset.dy + 0.5);
-
-    return Positioned(
-      left: adjustedLeft,
-      top: adjustedTop,
-      child: RepaintBoundary(
-        child: FractionalTranslation(
-          translation: _fractionalOffset,
+    return Positioned.fill(
+      child: _TransformedLayerBox(
+        layerOffset: Offset(offsetX, offsetY),
+        fractionalOffset: _fractionalOffset,
+        overlayPadding: overlayPadding,
+        transform: transformMatrix,
+        child: RepaintBoundary(
           child: _maybeBuildHero(
             tag: _layer.id,
-            child: Transform(
-              transform: transformMatrix,
-              alignment: Alignment.center,
-              child: _buildInteractionHandlers(),
-            ),
+            child: _buildInteractionHandlers(),
           ),
         ),
       ),
@@ -376,17 +407,20 @@ class _LayerWidgetState extends State<LayerWidget>
             valueListenable: _lastHitState,
             builder: (_, __, ___) {
               return GestureDetector(
-                behavior: HitTestBehavior.translucent,
+                behavior: HitTestBehavior.opaque,
                 onSecondaryTapUp: isDesktop ? _onSecondaryTapUp : null,
                 child: Listener(
-                  behavior: HitTestBehavior.translucent,
+                  behavior: HitTestBehavior.opaque,
                   onPointerDown: _onPointerDown,
                   onPointerUp: _onPointerUp,
                   child: Padding(
-                    padding: !_isSelected
-                        ? EdgeInsets.zero
-                        : layerInteraction.style.overlayPadding,
-                    child: FittedBox(
+                    padding: _isSelected
+                        ? layerInteraction.style.overlayPadding
+                        : (widget.isInteractive
+                            ? EdgeInsets.all(
+                                12.0 / widget.editorScaleFactor)
+                            : EdgeInsets.zero),
+                    child: KeyedSubtree(
                       key: widget.enableHero ? _layer.keyInternalSize : null,
                       child: _buildContent(),
                     ),
@@ -475,5 +509,165 @@ class _LayerWidgetState extends State<LayerWidget>
   void debugFillProperties(DiagnosticPropertiesBuilder properties) {
     super.debugFillProperties(properties);
     _layer.debugFillProperties(properties);
+  }
+}
+
+/// Combines layer positioning and rotation into a single render object.
+///
+/// Unlike the previous `CustomSingleChildLayout` + `Transform` approach,
+/// this widget fills its parent for hit-testing (`size = constraints.biggest`)
+/// and applies position + rotation as a single paint/hit-test transform.
+/// This ensures rotated content remains hittable even when the rotated bounds
+/// extend beyond the unrotated layout rectangle.
+class _TransformedLayerBox extends SingleChildRenderObjectWidget {
+  const _TransformedLayerBox({
+    required this.layerOffset,
+    required this.fractionalOffset,
+    required this.overlayPadding,
+    required this.transform,
+    required Widget child,
+  }) : super(child: child);
+
+  /// The layer's anchor position in the editor coordinate space.
+  final Offset layerOffset;
+
+  /// The fractional anchor offset (e.g. (-0.5, -0.5) for center).
+  final Offset fractionalOffset;
+
+  /// Touch-padding added around the content.
+  final EdgeInsets overlayPadding;
+
+  /// Rotation / flip matrix (no translation component).
+  final Matrix4 transform;
+
+  @override
+  _RenderTransformedLayerBox createRenderObject(BuildContext context) {
+    return _RenderTransformedLayerBox(
+      layerOffset: layerOffset,
+      fractionalOffset: fractionalOffset,
+      overlayPadding: overlayPadding,
+      transform: transform,
+    );
+  }
+
+  @override
+  void updateRenderObject(
+      BuildContext context, _RenderTransformedLayerBox renderObject) {
+    renderObject
+      ..layerOffset = layerOffset
+      ..fractionalOffset = fractionalOffset
+      ..overlayPadding = overlayPadding
+      ..transform = transform;
+  }
+}
+
+class _RenderTransformedLayerBox extends RenderProxyBox {
+  _RenderTransformedLayerBox({
+    required Offset layerOffset,
+    required Offset fractionalOffset,
+    required EdgeInsets overlayPadding,
+    required Matrix4 transform,
+  })  : _layerOffset = layerOffset,
+        _fractionalOffset = fractionalOffset,
+        _overlayPadding = overlayPadding,
+        _transform = transform;
+
+  // ---- Properties with dirty-tracking ----
+
+  Offset _layerOffset;
+  set layerOffset(Offset value) {
+    if (_layerOffset == value) return;
+    _layerOffset = value;
+    markNeedsPaint();
+  }
+
+  Offset _fractionalOffset;
+  set fractionalOffset(Offset value) {
+    if (_fractionalOffset == value) return;
+    _fractionalOffset = value;
+    markNeedsPaint();
+  }
+
+  EdgeInsets _overlayPadding;
+  set overlayPadding(EdgeInsets value) {
+    if (_overlayPadding == value) return;
+    _overlayPadding = value;
+    markNeedsPaint();
+  }
+
+  Matrix4 _transform;
+  set transform(Matrix4 value) {
+    if (_transform == value) return;
+    _transform = value;
+    markNeedsPaint();
+  }
+
+  // ---- Layout ----
+
+  @override
+  void performLayout() {
+    assert(child != null);
+    // Child is unconstrained so it sizes to its natural content.
+    child!.layout(const BoxConstraints(), parentUsesSize: true);
+    // This box fills the parent so size.contains() always passes for
+    // valid touch positions, fixing hit-testing for rotated content.
+    size = constraints.biggest;
+  }
+
+  // ---- Positioning helpers (mirrors old _LayerPositionDelegate logic) ----
+
+  /// Computes the child's top-left position from the layer offset,
+  /// fractional anchor, and overlay padding.
+  Offset _childPosition() {
+    final cs = child!.size;
+    return Offset(
+      _layerOffset.dx +
+          _fractionalOffset.dx * cs.width -
+          _overlayPadding.horizontal * (_fractionalOffset.dx + 0.5),
+      _layerOffset.dy +
+          _fractionalOffset.dy * cs.height -
+          _overlayPadding.vertical * (_fractionalOffset.dy + 0.5),
+    );
+  }
+
+  /// Builds the combined translation + rotation matrix.
+  ///
+  /// Steps: translate to child center → apply rotation/flip → translate back.
+  Matrix4 _effectiveTransform() {
+    final pos = _childPosition();
+    final halfW = child!.size.width / 2;
+    final halfH = child!.size.height / 2;
+    return Matrix4.identity()
+      ..translateByDouble(pos.dx + halfW, pos.dy + halfH, 0.0, 1.0)
+      ..multiply(_transform)
+      ..translateByDouble(-halfW, -halfH, 0.0, 1.0);
+  }
+
+  // ---- Hit testing ----
+
+  @override
+  bool hitTestChildren(BoxHitTestResult result, {required Offset position}) {
+    return result.addWithPaintTransform(
+      transform: _effectiveTransform(),
+      position: position,
+      hitTest: (BoxHitTestResult result, Offset? position) {
+        return child!.hitTest(result, position: position!);
+      },
+    );
+  }
+
+  // ---- Painting ----
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    if (child == null) return;
+    context.pushTransform(
+      needsCompositing,
+      offset,
+      _effectiveTransform(),
+      (PaintingContext context, Offset offset) {
+        context.paintChild(child!, offset);
+      },
+    );
   }
 }

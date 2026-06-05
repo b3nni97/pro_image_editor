@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '/core/models/history/editor_history_scope.dart';
+
 import '/shared/widgets/smart_hero.dart';
 
 import '../../core/mixins/editor_callbacks_mixin.dart';
@@ -20,6 +22,7 @@ import '/pro_image_editor.dart';
 import '/shared/services/content_recorder/widgets/content_recorder.dart';
 import '/shared/utils/file_constructor_utils.dart';
 import '/shared/widgets/layer/layer_stack.dart';
+import '/shared/widgets/layer/interactive_layer_stack.dart';
 import '/shared/widgets/transform/transformed_content_generator.dart';
 import 'constants/identity_matrix_constant.dart';
 import 'utils/lerp_color_matrix_utils.dart';
@@ -228,26 +231,51 @@ class FilterEditorState extends State<FilterEditor>
   /// changes opacity without changing the selected filter.
   int historyVersion = 0;
 
+  /// Shortcut to the global history scope from init configs.
+  EditorHistoryScope? get _historyScope => initConfigs.historyScope;
+
+  /// Whether global history is active.
+  bool get _useGlobalHistory => _historyScope != null;
+
   /// Whether undo actions can be performed.
-  ///
-  /// Returns true if:
-  /// - The current filter opacity is less than 1.0 (can reset to 1.0), or
-  /// - There are committed filter changes in the undo stack, or
-  /// - There is an uncommitted filter change (e.g., timer hasn't fired yet).
-  bool get canUndo =>
-      _filterOpacity < 1.0 ||
-      _undoStack.isNotEmpty ||
-      _lastCommitted.filter != _selectedFilter;
+  bool get canUndo {
+    if (_useGlobalHistory) return _historyScope!.canUndo();
+    return _filterOpacity < 1.0 ||
+        _undoStack.isNotEmpty ||
+        _lastCommitted.filter != _selectedFilter;
+  }
 
   /// Whether redo actions can be performed.
-  bool get canRedo => _redoStack.isNotEmpty;
+  bool get canRedo {
+    if (_useGlobalHistory) return _historyScope!.canRedo();
+    return _redoStack.isNotEmpty;
+  }
+
+  /// Mutable copy of the layers list for interactive editing.
+  late final List<Layer> _mutableLayers;
+
+  /// Whether the layers have been modified during this editing session.
+  bool _layersModified = false;
+
+  /// Exports the current layers if they were modified.
+  List<Layer>? exportLayers() {
+    if (_layersModified) return _mutableLayers;
+    return null;
+  }
 
   /// Undoes the last filter change.
   ///
-  /// Two-level behavior:
-  /// 1. If the current filter opacity is less than 1.0, reset it to 1.0.
-  /// 2. If already at 1.0, jump to the previous filter from the undo stack.
+  /// When global history is active, delegates to the main editor's undo.
+  /// Otherwise, uses the local two-level undo behavior.
   void undo() {
+    if (_useGlobalHistory) {
+      if (_historyScope!.canUndo()) {
+        _historyScope!.undo();
+        _syncFromGlobalState();
+      }
+      return;
+    }
+
     // Commit any pending filter change first
     commitPendingChange();
 
@@ -287,7 +315,17 @@ class FilterEditorState extends State<FilterEditor>
   }
 
   /// Redoes the last undone filter change.
+  ///
+  /// When global history is active, delegates to the main editor's redo.
   void redo() {
+    if (_useGlobalHistory) {
+      if (_historyScope!.canRedo()) {
+        _historyScope!.redo();
+        _syncFromGlobalState();
+      }
+      return;
+    }
+
     if (_redoStack.isNotEmpty) {
       _undoStack.add(_FilterHistoryEntry(
         filter: _selectedFilter,
@@ -307,20 +345,56 @@ class FilterEditorState extends State<FilterEditor>
     }
   }
 
-  /// Commits any pending filter change to the undo stack.
+  /// Synchronizes the local state from the global history after undo/redo.
+  void _syncFromGlobalState() {
+    // Restore filter state from global history
+    final activeFilters = _historyScope!.getActiveFilters();
+    final filterList =
+        filterEditorConfigs.filterList ?? presetFiltersList;
+    if (activeFilters.isNotEmpty &&
+        !listEquals(activeFilters.first, identityMatrix)) {
+      // Try to find which filter matches
+      for (var filter in filterList) {
+        if (filter.filters.isNotEmpty &&
+            listEquals(filter.filters.first, activeFilters.first)) {
+          _selectedFilter = filter;
+          _filterOpacity = 1.0;
+          break;
+        }
+      }
+    } else {
+      _selectedFilter = PresetFilters.none;
+      _filterOpacity = 1.0;
+    }
+    _mutableLayers
+      ..clear()
+      ..addAll(_historyScope!.getActiveLayers());
+    historyVersion++;
+    _uiFilterStream.add(null);
+    setState(() {});
+  }
+
+  /// Commits any pending filter change.
   ///
-  /// Called when:
-  /// - The commit timer fires (filter selected for >1 second)
-  /// - An opacity slider interaction starts
-  /// - Undo/redo is triggered
+  /// When global history is active, writes directly to the global history.
+  /// Otherwise, uses the local undo stack.
   void commitPendingChange() {
     _commitTimer?.cancel();
     if (_lastCommitted.filter != _selectedFilter) {
-      _undoStack.add(_FilterHistoryEntry(
-        filter: _lastCommitted.filter,
-        opacity: _lastCommitted.opacity,
-      ));
-      _redoStack.clear();
+      if (_useGlobalHistory) {
+        // Global history: save current filter state
+        _historyScope!.addHistory(
+          filters: _getActiveFilters(),
+          layers: _historyScope!.copyLayers(_mutableLayers),
+          blockCaptureScreenshot: true,
+        );
+      } else {
+        _undoStack.add(_FilterHistoryEntry(
+          filter: _lastCommitted.filter,
+          opacity: _lastCommitted.opacity,
+        ));
+        _redoStack.clear();
+      }
       _lastCommitted = _FilterHistoryEntry(
         filter: _selectedFilter,
         opacity: _filterOpacity,
@@ -332,6 +406,7 @@ class FilterEditorState extends State<FilterEditor>
   @override
   void initState() {
     super.initState();
+    _mutableLayers = List<Layer>.from(layers ?? []);
     _uiFilterStream = StreamController.broadcast();
     _uiFilterStream.stream.listen((_) => rebuildController.add(null));
 
@@ -353,6 +428,18 @@ class FilterEditorState extends State<FilterEditor>
     _commitTimer?.cancel();
     _uiFilterStream.close();
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant FilterEditor oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (filterEditorConfigs.enableInteractiveLayers) {
+      final newLayers = layers ?? [];
+      _mutableLayers
+        ..clear()
+        ..addAll(newLayers);
+      _layersModified = false;
+    }
   }
 
   @override
@@ -567,6 +654,8 @@ class FilterEditorState extends State<FilterEditor>
             child: RecordInvisibleWidget(
               controller: screenshotCtrl,
               child: Scaffold(
+                resizeToAvoidBottomInset:
+                    filterEditorConfigs.resizeToAvoidBottomInset,
                 backgroundColor:
                     filterEditorConfigs.style.background?.call(context) ??
                         kImageEditorBackground,
@@ -663,22 +752,57 @@ class FilterEditorState extends State<FilterEditor>
                         if (!initConfigs.convertToUint8List || !isVideoEditor)
                           _buildBackground(),
                         if (filterEditorConfigs.showLayers && layers != null)
-                          LayerStack(
-                            transformHelper: TransformHelper(
-                              mainBodySize: getValidSizeOrDefault(
-                                  mainBodySize, editorBodySize),
-                              mainImageSize: getValidSizeOrDefault(
-                                  mainImageSize, editorBodySize),
-                              editorBodySize: editorBodySize,
-                              transformConfigs: initialTransformConfigs,
-                            ),
-                            configs: configs,
-                            layers: layers!,
-                            clipBehavior: Clip.none,
-                            overlayColor: filterEditorConfigs.style.background
-                                    ?.call(context) ??
-                                kImageEditorBackground,
-                          ),
+                          filterEditorConfigs.enableInteractiveLayers
+                              ? InteractiveLayerStack(
+                                  configs: configs,
+                                  callbacks: callbacks,
+                                  layers: _mutableLayers,
+                                  editorBodySize: editorBodySize,
+                                  transformHelper: TransformHelper(
+                                    mainBodySize: getValidSizeOrDefault(
+                                        mainBodySize, editorBodySize),
+                                    mainImageSize: getValidSizeOrDefault(
+                                        mainImageSize, editorBodySize),
+                                    editorBodySize: editorBodySize,
+                                    transformConfigs: initialTransformConfigs,
+                                  ),
+                                  clipBehavior: Clip.none,
+                                  overlayColor: filterEditorConfigs
+                                          .style.background
+                                          ?.call(context) ??
+                                      kImageEditorBackground,
+                                  onLayersChanged: () {
+                                    _layersModified = true;
+                                  },
+                                  onBeforeLayerChange: _useGlobalHistory
+                                      ? () {
+                                          _historyScope!.addHistory(
+                                            filters:
+                                                _getActiveFilters(),
+                                            layers: _historyScope!
+                                                .copyLayers(_mutableLayers),
+                                            blockCaptureScreenshot: true,
+                                          );
+                                        }
+                                      : null,
+                                )
+                              : LayerStack(
+                                  transformHelper: TransformHelper(
+                                    mainBodySize: getValidSizeOrDefault(
+                                        mainBodySize, editorBodySize),
+                                    mainImageSize: getValidSizeOrDefault(
+                                        mainImageSize, editorBodySize),
+                                    editorBodySize: editorBodySize,
+                                    transformConfigs: initialTransformConfigs,
+                                  ),
+                                  configs: configs,
+                                  layers: layers!,
+                                  clipBehavior: Clip.none,
+                                  overlayColor: filterEditorConfigs
+                                          .style.background
+                                          ?.call(context) ??
+                                      kImageEditorBackground,
+                                ),
                         if (filterEditorConfigs.widgets.bodyItemsRecorded !=
                             null)
                           ...filterEditorConfigs.widgets.bodyItemsRecorded!(

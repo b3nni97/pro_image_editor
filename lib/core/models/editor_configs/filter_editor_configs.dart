@@ -47,7 +47,9 @@ class FilterEditorConfigs extends ZoomConfigs implements BaseSubEditorConfigs {
     super.viewportFitBuilder,
     this.enabled = true,
     this.showLayers = true,
+    this.enableInteractiveLayers = false,
     this.enableMultiSelection = true,
+    this.resizeToAvoidBottomInset = false,
     this.filterList,
     this.safeArea = const EditorSafeArea(),
     this.fadeInUpDuration = const Duration(milliseconds: 220),
@@ -71,10 +73,23 @@ class FilterEditorConfigs extends ZoomConfigs implements BaseSubEditorConfigs {
   /// Show also layers in the editor.
   final bool showLayers;
 
+  /// Whether layers in the editor can be interacted with (moved, scaled,
+  /// rotated, and edited).
+  ///
+  /// When `true`, the user can directly manipulate layers within the filter
+  /// editor. When `false` (default), layers are displayed as a static preview.
+  final bool enableInteractiveLayers;
+
   /// When enabled, each time the editor is opened, a new filter will be
   /// overlaid on top of the existing one. When disabled, selecting a filter
   /// will replace the current one instead of stacking them.
   final bool enableMultiSelection;
+
+  /// Whether the Scaffold should resize to avoid the bottom inset (keyboard).
+  ///
+  /// When set to `false` (default), the keyboard will overlay the editor
+  /// content instead of resizing it.
+  final bool resizeToAvoidBottomInset;
 
   /// A list of color filter generators to apply to an image.
   final List<FilterModel>? filterList;
@@ -115,7 +130,9 @@ class FilterEditorConfigs extends ZoomConfigs implements BaseSubEditorConfigs {
     bool? enableGesturePop,
     bool? enabled,
     bool? showLayers,
+    bool? enableInteractiveLayers,
     bool? enableMultiSelection,
+    bool? resizeToAvoidBottomInset,
     List<FilterModel>? filterList,
     Duration? fadeInUpDuration,
     Duration? fadeInUpStaggerDelayDuration,
@@ -128,7 +145,11 @@ class FilterEditorConfigs extends ZoomConfigs implements BaseSubEditorConfigs {
       enableGesturePop: enableGesturePop ?? this.enableGesturePop,
       enabled: enabled ?? this.enabled,
       showLayers: showLayers ?? this.showLayers,
+      enableInteractiveLayers:
+          enableInteractiveLayers ?? this.enableInteractiveLayers,
       enableMultiSelection: enableMultiSelection ?? this.enableMultiSelection,
+      resizeToAvoidBottomInset:
+          resizeToAvoidBottomInset ?? this.resizeToAvoidBottomInset,
       filterList: filterList ?? this.filterList,
       fadeInUpDuration: fadeInUpDuration ?? this.fadeInUpDuration,
       fadeInUpStaggerDelayDuration:

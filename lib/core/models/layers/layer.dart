@@ -156,6 +156,14 @@ class Layer {
   /// that may be needed for processing or rendering.
   Map<String, dynamic>? meta;
 
+  // ──────────── Gesture-mode rendering state (transient) ────────────
+
+  /// The scale at which the content was last rendered sharply (at gesture
+  /// start). During a gesture the content stays at this scale and the ratio
+  /// `scale / gestureBaseScale` is applied via [Transform] on the GPU.
+  /// `null` when no gesture is active → content renders at [scale] directly.
+  double? gestureBaseScale;
+
   /// Indicates whether this layer is a [TextLayer].
   ///
   /// Subclasses can override this to return `true` if the layer represents

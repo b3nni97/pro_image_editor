@@ -1,6 +1,7 @@
 // Dart imports:
 import 'dart:async';
 
+import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
@@ -67,7 +68,17 @@ class TextEditorState extends State<TextEditor>
         ImageEditorConvertedConfigs,
         ImageEditorConvertedCallbacks,
         SimpleConfigsAccessState {
-  late final StreamController<void> _rebuildController;
+  /// A stream controller used to manage UI updates.
+  ///
+  /// This stream is used to broadcast events when the UI needs to be rebuilt.
+  /// Public so custom bottom bars can listen for updates.
+  late final StreamController<void> uiStream;
+
+  /// The index of the currently selected option in the bottom bar.
+  ///
+  /// Used by custom bottom bar implementations to track which option
+  /// category (e.g. font, color, alignment, background) is active.
+  int selectedOptionIndex = 0;
 
   /// Controller for managing text input.
   final TextEditingController textCtrl = TextEditingController();
@@ -122,7 +133,7 @@ class TextEditorState extends State<TextEditor>
   @override
   void initState() {
     super.initState();
-    _rebuildController = StreamController.broadcast();
+    uiStream = StreamController.broadcast();
     align = textEditorConfigs.initialTextAlign;
     _fontScale = textEditorConfigs.initFontScale;
     backgroundColorMode = textEditorConfigs.initialBackgroundColorMode;
@@ -132,15 +143,21 @@ class TextEditorState extends State<TextEditor>
         textEditorConfigs.defaultTextStyle;
     _initializeFromLayer();
 
+
     textEditorCallbacks?.onInit?.call();
     WidgetsBinding.instance.addPostFrameCallback((timeStamp) {
+      // Request focus immediately so the keyboard opens right away,
+      // instead of waiting for the hero animation to complete.
+      if (widget.layer == null) {
+        focusNode.requestFocus();
+      }
       textEditorCallbacks?.onAfterViewInit?.call();
     });
   }
 
   @override
   void dispose() {
-    _rebuildController.close();
+    uiStream.close();
     textCtrl.dispose();
     focusNode.dispose();
     super.dispose();
@@ -148,7 +165,7 @@ class TextEditorState extends State<TextEditor>
 
   @override
   void setState(void Function() fn) {
-    _rebuildController.add(null);
+    uiStream.add(null);
     textEditorCallbacks?.handleUpdateUI();
     super.setState(fn);
   }
@@ -183,6 +200,7 @@ class TextEditorState extends State<TextEditor>
     switch (backgroundColorMode) {
       case LayerBackgroundMode.onlyColor:
       case LayerBackgroundMode.backgroundAndColor:
+      case LayerBackgroundMode.harmonized:
         return primaryColor;
       case LayerBackgroundMode.background:
         return secondaryColor;
@@ -200,9 +218,23 @@ class TextEditorState extends State<TextEditor>
         return secondaryColor;
       case LayerBackgroundMode.background:
         return primaryColor;
+      case LayerBackgroundMode.harmonized:
+        return _harmonizedBackground;
       default:
         return secondaryColor.withValues(alpha: 0.5);
     }
+  }
+
+  /// Computes a harmonized background color from the primary color
+  /// using the `dynamic_color` package for Material You harmonization.
+  Color get _harmonizedBackground {
+    final scheme = ColorScheme.fromSeed(
+      seedColor: primaryColor,
+      brightness: primaryColor.computeLuminance() > 0.5
+          ? Brightness.dark
+          : Brightness.light,
+    ).harmonized();
+    return scheme.primaryContainer;
   }
 
   /// Gets the text font size based on the selected font scale.
@@ -240,6 +272,8 @@ class TextEditorState extends State<TextEditor>
         case LayerBackgroundMode.background:
           return LayerBackgroundMode.backgroundAndColorWithOpacity;
         case LayerBackgroundMode.backgroundAndColorWithOpacity:
+          return LayerBackgroundMode.harmonized;
+        case LayerBackgroundMode.harmonized:
           return LayerBackgroundMode.onlyColor;
       }
     }
@@ -289,7 +323,7 @@ class TextEditorState extends State<TextEditor>
         customSlider: textEditorConfigs.widgets.sliderFontSize,
         designMode: designMode,
         theme: widget.theme,
-        rebuildController: _rebuildController,
+        rebuildController: uiStream,
         onValueChanged: (value) {
           fontScale = value;
         },
@@ -375,7 +409,9 @@ class TextEditorState extends State<TextEditor>
               child: Scaffold(
                 resizeToAvoidBottomInset:
                     textEditorConfigs.resizeToAvoidBottomInset,
-                backgroundColor: textEditorConfigs.style.background,
+                backgroundColor:
+                    textEditorConfigs.style.background?.call(context) ??
+                        const Color(0x9B000000),
                 appBar: _buildAppBar(constraints),
                 body: _buildBody(),
                 bottomNavigationBar: _buildBottomBar(),
@@ -391,7 +427,7 @@ class TextEditorState extends State<TextEditor>
   PreferredSizeWidget? _buildAppBar(BoxConstraints constraints) {
     if (textEditorConfigs.widgets.appBar != null) {
       return textEditorConfigs.widgets.appBar!
-          .call(this, _rebuildController.stream);
+          .call(this, uiStream.stream);
     }
 
     return TextEditorAppBar(
@@ -413,7 +449,7 @@ class TextEditorState extends State<TextEditor>
   Widget? _buildBottomBar() {
     if (textEditorConfigs.widgets.bottomBar != null) {
       return textEditorConfigs.widgets.bottomBar!
-          .call(this, _rebuildController.stream);
+          .call(this, uiStream.stream);
     }
 
     if (isDesktop &&
@@ -429,47 +465,53 @@ class TextEditorState extends State<TextEditor>
     return LayoutBuilder(builder: (_, constraints) {
       editorBodySize = constraints.biggest;
 
-      Widget content = GestureDetector(
-        behavior: HitTestBehavior.translucent,
-        onTap: textEditorConfigs.enableTapOutsideToSave ? done : null,
-        child: Stack(
-          children: [
-            _buildTextField(),
-            _buildColorPicker(),
-            if (textEditorConfigs.showSelectFontStyleBottomBar)
-              Positioned(
-                bottom: 0,
-                left: 0,
-                right: 0,
-                height: kBottomNavigationBarHeight,
-                child: TextEditorBottomBar(
-                  configs: widget.configs,
-                  selectedStyle: selectedTextStyle,
-                  onFontChange: setTextStyle,
-                ),
+      Widget textField = _buildTextField();
+      if (textEditorConfigs.widgets.wrapTextField != null) {
+        textField =
+            textEditorConfigs.widgets.wrapTextField!(this, textField);
+      }
+
+      Widget content = Stack(
+        children: [
+          textField,
+          _buildColorPicker(),
+          if (textEditorConfigs.showSelectFontStyleBottomBar)
+            Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              height: kBottomNavigationBarHeight,
+              child: TextEditorBottomBar(
+                configs: widget.configs,
+                selectedStyle: selectedTextStyle,
+                onFontChange: setTextStyle,
               ),
-          ],
-        ),
+            ),
+        ],
       );
 
       if (textEditorConfigs.widgets.wrapBody != null) {
         content = textEditorConfigs.widgets.wrapBody!(this, content);
       }
 
-      return Stack(
-        children: [
-          content,
-          if (textEditorConfigs.widgets.bodyItems != null)
-            ...textEditorConfigs.widgets.bodyItems!(
-              this,
-              _rebuildController.stream,
-            ),
-          if (textEditorConfigs.widgets.bodyItemsOverlay != null)
-            ...textEditorConfigs.widgets.bodyItemsOverlay!(
-              this,
-              _rebuildController.stream,
-            ),
-        ],
+      return GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onTap: textEditorConfigs.enableTapOutsideToSave ? done : null,
+        child: Stack(
+          children: [
+            content,
+            if (textEditorConfigs.widgets.bodyItems != null)
+              ...textEditorConfigs.widgets.bodyItems!(
+                this,
+                uiStream.stream,
+              ),
+            if (textEditorConfigs.widgets.bodyItemsOverlay != null)
+              ...textEditorConfigs.widgets.bodyItemsOverlay!(
+                this,
+                uiStream.stream,
+              ),
+          ],
+        ),
       );
     });
   }
@@ -479,7 +521,7 @@ class TextEditorState extends State<TextEditor>
       state: this,
       configs: configs,
       primaryColor: primaryColor,
-      rebuildController: _rebuildController,
+      rebuildController: uiStream,
       selectedTextStyle: selectedTextStyle,
       onUpdateColor: (color) {
         primaryColor = color;
@@ -529,3 +571,4 @@ class TextEditorState extends State<TextEditor>
       ..add(DiagnosticsProperty<Size>('editorBodySize', editorBodySize));
   }
 }
+

@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 
 import '../../constants/editor_style_constants.dart';
+import 'main_editor_style.dart' show ResolveColor;
 
 /// The `TextEditorStyle` class defines the style for the text editor in the
 /// image editor.
@@ -60,10 +61,10 @@ class TextEditorStyle {
     this.appBarBackground = kImageEditorAppBarBackground,
     this.appBarColor = kImageEditorAppBarColor,
     this.bottomBarBackground = kImageEditorBottomBarBackground,
-    this.background = const Color(0x9B000000),
+    this.background,
     this.bottomBarMainAxisAlignment = MainAxisAlignment.spaceEvenly,
-    this.inputHintColor = const Color(0xFFBDBDBD),
-    this.inputCursorColor = kImageEditorPrimaryColor,
+    this.inputHintColor,
+    this.inputCursorColor,
     this.fontScaleBottomSheetBackground = const Color(0xFF252728),
     this.inputTextFieldBackground = Colors.transparent,
     this.inputTextFieldBorderColor = Colors.transparent,
@@ -81,14 +82,23 @@ class TextEditorStyle {
   /// Foreground color (text and icons) of the app bar.
   final Color appBarColor;
 
-  /// Background color of the text editor.
-  final Color background;
+  /// Background color of the text editor overlay.
+  ///
+  /// Takes a [BuildContext] so the color can vary based on theme.
+  /// Defaults to `Color(0x9B000000)` (black with opacity) if not provided.
+  final ResolveColor? background;
 
   /// Color of input hints in the text editor.
-  final Color inputHintColor;
+  ///
+  /// Takes a [BuildContext] so the color can vary based on theme.
+  /// Defaults to `Color(0xFFBDBDBD)` if not provided.
+  final ResolveColor? inputHintColor;
 
   /// Color of the input cursor in the text editor.
-  final Color inputCursorColor;
+  ///
+  /// Takes a [BuildContext] so the color can vary based on theme.
+  /// Defaults to [kImageEditorPrimaryColor] if not provided.
+  final ResolveColor? inputCursorColor;
 
   /// How the children should be placed along the main axis.
   final MainAxisAlignment bottomBarMainAxisAlignment;
@@ -135,9 +145,9 @@ class TextEditorStyle {
     Color? appBarBackground,
     Color? appBarColor,
     Color? bottomBarBackground,
-    Color? background,
-    Color? inputHintColor,
-    Color? inputCursorColor,
+    ResolveColor? background,
+    ResolveColor? inputHintColor,
+    ResolveColor? inputCursorColor,
     Color? fontScaleBottomSheetBackground,
     Color? inputTextFieldBackground,
     Color? inputTextFieldBorderColor,

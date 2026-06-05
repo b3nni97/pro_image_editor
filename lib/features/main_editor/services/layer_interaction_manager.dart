@@ -78,6 +78,15 @@ class LayerInteractionManager {
   /// Last recorded rotation angle during snapping.
   final Map<String, double> _snapLastRotation = {};
 
+  /// The gesture's detail.rotation at the moment snap was entered.
+  /// Used to compute how far the user has rotated since snapping.
+  final Map<String, double> _snapDetailRotation = {};
+
+  /// Tracks the "raw" (unsnapped) layer offset during a drag.
+  /// Deltas are always applied to this value so that snap overrides in
+  /// helper lines or alignment guides do not accumulate drift.
+  final Map<String, Offset> _rawLayerOffsets = {};
+
   /// X-coordinate where snapping started.
   double snapStartPosX = 0;
 
@@ -108,6 +117,7 @@ class LayerInteractionManager {
   /// Flag indicating if rotation helper lines have started.
   bool _rotationStartedHelper = false;
 
+
   /// Flag indicating if helper lines should be displayed.
   bool showHelperLines = false;
 
@@ -120,6 +130,10 @@ class LayerInteractionManager {
 
   /// Flag indicating if the scaling tool is active.
   bool _activeScale = false;
+
+  /// Whether a 2-finger scale/rotate gesture is currently active.
+  /// Used by handleTapUp to avoid clearing the selection mid-pinch.
+  bool get isScaling => _activeScale;
 
   /// Tracks whether any layer has been transformed (moved, scaled, rotated)
   /// during the current editing session.
@@ -580,7 +594,15 @@ class LayerInteractionManager {
     required Function(bool value) onHoveredRemoveChanged,
     required StreamController<void> helperLineCtrl,
   }) {
-    if (_activeScale) return;
+    if (_activeScale) {
+      // Skip just this one frame to avoid the focal-point jump when
+      // transitioning from 2-finger scale to 1-finger drag. Then sync
+      // the focal point and clear the flag so subsequent frames work
+      // immediately (no 100ms debounce lag).
+      _activeScale = false;
+      _lastLocalFocalPoint = detail.localFocalPoint;
+      return;
+    }
 
     _checkLayerHoverRemoveArea(
       detail: detail,
@@ -592,18 +614,56 @@ class LayerInteractionManager {
     if (!layerWasTransformed) {
       layerWasTransformed = selectedLayers.isNotEmpty;
     }
+    // Compute content-space delta from localFocalPoint differences.
+    // The GestureDetector sits inside the InteractiveViewer's Transform,
+    // so localFocalPoint is already in content coordinates — no scale
+    // division needed.
+    final lastLocal = _lastLocalFocalPoint ?? detail.localFocalPoint;
+    final contentDelta = detail.localFocalPoint - lastLocal;
+    _lastLocalFocalPoint = detail.localFocalPoint;
+
+    // Compute smoothed drag speed once per frame (outside the layer loop).
+    final dragSpeed = contentDelta.distance;
+    _smoothedDragSpeed = _smoothedDragSpeed * 0.7 + dragSpeed * 0.3;
+    final bool isFastDrag = _smoothedDragSpeed > 1.0;
+
     for (Layer layer in selectedLayers) {
       if (!layer.interaction.enableMove) continue;
 
       Offset fractionalOffset = _getFractionalLayerOffset(layer);
 
-      layer.offset = Offset(
-        layer.offset.dx + detail.focalPointDelta.dx / editorScaleFactor,
-        layer.offset.dy + detail.focalPointDelta.dy / editorScaleFactor,
+
+      // Apply delta to the raw (unsnapped) offset so that snap overrides
+      // from helper lines / alignment guides never accumulate drift.
+      final rawOffset = _rawLayerOffsets[layer.id] ?? layer.offset;
+      final newRawOffset = Offset(
+        rawOffset.dx + contentDelta.dx,
+        rawOffset.dy + contentDelta.dy,
       );
+      _rawLayerOffsets[layer.id] = newRawOffset;
+      layer.offset = newRawOffset;
 
       if (hasMultiSelection ||
           (editorScaleFactor > 1 && helperLineConfigs.isDisabledAtZoom)) {
+        continue;
+      }
+
+      // Skip snap logic when dragging fast.
+      if (isFastDrag) {
+        showVerticalHelperLine = false;
+        showHorizontalHelperLine = false;
+        // Still compute position-relative-to-center and update
+        // lastPositionX/Y so that when the drag slows down, the snap
+        // logic has up-to-date state (prevents stale state from causing
+        // a false "crossed center" detection and teleportation).
+        final Offset layerCenterOffsetFast =
+            layer.computeOffsetFromCenterFraction(fractionalOffset);
+        lastPositionX = layerCenterOffsetFast.dx <= 0
+            ? LayerLastPosition.left
+            : LayerLastPosition.right;
+        lastPositionY = layerCenterOffsetFast.dy <= 0
+            ? LayerLastPosition.top
+            : LayerLastPosition.bottom;
         continue;
       }
 
@@ -624,14 +684,21 @@ class LayerInteractionManager {
           detail.focalPoint.dy >= snapStartPosY - releaseThreshold &&
               detail.focalPoint.dy <= snapStartPosY + releaseThreshold;
 
+      // Proximity check: only snap when the layer is within 8 content
+      // units of center. This prevents teleporting from far away.
+      const double snapProximity = 8.0;
       bool helperGoNearLineLeft =
-          posX >= 0 && lastPositionX == LayerLastPosition.left;
+          posX >= 0 && posX < snapProximity &&
+              lastPositionX == LayerLastPosition.left;
       bool helperGoNearLineRight =
-          posX <= 0 && lastPositionX == LayerLastPosition.right;
+          posX <= 0 && posX > -snapProximity &&
+              lastPositionX == LayerLastPosition.right;
       bool helperGoNearLineTop =
-          posY >= 0 && lastPositionY == LayerLastPosition.top;
+          posY >= 0 && posY < snapProximity &&
+              lastPositionY == LayerLastPosition.top;
       bool helperGoNearLineBottom =
-          posY <= 0 && lastPositionY == LayerLastPosition.bottom;
+          posY <= 0 && posY > -snapProximity &&
+              lastPositionY == LayerLastPosition.bottom;
 
       /// Calc vertical helper line
       if (helperLineConfigs.showVerticalLine) {
@@ -643,10 +710,11 @@ class LayerInteractionManager {
             snapStartPosX = detail.focalPoint.dx;
           }
           showVerticalHelperLine = true;
-          layer.offset = Offset(
-            -localPointFromCenter.dx,
-            layer.offset.dy,
-          );
+          final snapX = -localPointFromCenter.dx;
+          layer.offset = Offset(snapX, layer.offset.dy);
+          // Sync raw offset to snap position so releasing the snap
+          // doesn't cause a jump.
+          _rawLayerOffsets[layer.id] = layer.offset;
           lastPositionX = LayerLastPosition.center;
         } else {
           showVerticalHelperLine = false;
@@ -665,10 +733,11 @@ class LayerInteractionManager {
             snapStartPosY = detail.focalPoint.dy;
           }
           showHorizontalHelperLine = true;
-          layer.offset = Offset(
-            layer.offset.dx,
-            -localPointFromCenter.dy,
-          );
+          final snapY = -localPointFromCenter.dy;
+          layer.offset = Offset(layer.offset.dx, snapY);
+          // Sync raw offset to snap position so releasing the snap
+          // doesn't cause a jump.
+          _rawLayerOffsets[layer.id] = layer.offset;
           lastPositionY = LayerLastPosition.center;
         } else {
           showHorizontalHelperLine = false;
@@ -694,6 +763,8 @@ class LayerInteractionManager {
           helperLinesCallbacks?.handleVerticalLineHit();
         }
       }
+
+
     }
   }
 
@@ -739,25 +810,141 @@ class LayerInteractionManager {
         layerWasTransformed = selectedLayers.isNotEmpty;
       }
       for (Layer layer in selectedLayers) {
+        // Lazy-init base factors: when a 2-finger pinch starts mid-gesture
+        // (the ScaleStart already fired with 1 finger and onScaleEnd cleared
+        // the maps), we need to capture the current scale/rotation as base.
+        // Compensate for detail.scale/rotation which are relative to the
+        // original ScaleStart, not to when the 2nd finger was added.
+        final bool lazyInitScale = !_baseScaleFactor.containsKey(layer.id);
+        _baseScaleFactor.putIfAbsent(
+          layer.id,
+          () => detail.scale != 0 ? layer.scale / detail.scale : layer.scale,
+        );
+        final bool lazyInitAngle = !_baseAngleFactor.containsKey(layer.id);
+        _baseAngleFactor.putIfAbsent(
+          layer.id,
+          () => layer.rotation - detail.rotation,
+        );
+
         if (layer.interaction.enableScale && enableMobilePinchScale) {
+          // Freeze text content at pre-gesture scale (set once).
+          // The visual difference is applied via Transform on the GPU.
+          layer.gestureBaseScale ??= layer.scale;
           layer.scale = _getLayerBaseScale(layer.id) * detail.scale;
           _setMinMaxScaleFactor(configs, layer);
         }
         if (layer.interaction.enableRotate && enableMobilePinchRotate) {
+          // Track rotation speed in degrees/second (frame-rate independent).
+          final now = DateTime.now();
+          final dtMs = now.difference(_lastRotationTimestamp).inMilliseconds;
+          final dtSec = dtMs > 0 ? dtMs / 1000.0 : 1.0 / 60.0; // fallback
+          final rotationDeltaDeg =
+              (detail.rotation - _lastDetailRotation).abs() * 180 / pi;
+          // Clamp instant speed: values > 100°/s are either glitch
+          // spikes (360° wrapping) or legitimately fast rotation.
+          // Capping prevents EMA poisoning while still allowing
+          // the EMA to decay when the user slows down.
+          final instantSpeed =
+              (rotationDeltaDeg / dtSec).clamp(0.0, 100.0);
+          _lastDetailRotation = detail.rotation;
+          _lastRotationTimestamp = now;
+          _smoothedRotationSpeed =
+              _smoothedRotationSpeed * 0.5 + instantSpeed * 0.5;
+
+          // Compute the unsnapped ("real") rotation from finger position.
           layer.rotation = _getLayerBaseAngle(layer.id) + detail.rotation;
 
-          if (selectedLayers.length <= 1) {
-            checkRotationLine(
-              layer: layer,
-              editorSize: editorSize,
-              editorScaleFactor: editorScaleFactor,
-            );
+          // ── Rotation snap ──
+          final bool canSnap = selectedLayers.length <= 1 &&
+              helperLineConfigs.showRotateLine &&
+              !(editorScaleFactor > 1 && helperLineConfigs.isDisabledAtZoom);
+
+          if (canSnap) {
+            const breakFreeDeg = 10.0; // how far to rotate to escape lock
+
+            if (showRotationHelperLine) {
+              // ── LOCKED: hold at snap angle, check break-free ──
+              final lockDetail =
+                  _snapDetailRotation[layer.id] ?? detail.rotation;
+              final escapeDeg =
+                  (detail.rotation - lockDetail).abs() * 180 / pi;
+
+              if (escapeDeg > breakFreeDeg) {
+                // Break free: correct base so rotation continues
+                // smoothly from the snap angle (no visual jump).
+                showRotationHelperLine = false;
+                _smoothedRotationSpeed = 0.0;
+                _baseAngleFactor[layer.id] =
+                    rotationHelperLineDeg - detail.rotation;
+                layer.rotation =
+                    _getLayerBaseAngle(layer.id) + detail.rotation;
+              } else {
+                // Stay locked at snap angle.
+                layer.rotation = rotationHelperLineDeg;
+              }
+            } else {
+              // ── NOT LOCKED: check if rotation crossed a snap angle ──
+              final deg = layer.rotation * 180 / pi;
+              var prevDeg = _getLayerSnapLastRotation(layer.id);
+
+              // Normalize prevDeg to within ±180° of deg so crossing
+              // detection works even when raw rotation wraps by 360°.
+              while ((prevDeg - deg) > 180) {
+                prevDeg -= 360;
+              }
+              while ((prevDeg - deg) < -180) {
+                prevDeg += 360;
+              }
+
+              // Find nearest snap angle to current position.
+              final nearestSnapDeg = (deg / 45.0).round() * 45.0;
+
+              // Pure crossing detection: did the rotation pass through
+              // a snap angle between previous and current frame?
+              // No proximity fallback needed — crossing detection catches
+              // every slow pass-through. After break-free, rotation moves
+              // AWAY from snap so crossing can't fire (no infinite loop).
+              final speedDegPerSec = _smoothedRotationSpeed;
+              const snapSpeedThreshold = 60.0; // °/sec: skip snap if fast
+
+              final crossedSnap =
+                  speedDegPerSec < snapSpeedThreshold &&
+                  ((prevDeg < nearestSnapDeg && deg >= nearestSnapDeg) ||
+                   (prevDeg > nearestSnapDeg && deg <= nearestSnapDeg));
+
+
+              if (crossedSnap) {
+                // Rotation naturally passed through snap angle → LOCK.
+                final snapRad = nearestSnapDeg / 180 * pi;
+                showRotationHelperLine = true;
+                rotationHelperLineDeg = snapRad;
+                _snapDetailRotation[layer.id] = detail.rotation;
+                _baseAngleFactor[layer.id] = snapRad - detail.rotation;
+                layer.rotation = snapRad;
+
+                helperLinesCallbacks?.handleRotateLineHit();
+
+                // Update helper line position.
+                final frac = _getFractionalLayerOffset(layer);
+                layer.computeLocalCenterOffset(frac);
+                final center =
+                    layer.computeOffsetFromCenterFraction(frac);
+                rotationHelperLineX = center.dx + editorSize.width / 2;
+                rotationHelperLineY = center.dy + editorSize.height / 2;
+              }
+
+              // Track previous rotation for crossing detection.
+              _snapLastRotation[layer.id] = deg;
+            }
+          } else {
+            showRotationHelperLine = false;
           }
         }
       }
     }
 
-    scaleDebounce(() => _activeScale = false);
+    // _activeScale is cleared by calculateMovement on the first
+    // 1-pointer frame after scaling (single-frame skip, no debounce).
   }
 
   /// Checks the rotation line based on user interactions, adjusting rotation
@@ -772,11 +959,11 @@ class LayerInteractionManager {
       return;
     }
 
-    double rotation = layer.rotation - _getLayerBaseAngle(layer.id);
     double hitSpanX = helperLineConfigs.releaseThreshold / 2;
     double deg = layer.rotation * 180 / pi;
-    double degChange = rotation * 180 / pi;
-    double degHit = (_getLayerSnapStartRotation(layer.id) + degChange) % 45;
+    // How far is the current rotation from the nearest multiple of 45°.
+    double degHit = deg % 45;
+    if (degHit < 0) degHit += 45; // Normalize negative rotations to [0, 45)
 
     bool hitAreaBelow = degHit <= hitSpanX;
     bool hitAreaAfter = degHit >= 45 - hitSpanX;
@@ -818,6 +1005,25 @@ class LayerInteractionManager {
   }
 
   /// Handles the initialization logic when a scaling gesture starts on a layer.
+  /// The last localFocalPoint from the gesture, used to compute
+  /// content-space deltas that correctly account for the InteractiveViewer
+  /// transform.
+  Offset? _lastLocalFocalPoint;
+
+  /// Smoothed drag speed (EMA) used to skip snap logic during fast drags.
+  double _smoothedDragSpeed = 0.0;
+
+  /// Smoothed rotation speed in degrees/second (EMA), used to skip rotation
+  /// snap during fast rotation. Frame-rate independent.
+  double _smoothedRotationSpeed = 0.0;
+
+  /// Last detail.rotation value for computing per-frame rotation delta.
+  double _lastDetailRotation = 0.0;
+
+  /// Timestamp of the last rotation speed sample for frame-rate independence.
+  DateTime _lastRotationTimestamp = DateTime.now();
+
+
   void onScaleStart({
     required ScaleStartDetails details,
     required List<Layer> selectedLayers,
@@ -825,12 +1031,22 @@ class LayerInteractionManager {
     selectedLayersScaleStart = selectedLayers;
     snapStartPosX = details.focalPoint.dx;
     snapStartPosY = details.focalPoint.dy;
+    _lastLocalFocalPoint = details.localFocalPoint;
+    _smoothedDragSpeed = 0.0;
+    _smoothedRotationSpeed = 0.0;
+    _lastDetailRotation = 0.0;
+    _lastRotationTimestamp = DateTime.now();
+
 
     for (Layer layer in selectedLayers) {
       _baseScaleFactor[layer.id] = layer.scale;
       _baseAngleFactor[layer.id] = layer.rotation;
       _snapStartRotation[layer.id] = layer.rotation * 180 / pi;
       _snapLastRotation[layer.id] = _getLayerSnapStartRotation(layer.id);
+      _rawLayerOffsets[layer.id] = layer.offset;
+      // Freeze content at current scale — the visual difference is applied
+      // via Transform on the GPU so text doesn't re-layout every frame.
+      layer.gestureBaseScale = layer.scale;
       reset();
 
       final fractionOffset = _getFractionalLayerOffset(layer);
@@ -857,10 +1073,23 @@ class LayerInteractionManager {
   /// Handles cleanup and resets various flags and states after scaling
   /// interaction ends.
   void onScaleEnd() {
+    // Clear gesture-mode rendering → content re-renders sharply at final
+    // scale/position.
+    for (final layer in selectedLayersScaleStart) {
+      layer.gestureBaseScale = null;
+    }
+
+    _activeScale = false;
     _baseScaleFactor.clear();
     _baseAngleFactor.clear();
     _snapStartRotation.clear();
     _snapLastRotation.clear();
+    _snapDetailRotation.clear();
+    _rawLayerOffsets.clear();
+    _lastLocalFocalPoint = null;
+    _smoothedDragSpeed = 0.0;
+    _smoothedRotationSpeed = 0.0;
+    _lastDetailRotation = 0.0;
 
     selectedLayersScaleStart.clear();
     enabledHitDetection = true;
@@ -994,27 +1223,22 @@ class LayerInteractionManager {
   }
 
   void _setMinMaxScaleFactor(ProImageEditorConfigs configs, Layer layer) {
+    double minScale = 1;
+    double maxScale = 1;
     if (layer is PaintLayer) {
-      layer.scale = layer.scale.clamp(
-        configs.paintEditor.minScale,
-        configs.paintEditor.maxScale,
-      );
+      minScale = configs.paintEditor.minScale;
+      maxScale = configs.paintEditor.maxScale;
     } else if (layer is TextLayer) {
-      layer.scale = layer.scale.clamp(
-        configs.textEditor.minScale,
-        configs.textEditor.maxScale,
-      );
+      minScale = configs.textEditor.minScale;
+      maxScale = configs.textEditor.maxScale;
     } else if (layer is EmojiLayer) {
-      layer.scale = layer.scale.clamp(
-        configs.emojiEditor.minScale,
-        configs.emojiEditor.maxScale,
-      );
+      minScale = configs.emojiEditor.minScale;
+      maxScale = configs.emojiEditor.maxScale;
     } else if (layer is WidgetLayer) {
-      layer.scale = layer.scale.clamp(
-        configs.stickerEditor.minScale,
-        configs.stickerEditor.maxScale,
-      );
+      minScale = configs.stickerEditor.minScale;
+      maxScale = configs.stickerEditor.maxScale;
     }
+    layer.scale = layer.scale.clamp(minScale, maxScale);
   }
 
   void _updateAlignmentGuides({

@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 
 import '/core/constants/editor_various_constants.dart';
 import '/core/constants/image_constants.dart';
+import '/core/models/history/editor_history_scope.dart';
 import '/core/mixins/converted_configs.dart';
 import '/core/mixins/editor_callbacks_mixin.dart';
 import '/core/mixins/editor_configs_mixin.dart';
@@ -17,9 +18,9 @@ import '/features/main_editor/widgets/main_editor_appbar.dart';
 import '/features/main_editor/widgets/main_editor_background_image.dart';
 import '/features/main_editor/widgets/main_editor_background_video.dart';
 import '/features/main_editor/widgets/main_editor_bottombar.dart';
-import '/features/main_editor/widgets/main_editor_helper_lines.dart';
-import '/features/main_editor/widgets/main_editor_layers.dart';
-import '/features/main_editor/widgets/main_editor_remove_layer_area.dart';
+
+import '/shared/widgets/layer/interactive_layer_stack.dart';
+
 import '/pro_image_editor.dart';
 import '/shared/mixins/editor_zoom.mixin.dart';
 import '/shared/services/content_recorder/widgets/content_recorder.dart';
@@ -440,6 +441,48 @@ class ProImageEditorState extends State<ProImageEditor>
         mainEditorCallbacks?.onStateHistoryChange?.call(stateManager, this),
   );
 
+  /// Provides sub-editors with access to the global history system.
+  late final EditorHistoryScope _editorHistoryScope = EditorHistoryScope(
+    addHistory: ({
+      List<Layer>? layers,
+      FilterMatrix? filters,
+      List<TuneAdjustmentMatrix>? tuneAdjustments,
+      double? blur,
+      bool blockCaptureScreenshot = false,
+    }) {
+      addHistory(
+        layers: layers,
+        filters: filters,
+        tuneAdjustments: tuneAdjustments,
+        blur: blur,
+        blockCaptureScreenshot: blockCaptureScreenshot,
+      );
+    },
+    undo: () {
+      if (stateManager.canUndo) {
+        layerInteractionManager.clearSelectedLayers();
+        _checkInteractiveViewer();
+        stateManager.undo();
+        decodeImage();
+      }
+    },
+    redo: () {
+      if (stateManager.canRedo) {
+        layerInteractionManager.clearSelectedLayers();
+        _checkInteractiveViewer();
+        stateManager.redo();
+        decodeImage();
+      }
+    },
+    canUndo: () => stateManager.canUndo,
+    canRedo: () => stateManager.canRedo,
+    getActiveLayers: () =>
+        _layerCopyManager.copyLayerList(stateManager.activeLayers),
+    getActiveTuneAdjustments: () => stateManager.activeTuneAdjustments,
+    getActiveFilters: () => stateManager.activeFilters,
+    getActiveBlur: () => stateManager.activeBlur,
+    copyLayers: (layers) => _layerCopyManager.copyLayerList(layers),
+  );
   late final _stateHistoryService = MainEditorStateHistoryService(
     sizesManager: sizesManager,
     stateManager: stateManager,
@@ -543,23 +586,20 @@ class ProImageEditorState extends State<ProImageEditor>
 
   /// Determines whether undo actions can be performed.
   ///
-  /// Checks the active sub-editor first (if any). If the sub-editor can undo,
-  /// returns true. Otherwise, falls through to the main editor's state history.
+  /// Checks local sub-editors first (paint, cropRotate). For tune/filter/blur,
+  /// the stateManager already includes their changes.
   bool get canUndo {
     if (_isSubEditorActive) {
-      final subUndo = _activeSubEditorCanUndo;
+      final subUndo = _activeLocalSubEditorCanUndo;
       if (subUndo != null && subUndo) return true;
     }
     return stateManager.canUndo;
   }
 
   /// Determines whether redo actions can be performed.
-  ///
-  /// Checks the active sub-editor first (if any). If the sub-editor can redo,
-  /// returns true. Otherwise, falls through to the main editor's state history.
   bool get canRedo {
     if (_isSubEditorActive) {
-      final subRedo = _activeSubEditorCanRedo;
+      final subRedo = _activeLocalSubEditorCanRedo;
       if (subRedo != null && subRedo) return true;
     }
     return stateManager.canRedo;
@@ -570,15 +610,10 @@ class ProImageEditorState extends State<ProImageEditor>
   bool get _isSubEditorActive =>
       isSubEditorOpen || mainEditorConfigs.initialSubEditor != null;
 
-  /// Returns the active sub-editor's canUndo, or null if no sub-editor
-  /// with undo support is currently mounted.
-  bool? get _activeSubEditorCanUndo {
-    if (tuneEditor.currentState != null) {
-      return tuneEditor.currentState!.canUndo;
-    }
-    if (filterEditor.currentState != null) {
-      return filterEditor.currentState!.canUndo;
-    }
+  /// Returns the active LOCAL sub-editor's canUndo (only paint, cropRotate).
+  /// Tune/Filter/Blur use global history so their canUndo is handled
+  /// by stateManager.canUndo.
+  bool? get _activeLocalSubEditorCanUndo {
     if (paintEditor.currentState != null) {
       return paintEditor.currentState!.canUndo;
     }
@@ -588,15 +623,8 @@ class ProImageEditorState extends State<ProImageEditor>
     return null;
   }
 
-  /// Returns the active sub-editor's canRedo, or null if no sub-editor
-  /// with redo support is currently mounted.
-  bool? get _activeSubEditorCanRedo {
-    if (tuneEditor.currentState != null) {
-      return tuneEditor.currentState!.canRedo;
-    }
-    if (filterEditor.currentState != null) {
-      return filterEditor.currentState!.canRedo;
-    }
+  /// Returns the active LOCAL sub-editor's canRedo (only paint, cropRotate).
+  bool? get _activeLocalSubEditorCanRedo {
     if (paintEditor.currentState != null) {
       return paintEditor.currentState!.canRedo;
     }
@@ -1871,7 +1899,15 @@ class ProImageEditorState extends State<ProImageEditor>
           configs: configs,
           callbacks: callbacks,
           theme: _theme,
-          layers: _layerCopyManager.copyLayerList(activeLayers),
+          // Use new GlobalKeys (enableCopyKey: false) so these copies
+          // don't conflict with the embedded sub-editor's layers that
+          // share the original keys and remain mounted underneath.
+          layers: _layerCopyManager.duplicateLayerList(
+            activeLayers,
+            offset: Offset.zero,
+            enableCopyKey: false,
+            enableCopyId: true,
+          ),
           transformConfigs: stateManager.transformConfigs,
           mainImageSize: widget.blankSize ?? sizesManager.decodedImageSize,
           mainBodySize: sizesManager.bodySize,
@@ -1924,7 +1960,9 @@ class ProImageEditorState extends State<ProImageEditor>
       if (isSubEditorOpen) {
         Navigator.pop(context);
       }
-      tuneEditor = GlobalKey<TuneEditorState>();
+      // Don't recreate tuneEditor GlobalKey — keep the TuneEditor state
+      // alive so its layers remain visible during the route pop animation
+      // instead of disappearing.
       setState(() {});
       return;
     }
@@ -1950,6 +1988,8 @@ class ProImageEditorState extends State<ProImageEditor>
             appliedBlurFactor: stateManager.activeBlur,
             appliedFilters: stateManager.activeFilters,
             appliedTuneAdjustments: stateManager.activeTuneAdjustments,
+            onTextLayerTap: _onTextLayerTap,
+            historyScope: _editorHistoryScope,
           ),
         ),
       ),
@@ -2007,6 +2047,7 @@ class ProImageEditorState extends State<ProImageEditor>
           appliedBlurFactor: stateManager.activeBlur,
           appliedFilters: stateManager.activeFilters,
           appliedTuneAdjustments: stateManager.activeTuneAdjustments,
+          historyScope: _editorHistoryScope,
         ),
       ),
     );
@@ -2054,6 +2095,7 @@ class ProImageEditorState extends State<ProImageEditor>
           appliedBlurFactor: stateManager.activeBlur,
           appliedFilters: stateManager.activeFilters,
           appliedTuneAdjustments: stateManager.activeTuneAdjustments,
+          historyScope: _editorHistoryScope,
         ),
       ),
     );
@@ -2241,19 +2283,20 @@ class ProImageEditorState extends State<ProImageEditor>
 
   /// Undo the last editing action.
   ///
-  /// If a sub-editor is active and has undo history, the undo is delegated
-  /// to that sub-editor. Otherwise, falls through to the main editor's
-  /// global state history.
+  /// With global history, undo always goes through the stateManager.
+  /// Sub-editors with [EditorHistoryScope] handle syncing their local state
+  /// internally. For editors without historyScope (paint, cropRotate),
+  /// the old delegation flow is preserved.
   void undoAction() {
     GestureManager.instance.stopPropagation();
 
-    // Try delegating to the active sub-editor first
-    if (_isSubEditorActive && _delegateUndoToSubEditor()) {
+    // Check for sub-editors that still use local undo (paint, cropRotate)
+    if (_isSubEditorActive && _delegateUndoToLocalSubEditor()) {
       setState(() {});
       return;
     }
 
-    // Fall through to main editor undo
+    // Global undo through stateManager
     if (stateManager.canUndo) {
       setState(() {
         layerInteractionManager.clearSelectedLayers();
@@ -2268,17 +2311,17 @@ class ProImageEditorState extends State<ProImageEditor>
 
   /// Redo the previously undone editing action.
   ///
-  /// If a sub-editor is active and has redo history, the redo is delegated
-  /// to that sub-editor. Otherwise, falls through to the main editor's
-  /// global state history.
+  /// With global history, redo always goes through the stateManager.
+  /// For editors without historyScope (paint, cropRotate),
+  /// the old delegation flow is preserved.
   void redoAction() {
-    // Try delegating to the active sub-editor first
-    if (_isSubEditorActive && _delegateRedoToSubEditor()) {
+    // Check for sub-editors that still use local redo (paint, cropRotate)
+    if (_isSubEditorActive && _delegateRedoToLocalSubEditor()) {
       setState(() {});
       return;
     }
 
-    // Fall through to main editor redo
+    // Global redo through stateManager
     if (stateManager.canRedo) {
       setState(() {
         layerInteractionManager.clearSelectedLayers();
@@ -2291,19 +2334,10 @@ class ProImageEditorState extends State<ProImageEditor>
     }
   }
 
-  /// Attempts to delegate undo to the active sub-editor.
-  /// Returns true if the sub-editor handled the undo (had something to undo).
-  bool _delegateUndoToSubEditor() {
-    if (tuneEditor.currentState != null &&
-        tuneEditor.currentState!.canUndo) {
-      tuneEditor.currentState!.undo();
-      return true;
-    }
-    if (filterEditor.currentState != null &&
-        filterEditor.currentState!.canUndo) {
-      filterEditor.currentState!.undo();
-      return true;
-    }
+  /// Attempts to delegate undo to sub-editors that still use local undo
+  /// (paint, cropRotate). Tune/Filter/Blur use global history.
+  /// Returns true if the sub-editor handled the undo.
+  bool _delegateUndoToLocalSubEditor() {
     if (paintEditor.currentState != null &&
         paintEditor.currentState!.canUndo) {
       paintEditor.currentState!.undoAction();
@@ -2317,19 +2351,10 @@ class ProImageEditorState extends State<ProImageEditor>
     return false;
   }
 
-  /// Attempts to delegate redo to the active sub-editor.
-  /// Returns true if the sub-editor handled the redo (had something to redo).
-  bool _delegateRedoToSubEditor() {
-    if (tuneEditor.currentState != null &&
-        tuneEditor.currentState!.canRedo) {
-      tuneEditor.currentState!.redo();
-      return true;
-    }
-    if (filterEditor.currentState != null &&
-        filterEditor.currentState!.canRedo) {
-      filterEditor.currentState!.redo();
-      return true;
-    }
+  /// Attempts to delegate redo to sub-editors that still use local redo
+  /// (paint, cropRotate). Tune/Filter/Blur use global history.
+  /// Returns true if the sub-editor handled the redo.
+  bool _delegateRedoToLocalSubEditor() {
     if (paintEditor.currentState != null &&
         paintEditor.currentState!.canRedo) {
       paintEditor.currentState!.redoAction();
@@ -2539,8 +2564,12 @@ class ProImageEditorState extends State<ProImageEditor>
       } else if (filterEditor.currentState != null) {
         final exported = filterEditor.currentState!.exportStateHistory();
         final hasChanged = !listEquals(exported, stateManager.activeFilters);
-        if (hasChanged) {
-          addHistory(filters: exported);
+        final exportedLayers = filterEditor.currentState!.exportLayers();
+        if (hasChanged || exportedLayers != null) {
+          addHistory(
+            filters: hasChanged ? exported : null,
+            layers: exportedLayers,
+          );
         }
       } else if (tuneEditor.currentState != null) {
         final tuneState = tuneEditor.currentState!;
@@ -2553,8 +2582,12 @@ class ProImageEditorState extends State<ProImageEditor>
             .where((t) => t.value != 0.0)
             .toList();
         final hasChanged = !listEquals(effectiveExported, effectiveActive);
-        if (hasChanged) {
-          addHistory(tuneAdjustments: exported);
+        final exportedLayers = tuneState.exportLayers();
+        if (hasChanged || exportedLayers != null) {
+          addHistory(
+            tuneAdjustments: hasChanged ? exported : null,
+            layers: exportedLayers,
+          );
         }
 
         // Preserve redo entries as forward history so that redo survives
@@ -2575,8 +2608,12 @@ class ProImageEditorState extends State<ProImageEditor>
       } else if (blurEditor.currentState != null) {
         final exported = blurEditor.currentState!.exportStateHistory();
         final hasChanged = exported != stateManager.activeBlur;
-        if (hasChanged) {
-          addHistory(blur: exported);
+        final exportedLayers = blurEditor.currentState!.exportLayers();
+        if (hasChanged || exportedLayers != null) {
+          addHistory(
+            blur: hasChanged ? exported : null,
+            layers: exportedLayers,
+          );
         }
       } else if (paintEditor.currentState != null) {
         var res = paintEditor.currentState!.exportStateHistory();
@@ -2999,7 +3036,8 @@ class ProImageEditorState extends State<ProImageEditor>
                                           .style.background
                                           ?.call(context) ??
                                       kImageEditorBackground,
-                              resizeToAvoidBottomInset: false,
+                              resizeToAvoidBottomInset:
+                                  mainEditorConfigs.resizeToAvoidBottomInset,
                               appBar: _buildAppBar(),
                               body: _buildBody(),
                               bottomNavigationBar: _buildBottomNavBar(),
@@ -3146,9 +3184,6 @@ class ProImageEditorState extends State<ProImageEditor>
                   /// correctly, even when it’s empty.
                 },
                 onLongPress: mainEditorCallbacks?.onLongPress,
-                onScaleStart: _onScaleStart,
-                onScaleUpdate: _onScaleUpdate,
-                onScaleEnd: _onScaleEnd,
                 child: _buildInteractiveContent(),
               ),
             );
@@ -3160,8 +3195,6 @@ class ProImageEditorState extends State<ProImageEditor>
       buildImage: _buildImage,
       buildVideo: _buildVideo,
       buildLayers: _buildLayers,
-      buildHelperLines: _buildHelperLines,
-      buildRemoveArea: _buildRemoveArea,
       callbacks: callbacks,
       sizesManager: sizesManager,
       configs: configs,
@@ -3210,20 +3243,60 @@ class ProImageEditorState extends State<ProImageEditor>
   }
 
   Widget _buildLayers() {
-    return MainEditorLayers(
-      controllers: _controllers,
+    return InteractiveLayerStack(
       layerInteractionManager: layerInteractionManager,
       configs: configs,
       callbacks: callbacks,
-      sizesManager: sizesManager,
-      activeLayers: activeLayers,
-      isSubEditorOpen: isSubEditorOpen,
+      layers: activeLayers,
+      editorBodySize: sizesManager.bodySize,
+      editorSize: sizesManager.editorSize,
+      appBarHeight: sizesManager.appBarHeight,
+      bottomBarHeight: sizesManager.bottomBarHeight,
+      overlayColor: kImageEditorBackground,
+      isInteractive: !isSubEditorOpen,
+      enableHero: true,
+      enableHelperLines: true,
+      enableRemoveArea: true,
+      heroResetStream: _controllers.layerHeroResetCtrl.stream,
+      mouseService: _mouseService,
+      isDragSelectionActive: _layerDragSelectionService.isActive,
+      interactiveViewerKey: interactiveViewer,
       onCheckInteractiveViewer: _checkInteractiveViewer,
       onTextLayerTap: _onTextLayerTap,
-      onEditPaintLayer: _editPaintLayer,
-      state: this,
-      dragSelectionService: _layerDragSelectionService,
-      mouseService: _mouseService,
+      onPaintLayerEdit: _editPaintLayer,
+      getActiveLayers: () => activeLayers,
+      getEnableMultiSelectMode: () => enableMultiSelectMode,
+      onAddHistory: (layers) {
+        addHistory(layers: layers, blockCaptureScreenshot: true);
+      },
+      onUIUpdate: () {
+        _controllers.uiLayerCtrl.add(null);
+        mainEditorCallbacks?.handleUpdateUI();
+      },
+      onLayerTapDown: (layer) {
+        mainEditorCallbacks?.onLayerTapDown?.call(layer);
+      },
+      onLayerTapUp: (layer) {
+        mainEditorCallbacks?.onLayerTapUp?.call(layer);
+      },
+      onEditSticker: (layer) {
+        callbacks.stickerEditorCallbacks?.onTapEditSticker
+            ?.call(this, layer as WidgetLayer);
+      },
+      onLayerRemoved: (layer) {
+        removeLayer(layer);
+        mainEditorCallbacks?.handleUpdateUI();
+      },
+      onRemoveLayer: (layer) {
+        mainEditorCallbacks?.handleRemoveLayer(layer);
+      },
+      onHoverRemoveAreaChange: (value) {
+        _controllers.removeBtnCtrl.add(null);
+        mainEditorCallbacks?.onHoverRemoveAreaChange?.call(value);
+      },
+      onTakeScreenshot: ({bool replaceLastScreenshot = false}) {
+        _takeScreenshot(replaceLastScreenshot: replaceLastScreenshot);
+      },
       onContextMenuToggled: (isOpen) {
         _isContextMenuOpen = isOpen;
       },
@@ -3238,28 +3311,7 @@ class ProImageEditorState extends State<ProImageEditor>
     );
   }
 
-  Widget _buildHelperLines() {
-    return MainEditorHelperLines(
-      sizesManager: sizesManager,
-      layerInteractionManager: layerInteractionManager,
-      controllers: _controllers,
-      interactiveViewer: interactiveViewer,
-      helperLines: helperLines,
-      configs: configs,
-    );
-  }
 
-  Widget _buildRemoveArea() {
-    return MainEditorRemoveLayerArea(
-      layerInteraction: layerInteraction,
-      layerInteractionManager: layerInteractionManager,
-      mainEditorConfigs: mainEditorConfigs,
-      state: this,
-      controllers: _controllers,
-      removeAreaKey: _removeAreaKey,
-      isLayerBeingTransformed: isLayerBeingTransformed,
-    );
-  }
 
   Widget _buildVideoSetupSpinner() {
     return configs.videoEditor.widgets.videoSetupLoadingIndicator ??
@@ -3349,6 +3401,8 @@ class ProImageEditorState extends State<ProImageEditor>
             appliedFilters: stateManager.activeFilters,
             appliedTuneAdjustments: stateManager.activeTuneAdjustments,
             backgroundImageOverride: backgroundOverride,
+            onTextLayerTap: _onTextLayerTap,
+            historyScope: _editorHistoryScope,
           ),
         );
       case SubEditorMode.filter:
@@ -3371,6 +3425,7 @@ class ProImageEditorState extends State<ProImageEditor>
             appliedFilters: stateManager.activeFilters,
             appliedTuneAdjustments: stateManager.activeTuneAdjustments,
             backgroundImageOverride: backgroundOverride,
+            historyScope: _editorHistoryScope,
           ),
         );
       case SubEditorMode.blur:
@@ -3393,6 +3448,7 @@ class ProImageEditorState extends State<ProImageEditor>
             appliedFilters: stateManager.activeFilters,
             appliedTuneAdjustments: stateManager.activeTuneAdjustments,
             backgroundImageOverride: backgroundOverride,
+            historyScope: _editorHistoryScope,
           ),
         );
       default:
@@ -3400,7 +3456,8 @@ class ProImageEditorState extends State<ProImageEditor>
         return Scaffold(
           backgroundColor: mainEditorConfigs.style.background?.call(context) ??
               kImageEditorBackground,
-          resizeToAvoidBottomInset: false,
+          resizeToAvoidBottomInset:
+              mainEditorConfigs.resizeToAvoidBottomInset,
           appBar: _buildAppBar(),
           body: _buildBody(),
           bottomNavigationBar: _buildBottomNavBar(),

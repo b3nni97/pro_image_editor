@@ -1291,8 +1291,8 @@ class ExtendedRawInteractiveViewerState
       child: widget.enableExternalGestureDetector
           ? child
           : GestureDetector(
-              behavior:
-                  HitTestBehavior.opaque, // Necessary when panning off screen.
+              behavior: HitTestBehavior
+                  .translucent, // Necessary when panning off screen.
               onScaleEnd: onScaleEnd,
               onScaleStart: onScaleStart,
               onScaleUpdate: onScaleUpdate,

@@ -893,6 +893,7 @@ class _InteractiveViewerScrollPhysicsState
   // Handle the start of a gesture. All of pan, scale, and rotate are handled
   // with GestureDetector's scale gesture.
   void _onScaleStart(ScaleStartDetails details) {
+
     widget.onInteractionStart?.call(details);
 
     // ── Block gestures during scale recovery ──
@@ -932,7 +933,6 @@ class _InteractiveViewerScrollPhysicsState
       }
     }
     _gestureBlocked = false;
-
 
     if (_controller.isAnimating) {
       _controller.stop();
@@ -1069,7 +1069,6 @@ class _InteractiveViewerScrollPhysicsState
       return;
     }
 
-
     widget.onInteractionEnd?.call(details);
     _rotationStart = null;
     _referenceFocalPoint = null;
@@ -1148,8 +1147,7 @@ class _InteractiveViewerScrollPhysicsState
 
           // Don't use scale recovery for negligible scale differences —
           // otherwise the SCALE-RECOVERY path swallows pan fling momentum.
-          if (simulationScale != null &&
-              (endScale - targetScale).abs() < 0.1) {
+          if (simulationScale != null && (endScale - targetScale).abs() < 0.1) {
             simulationScale = null;
           }
 
@@ -1160,7 +1158,6 @@ class _InteractiveViewerScrollPhysicsState
 
           // Pre-compute scale recovery matrices if scale needs correction
           if (simulationScale != null) {
-
             _scaleRecoveryActive = true;
             _scaleRecoveryStartMatrix = _transformer.value.clone();
             _scaleRecoveryStartScale = endScale;
@@ -1259,8 +1256,7 @@ class _InteractiveViewerScrollPhysicsState
 
           // Don't use scale recovery for negligible scale differences —
           // otherwise the SCALE-RECOVERY path swallows pan fling momentum.
-          if (simulationScale != null &&
-              (endScale - targetScale).abs() < 0.1) {
+          if (simulationScale != null && (endScale - targetScale).abs() < 0.1) {
             simulationScale = null;
           }
 
@@ -1271,7 +1267,6 @@ class _InteractiveViewerScrollPhysicsState
 
           // Pre-compute scale recovery matrices if scale needs correction
           if (simulationScale != null) {
-
             _scaleRecoveryActive = true;
             _scaleRecoveryStartMatrix = _transformer.value.clone();
             _scaleRecoveryStartScale = endScale;
@@ -1694,8 +1689,8 @@ class _InteractiveViewerScrollPhysicsState
       axisDirection: AxisDirection.down,
       devicePixelRatio: MediaQuery.of(context).devicePixelRatio,
     );
-    simulationScale = widget.scrollPhysics!
-        .createBallisticSimulation(scaleMetrics, 0.0);
+    simulationScale =
+        widget.scrollPhysics!.createBallisticSimulation(scaleMetrics, 0.0);
     if (simulationScale == null) {
       _scaleRecoveryActive = false;
       return;
@@ -1792,12 +1787,12 @@ class _InteractiveViewerScrollPhysicsState
   }
 
   void _onPointerDown(PointerDownEvent event) {
-    if (widget.scrollPhysics != null && _controller.isAnimating) {
-      // ability to stop a in-progress pan fling is particularly important
-      // when scroll physics is enabled as the duration and distance of the
-      // pan can be considerable.
-      _stopAnimation();
-    }
+
+    // NOTE: We intentionally do NOT stop the bounce-back animation here.
+    // The animation is stopped in _onScaleStart when the InteractiveViewer's
+    // GestureDetector wins the gesture arena. If a layer's GestureDetector
+    // wins instead, _onScaleStart is never called and the animation
+    // continues undisturbed.
   }
   // end ScrollPhysics
 
@@ -1912,7 +1907,7 @@ class _InteractiveViewerScrollPhysicsState
       onPointerSignal: _receivedPointerSignal,
       onPointerDown: _onPointerDown, // ScrollPhysics
       child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
+        behavior: HitTestBehavior.translucent,
         // Necessary when panning off screen.
         onScaleEnd: _onScaleEnd,
         onScaleStart: _onScaleStart,

@@ -6,6 +6,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '/core/models/history/editor_history_scope.dart';
+
 import '/shared/widgets/smart_hero.dart';
 
 import '/core/mixins/converted_callbacks.dart';
@@ -13,6 +15,7 @@ import '/core/mixins/converted_configs.dart';
 import '/core/mixins/standalone_editor.dart';
 import '/core/models/editor_image.dart';
 import '/core/models/init_configs/blur_editor_init_configs.dart';
+import '/core/models/layers/layer.dart';
 import '/core/models/transform_helper.dart';
 import '/core/utils/size_utils.dart';
 import '/features/blur_editor/widgets/blur_editor_bottombar.dart';
@@ -21,6 +24,7 @@ import '/shared/services/content_recorder/widgets/content_recorder.dart';
 import '/shared/utils/file_constructor_utils.dart';
 import '/shared/widgets/extended/extended_pop_scope.dart';
 import '/shared/widgets/layer/layer_stack.dart';
+import '/shared/widgets/layer/interactive_layer_stack.dart';
 import '/shared/widgets/transform/transformed_content_generator.dart';
 import '../crop_rotate_editor/models/transform_configs.dart';
 import '../filter_editor/widgets/filtered_widget.dart';
@@ -180,6 +184,7 @@ class BlurEditorState extends State<BlurEditor>
   @override
   void initState() {
     super.initState();
+    _mutableLayers = List<Layer>.from(layers ?? []);
     _uiBlurStream = StreamController.broadcast();
     _uiBlurStream.stream.listen((_) => rebuildController.add(null));
 
@@ -194,6 +199,18 @@ class BlurEditorState extends State<BlurEditor>
     _uiBlurStream.close();
     screenshotCtrl.destroy();
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant BlurEditor oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (blurEditorConfigs.enableInteractiveLayers) {
+      final newLayers = layers ?? [];
+      _mutableLayers
+        ..clear()
+        ..addAll(newLayers);
+      _layersModified = false;
+    }
   }
 
   @override
@@ -222,11 +239,41 @@ class BlurEditorState extends State<BlurEditor>
     return blurFactor;
   }
 
+  /// Mutable copy of the layers list for interactive editing.
+  late final List<Layer> _mutableLayers;
+
+  /// Whether the layers have been modified during this editing session.
+  bool _layersModified = false;
+
+  /// Exports the current layers if they were modified.
+  List<Layer>? exportLayers() {
+    if (_layersModified) return _mutableLayers;
+    return null;
+  }
+
   /// Set the blur factor and update the UI.
   void setBlurFactor(double value) {
     blurFactor = value;
     _uiBlurStream.add(null);
     blurEditorCallbacks?.handleBlurFactorChange(value);
+  }
+
+  /// Shortcut to the global history scope from init configs.
+  EditorHistoryScope? get _historyScope => initConfigs.historyScope;
+
+  /// Whether global history is active.
+  bool get _useGlobalHistory => _historyScope != null;
+
+  /// Handles the start of changes in the blur factor value.
+  /// Saves the current state to the global history before changes begin.
+  void _onChangedStart(double value) {
+    if (_useGlobalHistory) {
+      _historyScope!.addHistory(
+        blur: blurFactor,
+        layers: _historyScope!.copyLayers(_mutableLayers),
+        blockCaptureScreenshot: true,
+      );
+    }
   }
 
   /// Handles changes in the blur factor value.
@@ -259,6 +306,8 @@ class BlurEditorState extends State<BlurEditor>
             child: RecordInvisibleWidget(
               controller: screenshotCtrl,
               child: Scaffold(
+                resizeToAvoidBottomInset:
+                    blurEditorConfigs.resizeToAvoidBottomInset,
                 backgroundColor: blurEditorConfigs.style.background,
                 appBar: _buildAppBar(),
                 body: _buildBody(),
@@ -308,20 +357,52 @@ class BlurEditorState extends State<BlurEditor>
                       if (!initConfigs.convertToUint8List || !isVideoEditor)
                         _buildBackground(),
                       if (blurEditorConfigs.showLayers && layers != null)
-                        LayerStack(
-                          transformHelper: TransformHelper(
-                            mainBodySize: getValidSizeOrDefault(
-                                mainBodySize, editorBodySize),
-                            mainImageSize: getValidSizeOrDefault(
-                                mainImageSize, editorBodySize),
-                            transformConfigs: initialTransformConfigs,
-                            editorBodySize: editorBodySize,
-                          ),
-                          overlayColor: blurEditorConfigs.style.background,
-                          configs: configs,
-                          layers: layers!,
-                          clipBehavior: Clip.none,
-                        ),
+                        blurEditorConfigs.enableInteractiveLayers
+                            ? InteractiveLayerStack(
+                                configs: configs,
+                                callbacks: callbacks,
+                                layers: _mutableLayers,
+                                editorBodySize: editorBodySize,
+                                transformHelper: TransformHelper(
+                                  mainBodySize: getValidSizeOrDefault(
+                                      mainBodySize, editorBodySize),
+                                  mainImageSize: getValidSizeOrDefault(
+                                      mainImageSize, editorBodySize),
+                                  transformConfigs: initialTransformConfigs,
+                                  editorBodySize: editorBodySize,
+                                ),
+                                clipBehavior: Clip.none,
+                                overlayColor:
+                                    blurEditorConfigs.style.background,
+                                onLayersChanged: () {
+                                  _layersModified = true;
+                                },
+                                onBeforeLayerChange: _useGlobalHistory
+                                    ? () {
+                                        _historyScope!.addHistory(
+                                          blur: blurFactor,
+                                          layers: _historyScope!
+                                              .copyLayers(_mutableLayers),
+                                          blockCaptureScreenshot: true,
+                                        );
+                                      }
+                                    : null,
+                              )
+                            : LayerStack(
+                                transformHelper: TransformHelper(
+                                  mainBodySize: getValidSizeOrDefault(
+                                      mainBodySize, editorBodySize),
+                                  mainImageSize: getValidSizeOrDefault(
+                                      mainImageSize, editorBodySize),
+                                  transformConfigs: initialTransformConfigs,
+                                  editorBodySize: editorBodySize,
+                                ),
+                                overlayColor:
+                                    blurEditorConfigs.style.background,
+                                configs: configs,
+                                layers: layers!,
+                                clipBehavior: Clip.none,
+                              ),
                       if (blurEditorConfigs.widgets.bodyItemsRecorded != null)
                         ...blurEditorConfigs.widgets.bodyItemsRecorded!(
                             this, rebuildController.stream),
@@ -391,6 +472,7 @@ class BlurEditorState extends State<BlurEditor>
       blurFactor: _blurFactor,
       rebuildController: rebuildController,
       blurEditorState: this,
+      onChangedStart: _useGlobalHistory ? _onChangedStart : null,
       onChanged: _onChanged,
       onChangedEnd: _onChangedEnd,
     );

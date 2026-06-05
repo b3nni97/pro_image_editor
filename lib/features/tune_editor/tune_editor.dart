@@ -6,6 +6,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '/core/models/history/editor_history_scope.dart';
+
 import '/shared/widgets/smart_hero.dart';
 
 import '../../shared/widgets/extended/interactive_viewer/extended_interactive_viewer.dart';
@@ -19,6 +21,7 @@ import '/pro_image_editor.dart';
 import '/shared/services/content_recorder/widgets/content_recorder.dart';
 import '/shared/utils/file_constructor_utils.dart';
 import '/shared/widgets/layer/layer_stack.dart';
+import '/shared/widgets/layer/interactive_layer_stack.dart';
 import '/shared/widgets/transform/transformed_content_generator.dart';
 import 'utils/tune_presets.dart';
 import 'widgets/tune_editor_appbar.dart';
@@ -196,27 +199,47 @@ class TuneEditorState extends State<TuneEditor>
   /// by the user.
   int selectedIndex = 0;
 
+  /// Shortcut to the global history scope from init configs.
+  EditorHistoryScope? get _historyScope => initConfigs.historyScope;
+
+  /// Whether global history is active.
+  bool get _useGlobalHistory => _historyScope != null;
+
   /// A stack used to keep track of previous states for undo functionality.
   ///
-  /// Each entry in the list is a snapshot of the `tuneAdjustmentMatrix` at a
-  /// certain point, allowing the user to revert to a previous state.
+  /// Only used when [_useGlobalHistory] is false (standalone mode).
   List<List<TuneAdjustmentMatrix>> _undoStack = [];
 
   /// A stack used to keep track of states for redo functionality.
   ///
-  /// When the user undoes an action, the current state is moved to this stack,
-  /// allowing them to redo the action and return to that state if desired.
+  /// Only used when [_useGlobalHistory] is false (standalone mode).
   List<List<TuneAdjustmentMatrix>> _redoStack = [];
 
   /// Determines whether undo can be performed on the current state.
-  bool get canUndo => _undoStack.isNotEmpty;
+  bool get canUndo =>
+      _useGlobalHistory ? _historyScope!.canUndo() : _undoStack.isNotEmpty;
 
   /// Determines whether redo can be performed on the current state.
-  bool get canRedo => _redoStack.isNotEmpty;
+  bool get canRedo =>
+      _useGlobalHistory ? _historyScope!.canRedo() : _redoStack.isNotEmpty;
 
   /// The redo stack, exposed for the main editor to preserve redo entries
   /// when switching between sub-editors.
   List<List<TuneAdjustmentMatrix>> get redoStack => _redoStack;
+
+  /// Mutable copy of the layers list for interactive editing.
+  late final List<Layer> _mutableLayers;
+
+  /// Whether the layers have been modified during this editing session.
+  bool _layersModified = false;
+
+  /// Exports the current layers if they were modified.
+  ///
+  /// Returns `null` if no layer modifications were made.
+  List<Layer>? exportLayers() {
+    if (_layersModified) return _mutableLayers;
+    return null;
+  }
 
   /// A version counter that increments on every undo/redo.
   /// Use this in widget keys to force slider recreation after undo/redo.
@@ -225,6 +248,7 @@ class TuneEditorState extends State<TuneEditor>
   @override
   void initState() {
     super.initState();
+    _mutableLayers = List<Layer>.from(layers ?? []);
     uiStream = StreamController.broadcast();
     uiStream.stream.listen((_) => rebuildController.add(null));
 
@@ -267,6 +291,20 @@ class TuneEditorState extends State<TuneEditor>
   }
 
   @override
+  void didUpdateWidget(covariant TuneEditor oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Sync mutable layers when the main editor rebuilds us with a new list
+    // (e.g. after adding a text layer or switching sub-editors).
+    if (tuneEditorConfigs.enableInteractiveLayers) {
+      final newLayers = layers ?? [];
+      _mutableLayers
+        ..clear()
+        ..addAll(newLayers);
+      _layersModified = false;
+    }
+  }
+
+  @override
   void setState(void Function() fn) {
     rebuildController.add(null);
     super.setState(fn);
@@ -302,9 +340,18 @@ class TuneEditorState extends State<TuneEditor>
 
   /// Redoes the last undone action.
   ///
-  /// Moves the last action from the redo stack to the undo stack and restores
-  /// the adjustment matrix.
+  /// When global history is active, delegates to the main editor's redo.
+  /// Otherwise, uses the local redo stack.
   void redo() {
+    if (_useGlobalHistory) {
+      if (_historyScope!.canRedo()) {
+        _historyScope!.redo();
+        _syncFromGlobalState();
+        tuneEditorCallbacks?.handleRedo();
+      }
+      return;
+    }
+
     if (_redoStack.isNotEmpty) {
       /// Save current state to undo stack
       _undoStack.add(tuneAdjustmentMatrix.map((e) => e.copy()).toList());
@@ -322,9 +369,18 @@ class TuneEditorState extends State<TuneEditor>
 
   /// Undoes the last action.
   ///
-  /// Moves the last action from the undo stack to the redo stack and restores
-  /// the previous adjustment matrix.
+  /// When global history is active, delegates to the main editor's undo.
+  /// Otherwise, uses the local undo stack.
   void undo() {
+    if (_useGlobalHistory) {
+      if (_historyScope!.canUndo()) {
+        _historyScope!.undo();
+        _syncFromGlobalState();
+        tuneEditorCallbacks?.handleUndo();
+      }
+      return;
+    }
+
     if (_undoStack.isNotEmpty) {
       /// Save current state to redo stack
       _redoStack.add(tuneAdjustmentMatrix.map((e) => e.copy()).toList());
@@ -338,6 +394,18 @@ class TuneEditorState extends State<TuneEditor>
       uiStream.add(null);
       setState(() {});
     }
+  }
+
+  /// Synchronizes the local state from the global history after undo/redo.
+  void _syncFromGlobalState() {
+    tuneAdjustmentMatrix =
+        _historyScope!.getActiveTuneAdjustments().map((e) => e.copy()).toList();
+    _mutableLayers
+      ..clear()
+      ..addAll(_historyScope!.getActiveLayers());
+    historyVersion++;
+    uiStream.add(null);
+    setState(() {});
   }
 
   /// Initializes the adjustment matrix with default values.
@@ -378,13 +446,26 @@ class TuneEditorState extends State<TuneEditor>
     tuneEditorCallbacks?.handleTuneFactorChange(tuneAdjustmentMatrix);
   }
 
-  /// Saves the current state to the undo stack before making changes.
+  /// Saves the current state before making changes.
+  ///
+  /// When global history is active, adds a history entry to the main editor.
+  /// Otherwise, saves to the local undo stack.
   void onChangedStart(double value) {
-    // Save current state to undo stack before making changes
+    if (_useGlobalHistory) {
+      // Global history: save current tune state as a history entry.
+      // The addHistory call captures the full state snapshot.
+      _historyScope!.addHistory(
+        tuneAdjustments: tuneAdjustmentMatrix.map((e) => e.copy()).toList(),
+        layers: _historyScope!.copyLayers(_mutableLayers),
+        blockCaptureScreenshot: true,
+      );
+      return;
+    }
+
+    // Local undo stack
     _undoStack.add(
       tuneAdjustmentMatrix.map((e) => e.copy()).toList(),
     );
-    // Clear redo stack because a new change is made
     _redoStack.clear();
   }
 
@@ -415,6 +496,8 @@ class TuneEditorState extends State<TuneEditor>
             child: RecordInvisibleWidget(
               controller: screenshotCtrl,
               child: Scaffold(
+                resizeToAvoidBottomInset:
+                    tuneEditorConfigs.resizeToAvoidBottomInset,
                 backgroundColor:
                     tuneEditorConfigs.style.background?.call(context) ??
                         kImageEditorBackground,
@@ -464,8 +547,7 @@ class TuneEditorState extends State<TuneEditor>
                     initialTransformConfigs != null &&
                             initialTransformConfigs!.isNotEmpty
                         ? initialTransformConfigs!.cropRect.size.aspectRatio
-                        : (mainImageSize != null &&
-                                mainImageSize != Size.zero
+                        : (mainImageSize != null && mainImageSize != Size.zero
                             ? mainImageSize!.aspectRatio
                             : null);
 
@@ -562,8 +644,7 @@ class TuneEditorState extends State<TuneEditor>
             transformConfigs:
                 initialTransformConfigs ?? TransformConfigs.empty(),
             child: FilteredWidget(
-              width:
-                  getValidSizeOrDefault(mainImageSize, editorBodySize).width,
+              width: getValidSizeOrDefault(mainImageSize, editorBodySize).width,
               height:
                   getValidSizeOrDefault(mainImageSize, editorBodySize).height,
               configs: configs,
@@ -581,6 +662,39 @@ class TuneEditorState extends State<TuneEditor>
   }
 
   Widget _buildLayers() {
+    if (tuneEditorConfigs.enableInteractiveLayers) {
+      return InteractiveLayerStack(
+        configs: configs,
+        callbacks: callbacks,
+        layers: _mutableLayers,
+        editorBodySize: editorBodySize,
+        interactiveViewerKey: interactiveViewerKey,
+        transformHelper: TransformHelper(
+          mainBodySize: getValidSizeOrDefault(mainBodySize, editorBodySize),
+          mainImageSize: getValidSizeOrDefault(mainImageSize, editorBodySize),
+          editorBodySize: editorBodySize,
+          transformConfigs: initialTransformConfigs,
+        ),
+        clipBehavior: Clip.none,
+        overlayColor: tuneEditorConfigs.style.background?.call(context) ??
+            kImageEditorBackground,
+        onTextLayerTap: initConfigs.onTextLayerTap,
+        onLayersChanged: () {
+          _layersModified = true;
+        },
+        onBeforeLayerChange: _useGlobalHistory
+            ? () {
+                _historyScope!.addHistory(
+                  tuneAdjustments:
+                      tuneAdjustmentMatrix.map((e) => e.copy()).toList(),
+                  layers: _historyScope!.copyLayers(_mutableLayers),
+                  blockCaptureScreenshot: true,
+                );
+              }
+            : null,
+      );
+    }
+
     return LayerStack(
       transformHelper: TransformHelper(
         mainBodySize: getValidSizeOrDefault(mainBodySize, editorBodySize),

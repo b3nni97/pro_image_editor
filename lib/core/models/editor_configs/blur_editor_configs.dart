@@ -35,6 +35,8 @@ class BlurEditorConfigs implements BaseSubEditorConfigs {
     )
     this.enabled = true,
     this.showLayers = true,
+    this.enableInteractiveLayers = false,
+    this.resizeToAvoidBottomInset = false,
     this.maxBlur = 5.0,
     this.safeArea = const EditorSafeArea(),
     this.style = const BlurEditorStyle(),
@@ -55,6 +57,19 @@ class BlurEditorConfigs implements BaseSubEditorConfigs {
 
   /// Show also layers in the editor.
   final bool showLayers;
+
+  /// Whether layers in the editor can be interacted with (moved, scaled,
+  /// rotated, and edited).
+  ///
+  /// When `true`, the user can directly manipulate layers within the blur
+  /// editor. When `false` (default), layers are displayed as a static preview.
+  final bool enableInteractiveLayers;
+
+  /// Whether the Scaffold should resize to avoid the bottom inset (keyboard).
+  ///
+  /// When set to `false` (default), the keyboard will overlay the editor
+  /// content instead of resizing it.
+  final bool resizeToAvoidBottomInset;
 
   /// Maximum blur value.
   final double maxBlur;
@@ -81,6 +96,8 @@ class BlurEditorConfigs implements BaseSubEditorConfigs {
     bool? enableGesturePop,
     bool? enabled,
     bool? showLayers,
+    bool? enableInteractiveLayers,
+    bool? resizeToAvoidBottomInset,
     double? maxBlur,
     EditorSafeArea? safeArea,
     BlurEditorStyle? style,
@@ -92,6 +109,10 @@ class BlurEditorConfigs implements BaseSubEditorConfigs {
       safeArea: safeArea ?? this.safeArea,
       enabled: enabled ?? this.enabled,
       showLayers: showLayers ?? this.showLayers,
+      enableInteractiveLayers:
+          enableInteractiveLayers ?? this.enableInteractiveLayers,
+      resizeToAvoidBottomInset:
+          resizeToAvoidBottomInset ?? this.resizeToAvoidBottomInset,
       maxBlur: maxBlur ?? this.maxBlur,
       style: style ?? this.style,
       icons: icons ?? this.icons,

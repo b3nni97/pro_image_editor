@@ -40,6 +40,8 @@ class TextEditorWidgets extends CustomWidgetsStandaloneEditor<TextEditorState> {
     this.colorPicker,
     this.sliderFontSize,
     this.fontSizeCloseButton,
+    this.textFieldBuilder,
+    this.wrapTextField,
   });
 
   /// Custom body items that are positioned above all other content.
@@ -89,6 +91,77 @@ class TextEditorWidgets extends CustomWidgetsStandaloneEditor<TextEditorState> {
   /// {@macro customSliderWidget}
   final CustomSlider<TextEditorState>? sliderFontSize;
 
+  /// A custom builder to replace the default Material [TextField] inside
+  /// the text editor input.
+  ///
+  /// This allows using a custom text field widget (e.g., [CupertinoTextField])
+  /// while keeping the rounded background text rendering intact.
+  ///
+  /// The builder receives all necessary parameters to construct a text field
+  /// that integrates with the editor's state management.
+  ///
+  /// **Example:**
+  /// ```dart
+  /// textFieldBuilder: (context, {
+  ///   required controller,
+  ///   required focusNode,
+  ///   required style,
+  ///   required textAlign,
+  ///   required onChanged,
+  ///   autofocus,
+  ///   scrollController,
+  ///   hintText,
+  ///   hintStyle,
+  ///   cursorColor,
+  /// }) {
+  ///   return CupertinoTextField(
+  ///     controller: controller,
+  ///     focusNode: focusNode,
+  ///     style: style,
+  ///     textAlign: textAlign,
+  ///     onChanged: onChanged,
+  ///   );
+  /// },
+  /// ```
+  final Widget Function(
+    BuildContext context, {
+    required TextEditingController controller,
+    required FocusNode focusNode,
+    required TextStyle style,
+    required TextAlign textAlign,
+    required ValueChanged<String>? onChanged,
+    required ScrollController scrollController,
+    bool autofocus,
+    String? hintText,
+    TextStyle? hintStyle,
+    Color? cursorColor,
+    double cursorWidth,
+    double? cursorHeight,
+    VoidCallback? onEditingComplete,
+    ValueChanged<String>? onSubmitted,
+  })? textFieldBuilder;
+
+  /// A wrapper around the text field input widget.
+  ///
+  /// This allows adding custom layout around the text input area,
+  /// such as bottom padding or wrapping it in a [Column].
+  ///
+  /// **Example:**
+  /// ```dart
+  /// wrapTextField: (editor, textFieldWidget) {
+  ///   return Column(
+  ///     children: [
+  ///       Expanded(child: textFieldWidget),
+  ///       SizedBox(height: 80),
+  ///     ],
+  ///   );
+  /// },
+  /// ```
+  final Widget Function(
+    TextEditorState editorState,
+    Widget textField,
+  )? wrapTextField;
+
   @override
   TextEditorWidgets copyWith({
     ReactiveAppbar? Function(
@@ -103,6 +176,27 @@ class TextEditorWidgets extends CustomWidgetsStandaloneEditor<TextEditorState> {
     CustomSlider<TextEditorState>? sliderFontSize,
     Widget Function(TextEditorState editorState, Function() tap)?
         fontSizeCloseButton,
+    Widget Function(
+      BuildContext context, {
+      required TextEditingController controller,
+      required FocusNode focusNode,
+      required TextStyle style,
+      required TextAlign textAlign,
+      required ValueChanged<String>? onChanged,
+      required ScrollController scrollController,
+      bool autofocus,
+      String? hintText,
+      TextStyle? hintStyle,
+      Color? cursorColor,
+      double cursorWidth,
+      double? cursorHeight,
+      VoidCallback? onEditingComplete,
+      ValueChanged<String>? onSubmitted,
+    })? textFieldBuilder,
+    Widget Function(
+      TextEditorState editorState,
+      Widget textField,
+    )? wrapTextField,
   }) {
     return TextEditorWidgets(
       appBar: appBar ?? this.appBar,
@@ -112,6 +206,8 @@ class TextEditorWidgets extends CustomWidgetsStandaloneEditor<TextEditorState> {
       colorPicker: colorPicker ?? this.colorPicker,
       sliderFontSize: sliderFontSize ?? this.sliderFontSize,
       fontSizeCloseButton: fontSizeCloseButton ?? this.fontSizeCloseButton,
+      textFieldBuilder: textFieldBuilder ?? this.textFieldBuilder,
+      wrapTextField: wrapTextField ?? this.wrapTextField,
     );
   }
 }

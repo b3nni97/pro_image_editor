@@ -30,6 +30,7 @@ class BlurEditorBottombar extends StatelessWidget {
     required this.blurEditorState,
     required this.onChanged,
     required this.onChangedEnd,
+    this.onChangedStart,
   });
 
   /// Represents the state of the blur editor.
@@ -53,6 +54,9 @@ class BlurEditorBottombar extends StatelessWidget {
   ///
   /// [value] The final blur value.
   final Function(double value) onChangedEnd;
+
+  /// Callback function that is called when the blur value change starts.
+  final Function(double value)? onChangedStart;
 
   @override
   Widget build(BuildContext context) {
@@ -80,6 +84,7 @@ class BlurEditorBottombar extends StatelessWidget {
                           max: blurEditorConfigs.maxBlur,
                           divisions: 100,
                           value: value,
+                          onChangeStart: onChangedStart,
                           onChanged: onChanged,
                           onChangeEnd: onChangedEnd,
                         );

@@ -143,10 +143,12 @@ class _TextEditorInputState extends State<TextEditorInput> {
         child: SingleChildScrollView(
           clipBehavior: Clip.none,
           scrollDirection: Axis.horizontal,
+          physics: const NeverScrollableScrollPhysics(),
           padding: widget.configs.style.textFieldMargin,
           child: IntrinsicWidth(
             child: SingleChildScrollView(
               clipBehavior: Clip.none,
+              physics: const NeverScrollableScrollPhysics(),
               padding: widget.configs.enableAutoOverflow
                   ? null
                   : const EdgeInsets.symmetric(horizontal: 16.0),
@@ -182,6 +184,7 @@ class _TextEditorInputState extends State<TextEditorInput> {
             maxTextWidth: widget.maxWidth,
             controller: widget.textCtrl,
             focusNode: widget.focusNode,
+            textFieldBuilder: widget.configs.widgets.textFieldBuilder,
             onChanged: (value) {
               widget.callbacks?.handleChanged(value);
               setState(() {});
@@ -195,7 +198,8 @@ class _TextEditorInputState extends State<TextEditorInput> {
             cursorWidth: widget.cursorWidth,
             hint: widget.i18n.inputHintText,
             hintStyle: widget.selectedTextStyle.copyWith(
-              color: widget.configs.style.inputHintColor,
+              color: widget.configs.style.inputHintColor?.call(context) ??
+                  const Color(0xFFBDBDBD),
               fontSize: widget.textFontSize,
               shadows: [],
             ),

@@ -82,6 +82,7 @@ class CropRotateEditorConfigs extends ZoomConfigs
     this.enableDoubleTap = true,
     this.enableFlipAnimation = true,
     this.showLayers = true,
+    this.enableInteractiveLayers = false,
     this.initAspectRatio,
     this.rotateAnimationCurve = Curves.decelerate,
     this.scaleAnimationCurve = Curves.decelerate,
@@ -158,6 +159,14 @@ class CropRotateEditorConfigs extends ZoomConfigs
 
   /// Show the layers from the main-editor.
   final bool showLayers;
+
+  /// Whether layers in the editor can be interacted with (moved, scaled,
+  /// rotated, and edited).
+  ///
+  /// When `true`, the user can directly manipulate layers within the
+  /// crop-rotate editor. When `false` (default), layers are displayed as a
+  /// static preview.
+  final bool enableInteractiveLayers;
 
   /// Layers will also be transformed like the crop-rotate image.
   final bool enableTransformLayers;
@@ -330,6 +339,7 @@ class CropRotateEditorConfigs extends ZoomConfigs
     bool? showResetButton,
     List<CropRotateTool>? tools,
     bool? showLayers,
+    bool? enableInteractiveLayers,
     bool? enableTransformLayers,
     bool? enableDoubleTap,
     bool? enableFlipAnimation,
@@ -375,6 +385,8 @@ class CropRotateEditorConfigs extends ZoomConfigs
       showResetButton: showResetButton ?? this.showResetButton,
       tools: tools ?? this.tools,
       showLayers: showLayers ?? this.showLayers,
+      enableInteractiveLayers:
+          enableInteractiveLayers ?? this.enableInteractiveLayers,
       enableTransformLayers:
           enableTransformLayers ?? this.enableTransformLayers,
       enableDoubleTap: enableDoubleTap ?? this.enableDoubleTap,

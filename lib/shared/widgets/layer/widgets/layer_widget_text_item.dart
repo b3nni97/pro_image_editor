@@ -44,7 +44,11 @@ class LayerWidgetTextItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    var fontSize = textEditorConfigs.initFontSize * layer.scale;
+    // During a pinch gesture, use gestureBaseScale (frozen at gesture start)
+    // so the text doesn't re-layout every frame. The visual scale difference
+    // is applied via Transform on the GPU (see _calcTransformMatrix).
+    final contentScale = layer.gestureBaseScale ?? layer.scale;
+    var fontSize = textEditorConfigs.initFontSize * contentScale;
     var style = TextStyle(
       fontSize: fontSize * layer.fontScale,
       color: layer.color,
@@ -70,7 +74,7 @@ class LayerWidgetTextItem extends StatelessWidget {
     return RoundedBackgroundText(
       enableHitBoxCorrection: true,
       maxTextWidth:
-          maxTextWidth == null ? double.infinity : maxTextWidth * layer.scale,
+          maxTextWidth == null ? double.infinity : maxTextWidth * contentScale,
       onHitTestResult: _handleLayerHit,
       layer.text.toString(),
       backgroundColor: layer.background,

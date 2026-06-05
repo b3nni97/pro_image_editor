@@ -329,14 +329,6 @@ class ExtendedInteractiveViewerState extends State<ExtendedInteractiveViewer>
   Widget build(BuildContext context) {
     if (!widget.zoomConfigs.enableZoom) return widget.child;
 
-    /// If we disable the interaction we need to return it as Transform widget
-    /// that the InteractiveViewer will not absorb the scale events.
-    if (!_enableInteraction) {
-      return Transform(
-        transform: _transformCtrl.value,
-        child: widget.child,
-      );
-    }
     return InteractiveViewerScrollPhysics(
       boundaryMargin: widget.boundaryMargin,
       contentInset: widget.contentInset,

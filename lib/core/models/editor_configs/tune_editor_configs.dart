@@ -40,6 +40,8 @@ class TuneEditorConfigs extends ZoomConfigs implements BaseSubEditorConfigs {
     super.viewportFitBuilder,
     this.enabled = true,
     this.showLayers = true,
+    this.enableInteractiveLayers = false,
+    this.resizeToAvoidBottomInset = false,
     this.tuneAdjustmentOptions,
     this.safeArea = const EditorSafeArea(),
     this.style = const TuneEditorStyle(),
@@ -64,6 +66,19 @@ class TuneEditorConfigs extends ZoomConfigs implements BaseSubEditorConfigs {
   ///
   /// If `true`, layers are displayed within the tune editor interface.
   final bool showLayers;
+
+  /// Whether layers in the editor can be interacted with (moved, scaled,
+  /// rotated, and edited).
+  ///
+  /// When `true`, the user can directly manipulate layers within the tune
+  /// editor. When `false` (default), layers are displayed as a static preview.
+  final bool enableInteractiveLayers;
+
+  /// Whether the Scaffold should resize to avoid the bottom inset (keyboard).
+  ///
+  /// When set to `false` (default), the keyboard will overlay the editor
+  /// content instead of resizing it.
+  final bool resizeToAvoidBottomInset;
 
   /// Defines the safe area configuration for the editor.
   ///
@@ -100,6 +115,8 @@ class TuneEditorConfigs extends ZoomConfigs implements BaseSubEditorConfigs {
     bool? enableGesturePop,
     bool? enabled,
     bool? showLayers,
+    bool? enableInteractiveLayers,
+    bool? resizeToAvoidBottomInset,
     EditorSafeArea? safeArea,
     List<TuneAdjustmentItem>? tuneAdjustmentOptions,
     TuneEditorStyle? style,
@@ -111,6 +128,10 @@ class TuneEditorConfigs extends ZoomConfigs implements BaseSubEditorConfigs {
       enabled: enabled ?? this.enabled,
       safeArea: safeArea ?? this.safeArea,
       showLayers: showLayers ?? this.showLayers,
+      enableInteractiveLayers:
+          enableInteractiveLayers ?? this.enableInteractiveLayers,
+      resizeToAvoidBottomInset:
+          resizeToAvoidBottomInset ?? this.resizeToAvoidBottomInset,
       tuneAdjustmentOptions:
           tuneAdjustmentOptions ?? this.tuneAdjustmentOptions,
       style: style ?? this.style,
