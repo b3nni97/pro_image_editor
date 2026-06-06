@@ -1679,6 +1679,14 @@ class ProImageEditorState extends State<ProImageEditor>
               if (cropRotateEditor.currentState != null) {
                 cropRotateEditor.currentState!.hideFakeHero();
               }
+              // Reset zoom of underlying sub-editors now that the new
+              // editor fully covers them. This ensures they start at
+              // default scale/translation when the user returns.
+              tuneEditor.currentState?.interactiveViewerKey.currentState
+                  ?.reset();
+              filterEditor.currentState?.interactiveViewerKey.currentState
+                  ?.reset();
+              paintEditor.currentState?.resetZoom();
               break;
             case AnimationStatus.dismissed:
               setState(() {

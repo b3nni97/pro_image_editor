@@ -552,6 +552,8 @@ class _InteractiveViewerScrollPhysicsState
   double _scaleRecoveryStartScale = 1.0;
   double _scaleRecoveryTargetScale = 1.0;
   Offset? _scaleRecoveryFocalPoint; // Preserved from last scale gesture
+  Offset? _previousLocalFocalPoint; // Screen-space focal point from last frame
+  double _smoothedDetailsScale = 1.0; // EMA-smoothed gesture scale
   bool _gestureBlocked =
       false; // True when gestures are blocked during recovery
   bool _scaleRecoveryActive =
@@ -904,7 +906,6 @@ class _InteractiveViewerScrollPhysicsState
     if (_scaleRecoveryActive) {
       if (details.pointerCount >= 2) {
         // Pinch gesture — cancel recovery and allow.
-
         _scaleRecoveryActive = false;
         _controller.stop();
         _controller.reset();
@@ -912,21 +913,20 @@ class _InteractiveViewerScrollPhysicsState
         _animation = null;
       } else {
         // Single finger — check if scale is close enough to target.
-        final double currentScale = _transformer.value.getMaxScaleOnAxis();
+        final double scaleNow = _transformer.value.getMaxScaleOnAxis();
         final double targetScale =
-            currentScale.clamp(widget.minScale, widget.maxScale);
-        if ((currentScale - targetScale).abs() < 0.1) {
+            scaleNow.clamp(widget.minScale, widget.maxScale);
+        final double diff = (scaleNow - targetScale).abs();
+        if (diff < 0.1) {
           // Close enough — stop animation and allow gesture.
-
           _scaleRecoveryActive = false;
           _controller.stop();
           _controller.reset();
         } else {
           // Still too far — block and ensure recovery is running.
-
           _gestureBlocked = true;
           if (!_controller.isAnimating) {
-            _restartScaleRecovery(currentScale, targetScale);
+            _restartScaleRecovery(scaleNow, targetScale);
           }
           return;
         }
@@ -954,6 +954,8 @@ class _InteractiveViewerScrollPhysicsState
     _scaleStart = _transformer.value.getMaxScaleOnAxis();
     _lastScale = 1.0; // ScrollPhysics
     _referenceFocalPoint = _transformer.toScene(details.localFocalPoint);
+    _previousLocalFocalPoint = details.localFocalPoint;
+    _smoothedDetailsScale = 1.0;
     _snapFocalPoint = details.localFocalPoint;
     _rotationStart = _currentRotation;
   }
@@ -992,38 +994,51 @@ class _InteractiveViewerScrollPhysicsState
         // previous call to _onScaleUpdate.
         final double desiredScale = _scaleStart! * details.scale;
         final double scaleChange = desiredScale / scale;
+
+        // Smooth the gesture scale via EMA to filter out two-finger
+        // digitizer jitter (±1% oscillation that amplifies through
+        // rubber-band physics into ±10px translation jitter).
+        _smoothedDetailsScale =
+            _smoothedDetailsScale * 0.6 + details.scale * 0.4;
+        final double smoothedDesiredScale =
+            _scaleStart! * _smoothedDetailsScale;
+        final double smoothedScaleChange = smoothedDesiredScale / scale;
         _snapFocalPoint = details.localFocalPoint;
         _scaleRecoveryFocalPoint = details.localFocalPoint;
 
-        _transformer.value = _matrixScale(_transformer.value, scaleChange);
+        _transformer.value =
+            _matrixScale(_transformer.value, smoothedScaleChange);
 
-        // While scaling, translate such that the user's two fingers stay on
-        // the same places in the scene. That means that the focal point of
-        // the scale should be on the same place in the scene before and after
-        // the scale.
-        // IMPORTANT: Apply this translation DIRECTLY, not through
-        // _matrixTranslate. The latter routes through
-        // BouncingScrollPhysics.applyPhysicsToUserOffset which dampens
-        // the correction when out-of-range. This causes incomplete
-        // corrections that accumulate as drift (2700px+ over 5x→1x zoom).
-        // Focal-point tracking is a mathematical necessity, not a
-        // user-initiated pan, so it must not be dampened.
-        final Offset focalPointSceneScaled =
-            _transformer.toScene(details.localFocalPoint);
-        final Offset focalDelta = focalPointSceneScaled - _referenceFocalPoint!;
+        // ── Step 1: Scale compensation (undamped) ──
+        final Offset prevFocal =
+            _previousLocalFocalPoint ?? details.localFocalPoint;
+        final Offset focalSceneAfterScale = _transformer.toScene(prevFocal);
+        final Offset scaleCompensation =
+            focalSceneAfterScale - _referenceFocalPoint!;
         _transformer.value = _transformer.value.clone()
-          ..translateByDouble(focalDelta.dx, focalDelta.dy, 0.0, 1.0);
+          ..translateByDouble(
+              scaleCompensation.dx, scaleCompensation.dy, 0.0, 1.0);
 
-        // details.localFocalPoint should now be at the same location as the
-        // original _referenceFocalPoint point. If it's not, that's because
-        // the translate came in contact with a boundary. In that case, update
-        // _referenceFocalPoint so subsequent updates happen in relation to
-        // the new effective focal point.
-        final Offset focalPointSceneCheck =
-            _transformer.toScene(details.localFocalPoint);
-        if (_round(_referenceFocalPoint!) != _round(focalPointSceneCheck)) {
-          _referenceFocalPoint = focalPointSceneCheck;
+        // ── Step 2: User pan (with physics / rubber-banding) ──
+        final Offset screenPanDelta = details.localFocalPoint - prevFocal;
+        if (screenPanDelta != Offset.zero) {
+          final Offset panSceneBefore =
+              _transformer.toScene(details.localFocalPoint);
+          final Offset panSceneAfter =
+              _transformer.toScene(details.localFocalPoint - screenPanDelta);
+          final Offset panDeltaScene = panSceneBefore - panSceneAfter;
+          _transformer.value =
+              _matrixTranslate(_transformer.value, panDeltaScene);
         }
+
+        // Track screen-space focal for next frame's pan separation.
+        _previousLocalFocalPoint = details.localFocalPoint;
+
+        // Always update _referenceFocalPoint to the current scene
+        // position. This prevents drift accumulation: each frame
+        // starts fresh from wherever the content actually is.
+        _referenceFocalPoint =
+            _transformer.toScene(details.localFocalPoint);
 
       case _GestureType.rotate:
         if (details.rotation == 0.0) {
@@ -1062,6 +1077,9 @@ class _InteractiveViewerScrollPhysicsState
   // Handle the end of a gesture of _GestureType. All of pan, scale, and rotate
   // are handled with GestureDetector's scale gesture.
   void _onScaleEnd(ScaleEndDetails details) {
+    final double endScaleDbg = _transformer.value.getMaxScaleOnAxis();
+    final Vector3 endTransDbg = _transformer.value.getTranslation();
+
     // If _onScaleStart was blocked (e.g. during scale recovery),
     // ignore this gesture end.
     if (_gestureBlocked) {
@@ -1086,7 +1104,9 @@ class _InteractiveViewerScrollPhysicsState
     switch (_gestureType) {
       case _GestureType.pan:
         if (widget.scrollPhysics != null) {
-          if (_snapController.isAnimating) return;
+          if (_snapController.isAnimating) {
+            return;
+          }
           final Vector3 currentTranslation =
               _transformer.value.getTranslation();
           final Offset currentOffset =
@@ -1147,7 +1167,8 @@ class _InteractiveViewerScrollPhysicsState
 
           // Don't use scale recovery for negligible scale differences —
           // otherwise the SCALE-RECOVERY path swallows pan fling momentum.
-          if (simulationScale != null && (endScale - targetScale).abs() < 0.1) {
+          // Use a very tight threshold (0.005) so real zoom-outs still recover.
+          if (simulationScale != null && (endScale - targetScale).abs() < 0.005) {
             simulationScale = null;
           }
 
@@ -1170,6 +1191,7 @@ class _InteractiveViewerScrollPhysicsState
                   targetScale / endScale, 1.0)
               ..translateByDouble(-focalScene.dx, -focalScene.dy, 0.0, 1.0);
             _scaleRecoveryTargetMatrix = _matrixClamp(target);
+            final Vector3 targetTrans = _scaleRecoveryTargetMatrix!.getTranslation();
           }
 
           combinedSimulation = _getCombinedSimulation(
@@ -1256,7 +1278,8 @@ class _InteractiveViewerScrollPhysicsState
 
           // Don't use scale recovery for negligible scale differences —
           // otherwise the SCALE-RECOVERY path swallows pan fling momentum.
-          if (simulationScale != null && (endScale - targetScale).abs() < 0.1) {
+          // Use a very tight threshold (0.005) so real zoom-outs still recover.
+          if (simulationScale != null && (endScale - targetScale).abs() < 0.005) {
             simulationScale = null;
           }
 
@@ -1278,6 +1301,7 @@ class _InteractiveViewerScrollPhysicsState
                   targetScale / endScale, 1.0)
               ..translateByDouble(-focalScene.dx, -focalScene.dy, 0.0, 1.0);
             _scaleRecoveryTargetMatrix = _matrixClamp(target);
+            final Vector3 targetTrans = _scaleRecoveryTargetMatrix!.getTranslation();
           }
 
           combinedSimulation = _getCombinedSimulation(
@@ -1420,8 +1444,14 @@ class _InteractiveViewerScrollPhysicsState
     widget.onInteractionEnd?.call(ScaleEndDetails());
   }
 
+  /// Counter to throttle inertia animation debug logs (every N frames).
+  int _inertiaLogCounter = 0;
+
   void _handleInertiaAnimation() {
     if (!_controller.isAnimating) {
+      final double finalScale = _transformer.value.getMaxScaleOnAxis();
+      final Vector3 finalTrans = _transformer.value.getTranslation();
+
       if (widget.scrollPhysics != null) {
         _controller.removeListener(_handleInertiaAnimation);
       } else {
@@ -1432,6 +1462,7 @@ class _InteractiveViewerScrollPhysicsState
       _controller.reset();
 
       _scaleRecoveryActive = false;
+      _inertiaLogCounter = 0;
 
       return;
     }
@@ -1680,6 +1711,7 @@ class _InteractiveViewerScrollPhysicsState
   /// Restart a scale recovery animation when the previous one ended
   /// before the scale fully converged to the target.
   void _restartScaleRecovery(double currentScale, double targetScale) {
+
     // Set up scale simulation
     final ScrollMetrics scaleMetrics = FixedScrollMetrics(
       pixels: currentScale * 1000,
@@ -1707,6 +1739,8 @@ class _InteractiveViewerScrollPhysicsState
           targetScale / currentScale, 1.0)
       ..translateByDouble(-focalScene.dx, -focalScene.dy, 0.0, 1.0);
     _scaleRecoveryTargetMatrix = _matrixClamp(target);
+
+    final Vector3 targetTrans = _scaleRecoveryTargetMatrix!.getTranslation();
 
     // No pan simulations needed
     simulationX = null;

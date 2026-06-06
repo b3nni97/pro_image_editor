@@ -193,9 +193,9 @@ class ExtendedInteractiveViewerState extends State<ExtendedInteractiveViewer>
     }
   }
 
-  /// Reset the transformations
+  /// Reset the transformations to the initial state.
   void reset() {
-    _transformCtrl.value = Matrix4.identity();
+    _transformCtrl.value = widget.initialMatrix4 ?? Matrix4.identity();
   }
 
   /// Instantly sets the zoom transformation to a specific [offset] and [scale].
