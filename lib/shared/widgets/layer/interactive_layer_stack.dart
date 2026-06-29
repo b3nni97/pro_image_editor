@@ -253,6 +253,15 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack> {
 
   Offset get _editorScaleOffset => _viewer?.offset ?? Offset.zero;
 
+  /// The pure interactive-viewer zoom factor (without [transformHelper.scale]).
+  ///
+  /// The helper lines are rendered *inside* the [ExtendedInteractiveViewer]
+  /// (as siblings of the layer content), so the viewer already applies the
+  /// zoom and pan to them. They must therefore be laid out in plain content
+  /// coordinates — only this factor is used to keep their stroke width and
+  /// length visually constant across zoom levels, not to position them.
+  double get _viewerScaleFactor => _viewer?.scaleFactor ?? 1.0;
+
   // ── Drift tracking (debug) ──
   Offset _debugInitialLayerOffset = Offset.zero;
   Offset _debugCumulativeDelta = Offset.zero;
@@ -267,8 +276,6 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack> {
   Offset? _pointerDropFocal;
 
   HelperLineConfigs get _helperLines => widget.configs.helperLines;
-
-  Size get _editorSize => widget.editorSize ?? _editorBodySize;
 
   @override
   void initState() {
@@ -402,7 +409,7 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack> {
     bool beforeShowVerticalHelperLine =
         _layerInteractionManager.showVerticalHelperLine;
     bool beforeShowRotationHelperLine =
-        _layerInteractionManager.showRotationHelperLine;
+        _layerInteractionManager.showRotationHelperLineUi;
 
     void checkUpdateHelperLineUI() {
       if (beforeShowHorizontalHelperLine !=
@@ -410,7 +417,7 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack> {
           beforeShowVerticalHelperLine !=
               _layerInteractionManager.showVerticalHelperLine ||
           beforeShowRotationHelperLine !=
-              _layerInteractionManager.showRotationHelperLine) {
+              _layerInteractionManager.showRotationHelperLineUi) {
         _helperLineCtrl.add(null);
       }
     }
@@ -611,14 +618,7 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack> {
           children: [
             if (_cutOutsideImageArea)
               ClipPath(
-                clipper: _ImageBoundsClipper(
-                  imgRatio: _transformConfigs?.cropRect.size.aspectRatio ??
-                      widget.transformHelper.mainImageSize.aspectRatio,
-                  is90DegRotated: _transformConfigs?.is90DegRotated ?? false,
-                  isOval: _transformConfigs?.isOvalCropper ??
-                      widget.configs.cropRotateEditor.initialCropMode ==
-                          CropMode.oval,
-                ),
+                clipper: _imageBoundsClipper(),
                 child: layerStack,
               )
             else
@@ -705,6 +705,19 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack> {
 
   // ──────────── Helper Lines ────────────────────────────────────
 
+  /// Clipper that restricts a child to the letterboxed image area (the region
+  /// actually covered by the image inside the body), so overlays don't paint
+  /// over the surrounding black/white background.
+  _ImageBoundsClipper _imageBoundsClipper() {
+    return _ImageBoundsClipper(
+      imgRatio: _transformConfigs?.cropRect.size.aspectRatio ??
+          widget.transformHelper.mainImageSize.aspectRatio,
+      is90DegRotated: _transformConfigs?.is90DegRotated ?? false,
+      isOval: _transformConfigs?.isOvalCropper ??
+          widget.configs.cropRotateEditor.initialCropMode == CropMode.oval,
+    );
+  }
+
   Widget _buildHelperLines() {
     if (!_layerInteractionManager.showHelperLines) {
       return const SizedBox.shrink();
@@ -720,9 +733,7 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack> {
           return StreamBuilder<void>(
             stream: _helperLineCtrl.stream,
             builder: (context, snapshot) {
-              final scale = _editorScaleFactor;
-              final offset = _editorScaleOffset;
-              final screenSize = _editorSize;
+              final scale = _viewerScaleFactor;
               final editorBodySize = _editorBodySize;
 
               if (helperLines.isDisabledAtZoom && scale > 1) {
@@ -731,50 +742,59 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack> {
 
               final isRemoval = _layerInteractionManager.hoverRemoveBtn;
 
-              return Transform.translate(
-                offset: offset,
-                child: Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    if (helperLines.showVerticalLine)
-                      _buildHelperLine(
-                        key: const ValueKey('Screen-Vertical-Guide-Line'),
-                        width:
-                            _layerInteractionManager.showVerticalHelperLine &&
-                                    !isRemoval
-                                ? strokeWidth
-                                : 0,
-                        height: screenSize.height * scale,
-                        left: editorBodySize.width / 2 * scale,
-                        top: 0,
-                        color: helperLines.style.verticalColor,
-                      ),
-                    if (helperLines.showHorizontalLine)
-                      _buildHelperLine(
-                        key: const ValueKey('Screen-Horizontal-Guide-Line'),
-                        width: screenSize.width * scale,
-                        height:
-                            _layerInteractionManager.showHorizontalHelperLine &&
-                                    !isRemoval
-                                ? strokeWidth
-                                : 0,
-                        left: 0,
-                        top: editorBodySize.height / 2 * scale,
-                        color: helperLines.style.horizontalColor,
-                        margin: widget.configs.layerInteraction
-                                .hideToolbarOnInteraction
-                            ? EdgeInsets.only(
-                                top: widget.appBarHeight,
-                                bottom: widget.bottomBarHeight,
-                              )
-                            : null,
-                      ),
-                    if (helperLines.showRotateLine)
-                      _buildRotateLine(
-                          scale, screenSize.height * 2, strokeWidth),
-                    if (helperLines.showLayerAlignLine)
-                      ..._buildLayerAlignLines(scale, screenSize, strokeWidth),
-                  ],
+              // The viewer already applies zoom+pan, so everything here is in
+              // content coordinates. Stroke width and line length are divided
+              // by the viewer scale so they stay visually constant; lines are
+              // made several times the body size so they still reach the edges
+              // when the view is zoomed out or panned.
+              final thin = strokeWidth / scale;
+              final spanHeight = editorBodySize.height / scale * 3;
+              final spanWidth = editorBodySize.width / scale * 3;
+              final centerX = editorBodySize.width / 2;
+              final centerY = editorBodySize.height / 2;
+
+              // Clip to the letterboxed image area so the guides never paint
+              // over the black/white background around the image.
+              return SizedBox(
+                width: editorBodySize.width,
+                height: editorBodySize.height,
+                child: ClipPath(
+                  clipper: _imageBoundsClipper(),
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      if (helperLines.showVerticalLine)
+                        _buildHelperLine(
+                          key: const ValueKey('Screen-Vertical-Guide-Line'),
+                          width:
+                              _layerInteractionManager.showVerticalHelperLine &&
+                                      !isRemoval
+                                  ? thin
+                                  : 0,
+                          height: spanHeight,
+                          left: centerX - thin / 2,
+                          top: centerY - spanHeight / 2,
+                          color: helperLines.style.verticalColor,
+                        ),
+                      if (helperLines.showHorizontalLine)
+                        _buildHelperLine(
+                          key: const ValueKey('Screen-Horizontal-Guide-Line'),
+                          width: spanWidth,
+                          height: _layerInteractionManager
+                                      .showHorizontalHelperLine &&
+                                  !isRemoval
+                              ? thin
+                              : 0,
+                          left: centerX - spanWidth / 2,
+                          top: centerY - thin / 2,
+                          color: helperLines.style.horizontalColor,
+                        ),
+                      if (helperLines.showRotateLine)
+                        _buildRotateLine(scale, strokeWidth),
+                      if (helperLines.showLayerAlignLine)
+                        ..._buildLayerAlignLines(scale, strokeWidth),
+                    ],
+                  ),
                 ),
               );
             },
@@ -807,10 +827,18 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack> {
     );
   }
 
-  Widget _buildRotateLine(double scale, double height, double strokeWidth) {
+  Widget _buildRotateLine(double scale, double strokeWidth) {
+    // Content-space position; the viewer applies the zoom+pan. Stroke and
+    // length are scale-compensated to stay visually constant. The base shape
+    // is a *horizontal* bar so that at 0° rotation the guide runs along the
+    // object's horizontal axis (a "level" line), then rotates with the
+    // object's snapped angle. Length uses the longest body side so the line
+    // spans the viewport at any rotation.
+    final thin = strokeWidth / scale;
+    final length = _editorBodySize.longestSide / scale * 3;
     return Positioned(
-      left: _layerInteractionManager.rotationHelperLineX * scale,
-      top: _layerInteractionManager.rotationHelperLineY * scale,
+      left: _layerInteractionManager.rotationHelperLineX,
+      top: _layerInteractionManager.rotationHelperLineY,
       child: FractionalTranslation(
         translation: const Offset(-0.5, -0.5),
         child: Transform.rotate(
@@ -818,11 +846,11 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack> {
           child: AnimatedContainer(
             key: const ValueKey('Rotation-Guide-Line'),
             duration: const Duration(milliseconds: 100),
-            width: _layerInteractionManager.showRotationHelperLine &&
+            width: length,
+            height: _layerInteractionManager.showRotationHelperLineUi &&
                     !_layerInteractionManager.hoverRemoveBtn
-                ? strokeWidth
+                ? thin
                 : 0,
-            height: height,
             color: _helperLines.style.rotateColor,
           ),
         ),
@@ -830,20 +858,22 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack> {
     );
   }
 
-  List<Widget> _buildLayerAlignLines(
-      double scale, Size screenSize, double strokeWidth) {
+  List<Widget> _buildLayerAlignLines(double scale, double strokeWidth) {
     final editorCenter = _editorBodySize / 2;
-    final halfStroke = strokeWidth / 2;
+    // Content-space positions; the viewer applies zoom+pan. Stroke and length
+    // are scale-compensated to stay visually constant across zoom levels.
+    final thin = strokeWidth / scale;
+    final halfStroke = thin / 2;
+    final spanHeight = _editorBodySize.height / scale * 3;
+    final spanWidth = _editorBodySize.width / scale * 3;
 
-    final verticalOffset = (editorCenter.width +
-            _layerInteractionManager.verticalGuideOffset.dx -
-            halfStroke) *
-        scale;
+    final verticalOffset = editorCenter.width +
+        _layerInteractionManager.verticalGuideOffset.dx -
+        halfStroke;
 
-    final horizontalOffset = (editorCenter.height +
-            _layerInteractionManager.horizontalGuideOffset.dy -
-            halfStroke) *
-        scale;
+    final horizontalOffset = editorCenter.height +
+        _layerInteractionManager.horizontalGuideOffset.dy -
+        halfStroke;
 
     final isRemoval = _layerInteractionManager.hoverRemoveBtn;
     final showHorizontal =
@@ -855,18 +885,18 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack> {
       if (showHorizontal)
         _buildHelperLine(
           key: const ValueKey('Horizontal-Guide-Line'),
-          width: screenSize.width * scale,
-          height: strokeWidth,
+          width: spanWidth,
+          height: thin,
           top: horizontalOffset,
-          left: 0,
+          left: editorCenter.width - spanWidth / 2,
           color: _helperLines.style.layerAlignColor,
         ),
       if (showVertical)
         _buildHelperLine(
           key: const ValueKey('Vertical-Guide-Line'),
-          width: strokeWidth,
-          height: screenSize.height * scale,
-          top: 0,
+          width: thin,
+          height: spanHeight,
+          top: editorCenter.height - spanHeight / 2,
           left: verticalOffset,
           color: _helperLines.style.layerAlignColor,
         ),

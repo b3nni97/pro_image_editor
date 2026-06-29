@@ -359,6 +359,7 @@ class BlurEditorState extends State<BlurEditor>
                       if (blurEditorConfigs.showLayers && layers != null)
                         blurEditorConfigs.enableInteractiveLayers
                             ? InteractiveLayerStack(
+                                enableHero: true,
                                 configs: configs,
                                 callbacks: callbacks,
                                 layers: _mutableLayers,
@@ -376,6 +377,8 @@ class BlurEditorState extends State<BlurEditor>
                                     blurEditorConfigs.style.background,
                                 onLayersChanged: () {
                                   _layersModified = true;
+                                  initConfigs.onLayerTransformChanged
+                                      ?.call(_mutableLayers);
                                 },
                                 onBeforeLayerChange: _useGlobalHistory
                                     ? () {

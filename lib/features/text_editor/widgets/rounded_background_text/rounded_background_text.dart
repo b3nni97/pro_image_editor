@@ -25,7 +25,6 @@ class RoundedBackgroundText extends StatelessWidget {
     this.onHitTestResult,
     required this.maxTextWidth,
     this.cursorWidth = 0,
-    this.enableHitBoxCorrection = false,
   }) : text = TextSpan(text: text, style: style);
 
   /// Creates a [RoundedBackgroundText] widget with rich text using
@@ -41,11 +40,7 @@ class RoundedBackgroundText extends StatelessWidget {
     this.onHitTestResult,
     required this.maxTextWidth,
     this.cursorWidth = 0,
-    this.enableHitBoxCorrection = false,
   });
-
-  /// A flag to enable or disable hitBox correction for the text.
-  final bool enableHitBoxCorrection;
 
   /// The text content to be displayed, supporting rich formatting through
   /// [InlineSpan].
@@ -86,10 +81,6 @@ class RoundedBackgroundText extends StatelessWidget {
       textWidthBasis: defaultTextStyle.textWidthBasis,
       textHeightBehavior: defaultTextStyle.textHeightBehavior,
     );
-    double height = painter.preferredLineHeight;
-
-    double horizontalSpace = enableHitBoxCorrection ? height * 0.3 : 0;
-    double verticalSpace = enableHitBoxCorrection ? height * 0.1 : 0;
 
     return LayoutBuilder(builder: (context, constraints) {
       painter.layout(maxWidth: maxTextWidth);
@@ -103,11 +94,10 @@ class RoundedBackgroundText extends StatelessWidget {
           textAlign: align,
           cursorWidth: cursorWidth,
           textDirection: Directionality.of(context),
-          hitBoxCorrectionOffset: Offset(horizontalSpace, verticalSpace),
         ),
         size: Size(
-          painter.width.clamp(0, constraints.maxWidth) + horizontalSpace * 2,
-          painter.height.clamp(0, constraints.maxHeight) + verticalSpace * 2,
+          painter.width.clamp(0, constraints.maxWidth),
+          painter.height.clamp(0, constraints.maxHeight),
         ),
       );
     });
@@ -124,11 +114,6 @@ class RoundedBackgroundText extends StatelessWidget {
           ColorProperty('backgroundColor', backgroundColor, defaultValue: null))
       ..add(DoubleProperty('maxTextWidth', maxTextWidth))
       ..add(DoubleProperty('cursorWidth', cursorWidth, defaultValue: 0))
-      ..add(FlagProperty(
-        'enableHitBoxCorrection',
-        value: enableHitBoxCorrection,
-        ifTrue: 'hitBoxCorrection enabled',
-      ))
       ..add(FlagProperty(
         'hasOnHitTestResult',
         value: onHitTestResult != null,

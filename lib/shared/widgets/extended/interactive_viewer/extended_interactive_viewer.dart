@@ -181,6 +181,10 @@ class ExtendedInteractiveViewerState extends State<ExtendedInteractiveViewer>
   /// Gets the current transform matrix.
   Matrix4 get transformMatrix4 => _transformCtrl.value;
 
+  /// The initial (fit / default) transform the viewer starts at and resets to.
+  /// Used to compute the user's zoom/pan *relative* to the default view.
+  Matrix4 get initialMatrix4 => widget.initialMatrix4 ?? Matrix4.identity();
+
   /// Sets the transform matrix.
   set transformMatrix4(Matrix4 value) => _transformCtrl.value = value;
 

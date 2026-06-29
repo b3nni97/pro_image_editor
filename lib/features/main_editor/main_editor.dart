@@ -12,6 +12,7 @@ import '/core/mixins/converted_configs.dart';
 import '/core/mixins/editor_callbacks_mixin.dart';
 import '/core/mixins/editor_configs_mixin.dart';
 import '/core/models/styles/draggable_sheet_style.dart';
+import '/core/models/transform_helper.dart';
 import '/core/services/gesture_manager.dart';
 import '/core/services/mouse_service.dart';
 import '/features/main_editor/widgets/main_editor_appbar.dart';
@@ -20,6 +21,7 @@ import '/features/main_editor/widgets/main_editor_background_video.dart';
 import '/features/main_editor/widgets/main_editor_bottombar.dart';
 
 import '/shared/widgets/layer/interactive_layer_stack.dart';
+import '/shared/widgets/layer/services/hero_flight_overrides.dart';
 
 import '/pro_image_editor.dart';
 import '/shared/mixins/editor_zoom.mixin.dart';
@@ -532,6 +534,20 @@ class ProImageEditorState extends State<ProImageEditor>
   /// Indicates whether a sub-editor is in the process of closing.
   bool isSubEditorClosing = false;
 
+  /// Which sub-editor is currently open (from open until its close transition
+  /// is fully dismissed).
+  ///
+  /// Used to keep Hero animations on the main-editor layers enabled for the
+  /// *entire* TextEditor session — open, while open, and close. Enabling them
+  /// only at the closing frame caused a one-frame flash where the destination
+  /// layer painted at its final spot before the hero flight engaged.
+  ///
+  /// Scoped to the text editor on purpose: the tune/filter/blur/paint editors
+  /// render their own copies of the (hero-tagged) layers via
+  /// `backgroundImageOverride`, so enabling main-page heroes during *their*
+  /// session would create duplicate-tag conflicts.
+  SubEditor _activeSubEditor = SubEditor.unknown;
+
   /// Whether a dialog is currently open.
   bool _isDialogOpen = false;
 
@@ -882,6 +898,69 @@ class ProImageEditorState extends State<ProImageEditor>
     _controllers.uiLayerCtrl.add(null);
   }
 
+  /// Returns the [ExtendedInteractiveViewer] that currently holds the live
+  /// zoom/pan state.
+  ///
+  /// When a sub-editor is embedded (e.g. via
+  /// [MainEditorConfigs.initialSubEditor]) and mounted, that sub-editor
+  /// renders its own interactive viewer, so the
+  /// zoom the user applied lives there — not in the main editor's viewer.
+  /// In all other cases the main editor's viewer is the active one.
+  ///
+  /// When a sub-editor reuses the main editor's content via
+  /// `backgroundImageOverride`, it does not build its own viewer, so its
+  /// `interactiveViewerKey.currentState` is `null` and we correctly fall
+  /// through to [interactiveViewer].
+  ExtendedInteractiveViewerState? get _activeInteractiveViewer {
+    return tuneEditor.currentState?.interactiveViewerKey.currentState ??
+        filterEditor.currentState?.interactiveViewerKey.currentState ??
+        interactiveViewer.currentState;
+  }
+
+  /// Adjusts [layer]'s offset and scale so that — when added while the active
+  /// interactive viewer is zoomed/panned — it lands at the center of the
+  /// *currently visible* area at the correct visual size, instead of the
+  /// absolute image center.
+  ///
+  /// Reads the active viewer via [_activeInteractiveViewer] so it works both
+  /// from the main editor and from an embedded sub-editor (TuneEditor,
+  /// FilterEditor).
+  void _applyViewerZoomCorrection(
+    Layer layer, {
+    bool autoCorrectZoomOffset = true,
+    bool autoCorrectZoomScale = true,
+  }) {
+    final viewer = _activeInteractiveViewer;
+    if (viewer == null) return;
+
+    final scaleDelta = viewer.scaleFactor;
+
+    if (autoCorrectZoomScale) {
+      layer.scale /= scaleDelta;
+    }
+    if (autoCorrectZoomOffset) {
+      final bodySize = sizesManager.bodySize;
+      final bodyCenter = Offset(bodySize.width / 2, bodySize.height / 2);
+
+      // Place the layer at the content currently under the *frame center* —
+      // the screen position where the image center sits in the default (fit)
+      // view. Computing this relative to the initial matrix makes it correct
+      // regardless of letterboxing/insets:
+      //  • un-zoomed → the image center (the layer maps through the same fit
+      //    transform as the image, so offset stays 0),
+      //  • zoomed/panned → the center of what's currently visible.
+      // The previous absolute formula treated the fit transform itself as
+      // "zoom", which pushed un-zoomed layers off the image center.
+      final frameScreenPoint =
+          MatrixUtils.transformPoint(viewer.initialMatrix4, bodyCenter);
+      final contentPoint = MatrixUtils.transformPoint(
+        Matrix4.inverted(viewer.transformMatrix4),
+        frameScreenPoint,
+      );
+      layer.offset += contentPoint - bodyCenter;
+    }
+  }
+
   /// Add a new layer to the image editor.
   ///
   /// This method adds a new layer to the image editor and updates the editing
@@ -928,27 +1007,11 @@ class ProImageEditorState extends State<ProImageEditor>
 
     correctOffset();
 
-    final viewer = interactiveViewer.currentState;
-    if (viewer != null) {
-      final scaleDelta = viewer.scaleFactor;
-
-      if (autoCorrectZoomScale) {
-        layer.scale /= scaleDelta;
-      }
-      if (autoCorrectZoomOffset) {
-        final bodySize = sizesManager.bodySize;
-
-        final scaledSize = bodySize * scaleDelta;
-
-        final zoomOffset = Offset(
-              scaledSize.width - bodySize.width,
-              scaledSize.height - bodySize.height,
-            ) /
-            2;
-
-        layer.offset -= (viewer.offset + zoomOffset) / viewer.scaleFactor;
-      }
-    }
+    _applyViewerZoomCorrection(
+      layer,
+      autoCorrectZoomOffset: autoCorrectZoomOffset,
+      autoCorrectZoomScale: autoCorrectZoomScale,
+    );
 
     addHistory(newLayer: layer, blockCaptureScreenshot: blockCaptureScreenshot);
 
@@ -1388,7 +1451,7 @@ class ProImageEditorState extends State<ProImageEditor>
     bool beforeShowVerticalHelperLine =
         layerInteractionManager.showVerticalHelperLine;
     bool beforeShowRotationHelperLine =
-        layerInteractionManager.showRotationHelperLine;
+        layerInteractionManager.showRotationHelperLineUi;
 
     void checkUpdateHelperLineUI() {
       if (beforeShowHorizontalHelperLine !=
@@ -1396,7 +1459,7 @@ class ProImageEditorState extends State<ProImageEditor>
           beforeShowVerticalHelperLine !=
               layerInteractionManager.showVerticalHelperLine ||
           beforeShowRotationHelperLine !=
-              layerInteractionManager.showRotationHelperLine) {
+              layerInteractionManager.showRotationHelperLineUi) {
         _controllers.helperLineCtrl.add(null);
       }
     }
@@ -1511,6 +1574,30 @@ class ProImageEditorState extends State<ProImageEditor>
     setState(() {});
   }
 
+  /// Syncs layer transform properties (offset, rotation, scale, flip) from
+  /// sub-editor copies back to [activeLayers].
+  ///
+  /// Sub-editors (TuneEditor, FilterEditor, BlurEditor) work on layer
+  /// *copies*.  When a layer is moved/scaled/rotated in the sub-editor,
+  /// [activeLayers] becomes stale.  Since the backgroundOverride (built
+  /// from [activeLayers]) also renders Hero-tagged layers, both Hero
+  /// instances must agree on position to avoid a "jumping" hero flight.
+  void _syncLayerTransforms(List<Layer> subEditorLayers) {
+    for (final subLayer in subEditorLayers) {
+      final mainIdx =
+          activeLayers.indexWhere((l) => l.id == subLayer.id);
+      if (mainIdx >= 0) {
+        final mainLayer = activeLayers[mainIdx];
+        mainLayer
+          ..offset = subLayer.offset
+          ..rotation = subLayer.rotation
+          ..scale = subLayer.scale
+          ..flipX = subLayer.flipX
+          ..flipY = subLayer.flipY;
+      }
+    }
+  }
+
   /// Handles tap events on a text layer.
   ///
   /// This method opens a text editor for the specified text layer and updates
@@ -1526,6 +1613,8 @@ class ProImageEditorState extends State<ProImageEditor>
       updatedLayer = await customCallback(
           _layerCopyManager.copyLayer(layerData) as TextLayer);
     } else {
+      // The TextEditor renders at full size (scaleFactor=1.0) for editing
+      // comfort. The Hero FittedBox shuttle handles the size transition.
       updatedLayer = await openPage(
         TextEditor(
           key: textEditor,
@@ -1534,9 +1623,7 @@ class ProImageEditorState extends State<ProImageEditor>
           configs: configs,
           theme: _theme,
           callbacks: callbacks,
-          scaleFactor: textEditorConfigs.enableMainEditorZoomFactor
-              ? interactiveViewer.currentState?.scaleFactor ?? 1.0
-              : 1.0,
+          scaleFactor: 1.0,
           imageSize: sizesManager.decodedImageSize,
         ),
 
@@ -1562,12 +1649,35 @@ class ProImageEditorState extends State<ProImageEditor>
       ..meta = layerData.meta;
 
     if (updatedLayer.text.isEmpty) {
+      // The TextEditor published an override before popping; clear it since the
+      // layer is being removed rather than swapped (otherwise it would leak).
+      HeroFlightOverrides.instance.clear(layerData.id);
       removeLayer(layerData);
       return;
     }
 
-    int i = activeLayers.indexWhere((element) => element.id == layerData.id);
+    // Show the *edited* content (keyed by id) so both the hero shuttle and the
+    // rendered layer use the new text/size during the closing flight. (Usually
+    // already set by the TextEditor before the pop; this keeps it in sync.)
+    HeroFlightOverrides.instance.set(layerData.id, updatedLayer);
+
+    // Wait for the pop flight to finish before swapping the real layer in.
+    while (isSubEditorOpen && mounted) {
+      await WidgetsBinding.instance.endOfFrame;
+    }
+    if (!mounted) return;
+
+    final i = activeLayers.indexWhere((element) => element.id == layerData.id);
     replaceLayer(index: i, layer: updatedLayer);
+
+    // Keep the override a few frames after the swap so the (copied) layer in
+    // the embedded editor re-syncs to the new content before we stop
+    // overriding — otherwise the old text briefly reappears on handover.
+    for (var frame = 0; frame < 3 && mounted; frame++) {
+      await WidgetsBinding.instance.endOfFrame;
+    }
+    HeroFlightOverrides.instance.clear(layerData.id);
+    if (mounted) setState(() {});
   }
 
   void _editPaintLayer(PaintLayer layer) async {
@@ -1633,8 +1743,6 @@ class ProImageEditorState extends State<ProImageEditor>
     bool wasSubEditorOpen = isSubEditorOpen;
     isSubEditorOpen = true;
 
-    setState(() {});
-
     SubEditor editorName = SubEditor.unknown;
 
     if (T is List<PaintLayer> || page is PaintEditor) {
@@ -1652,6 +1760,13 @@ class ProImageEditorState extends State<ProImageEditor>
     } else if (page is EmojiEditor) {
       editorName = SubEditor.emoji;
     }
+
+    // Record which editor is open *before* the rebuild so the main-editor
+    // layers build with the correct enableHero value from the first frame
+    // (the TextEditor keeps layer heroes enabled for its whole session).
+    _activeSubEditor = editorName;
+
+    setState(() {});
 
     mainEditorCallbacks?.handleOpenSubEditor(editorName);
 
@@ -1682,16 +1797,25 @@ class ProImageEditorState extends State<ProImageEditor>
               // Reset zoom of underlying sub-editors now that the new
               // editor fully covers them. This ensures they start at
               // default scale/translation when the user returns.
-              tuneEditor.currentState?.interactiveViewerKey.currentState
-                  ?.reset();
-              filterEditor.currentState?.interactiveViewerKey.currentState
-                  ?.reset();
-              paintEditor.currentState?.resetZoom();
+              //
+              // Skip this for the TextEditor: its route is non-opaque and
+              // its background is semi-transparent, so the zoomed editor
+              // stays visible behind it. Resetting here would snap the
+              // image back to scale 1 mid-overlay (a visible "jump") and
+              // discard the zoom the user wants the new text placed at.
+              if (editorName != SubEditor.text) {
+                tuneEditor.currentState?.interactiveViewerKey.currentState
+                    ?.reset();
+                filterEditor.currentState?.interactiveViewerKey.currentState
+                    ?.reset();
+                paintEditor.currentState?.resetZoom();
+              }
               break;
             case AnimationStatus.dismissed:
               setState(() {
                 isSubEditorOpen = false;
                 isSubEditorClosing = false;
+                _activeSubEditor = SubEditor.unknown;
                 if (!_pageOpenCompleter.isCompleted) {
                   _pageOpenCompleter.complete(true);
                 }
@@ -1707,6 +1831,10 @@ class ProImageEditorState extends State<ProImageEditor>
               break;
             case AnimationStatus.reverse:
               isSubEditorClosing = true;
+              // Hero stays enabled for the whole TextEditor session via
+              // _activeSubEditor (set on open), so no per-frame toggle is
+              // needed here — that toggle caused a one-frame flash of the
+              // destination layer before the flight engaged.
               mainEditorCallbacks?.handleStartCloseSubEditor(editorName);
 
               break;
@@ -1855,7 +1983,7 @@ class ProImageEditorState extends State<ProImageEditor>
   /// layers on the image.
   void openTextEditor({
     /// Small Duration is important for a smooth hero animation
-    Duration duration = const Duration(milliseconds: 150),
+    Duration duration = const Duration(milliseconds: 250),
   }) async {
     await _commitCurrentSubEditorState();
     final customCallback = mainEditorCallbacks?.onCreateTextLayer;
@@ -1864,19 +1992,89 @@ class ProImageEditorState extends State<ProImageEditor>
     if (customCallback != null) {
       layer = await customCallback();
     } else {
+      // ── Placeholder layer ──────────────────────────────────────
+      // Insert an invisible placeholder so a Hero widget with a
+      // matching tag exists on the main-editor page during *both*
+      // the push and pop transitions of the text editor.
+      final placeholder = TextLayer(
+        text: '',
+        color: const Color(0x00000000),
+        background: const Color(0x00000000),
+      );
+      // Position the placeholder at the same zoom-corrected spot the final
+      // text layer will occupy. This way the Hero flight — on both push and
+      // pop — flies to/from the currently visible (zoomed) location instead
+      // of the absolute image center.
+      _applyViewerZoomCorrection(placeholder);
+      activeLayers.add(placeholder);
+      setState(() {});
+
+      // Wait for the frame to fully render (build + layout + paint)
+      // so the placeholder's Hero is discoverable by the Hero framework.
+      await WidgetsBinding.instance.endOfFrame;
+
       layer = await openPage(
         TextEditor(
           key: textEditor,
+          heroTag: placeholder.id,
           configs: configs,
           theme: _theme,
           callbacks: callbacks,
           scaleFactor: textEditorConfigs.enableMainEditorZoomFactor
-              ? interactiveViewer.currentState?.scaleFactor ?? 1.0
+              ? _activeInteractiveViewer?.scaleFactor ?? 1.0
               : 1.0,
           imageSize: sizesManager.decodedImageSize,
         ),
         duration: duration,
       );
+
+      if (layer == null || !mounted) {
+        // User cancelled – remove the placeholder.
+        activeLayers.remove(placeholder);
+        setState(() {});
+        return;
+      }
+
+      // Reuse the placeholder's ID **and** key so the LayerWidget's
+      // Hero tag stays identical during the closing animation.
+      layer
+        ..id = placeholder.id
+        ..key = placeholder.key;
+
+      // Place the text at the center of the currently visible (zoomed)
+      // area at the correct visual size. The placeholder/replace flow
+      // bypasses [addLayer], so apply the same zoom correction here using
+      // whichever viewer is currently active (main or embedded sub-editor).
+      _applyViewerZoomCorrection(layer);
+
+      // ── Swap in the real layer *before* the pop flight ─────────
+      // Navigator.push resolves the moment pop() is called, i.e. right as
+      // the reverse transition begins. We must put the real (visible) text
+      // in place *now* so the closing Hero has a content-ful destination to
+      // fly to — exactly like the edit-existing flow, where the original
+      // layer stays on the page during the pop.
+      //
+      // Waiting until the pop finished (the previous behaviour) left the
+      // transparent/empty placeholder as the Hero target for the whole
+      // flight, so no animation was visible. Swapping now causes no content
+      // flash because the placeholder was invisible to begin with.
+      if (!mounted) return;
+
+      // Replace in-place so the widget tree sees the same list index
+      // and GlobalKey – this avoids destroying/recreating the Hero.
+      final idx = activeLayers.indexOf(placeholder);
+      if (idx >= 0) {
+        activeLayers[idx] = layer;
+      } else {
+        activeLayers.add(layer);
+      }
+
+      addHistory(layers: activeLayers);
+      _selectLayerAfterHeroIsDone(layer.id);
+
+      setState(() {});
+      mainEditorCallbacks?.handleUpdateUI();
+      return;
     }
 
     if (layer == null || !mounted) return;
@@ -3262,7 +3460,7 @@ class ProImageEditorState extends State<ProImageEditor>
       bottomBarHeight: sizesManager.bottomBarHeight,
       overlayColor: kImageEditorBackground,
       isInteractive: !isSubEditorOpen,
-      enableHero: true,
+      enableHero: !isSubEditorOpen || _activeSubEditor == SubEditor.text,
       enableHelperLines: true,
       enableRemoveArea: true,
       heroResetStream: _controllers.layerHeroResetCtrl.stream,
@@ -3318,8 +3516,6 @@ class ProImageEditorState extends State<ProImageEditor>
       },
     );
   }
-
-
 
   Widget _buildVideoSetupSpinner() {
     return configs.videoEditor.widgets.videoSetupLoadingIndicator ??
@@ -3410,6 +3606,7 @@ class ProImageEditorState extends State<ProImageEditor>
             appliedTuneAdjustments: stateManager.activeTuneAdjustments,
             backgroundImageOverride: backgroundOverride,
             onTextLayerTap: _onTextLayerTap,
+            onLayerTransformChanged: _syncLayerTransforms,
             historyScope: _editorHistoryScope,
           ),
         );
@@ -3433,6 +3630,7 @@ class ProImageEditorState extends State<ProImageEditor>
             appliedFilters: stateManager.activeFilters,
             appliedTuneAdjustments: stateManager.activeTuneAdjustments,
             backgroundImageOverride: backgroundOverride,
+            onLayerTransformChanged: _syncLayerTransforms,
             historyScope: _editorHistoryScope,
           ),
         );
@@ -3456,6 +3654,7 @@ class ProImageEditorState extends State<ProImageEditor>
             appliedFilters: stateManager.activeFilters,
             appliedTuneAdjustments: stateManager.activeTuneAdjustments,
             backgroundImageOverride: backgroundOverride,
+            onLayerTransformChanged: _syncLayerTransforms,
             historyScope: _editorHistoryScope,
           ),
         );

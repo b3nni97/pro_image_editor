@@ -23,7 +23,6 @@ class RoundedBackgroundTextPainter extends CustomPainter {
     required this.onHitTestResult,
     required this.textAlign,
     required this.textDirection,
-    required this.hitBoxCorrectionOffset,
     this.cursorWidth = 0.0,
   });
 
@@ -51,9 +50,6 @@ class RoundedBackgroundTextPainter extends CustomPainter {
 
   /// The radius used for rounding the corners of the outer background shape.
   final double outerRadius;
-
-  /// An offset used to correct the position of the hitbox.
-  final Offset hitBoxCorrectionOffset;
 
   Path _buildBackgroundPath() {
     final metrics = painter.computeLineMetrics();
@@ -421,9 +417,7 @@ class RoundedBackgroundTextPainter extends CustomPainter {
     final painter = Paint()..color = backgroundColor;
 
     _cachedPath = _buildBackgroundPath();
-    canvas
-      ..translate(hitBoxCorrectionOffset.dx, hitBoxCorrectionOffset.dy)
-      ..drawPath(_cachedPath!, painter);
+    canvas.drawPath(_cachedPath!, painter);
 
     this.painter.paint(canvas, Offset.zero);
   }
@@ -434,7 +428,7 @@ class RoundedBackgroundTextPainter extends CustomPainter {
   bool? hitTest(Offset position) {
     final path = _cachedPath ?? _buildBackgroundPath();
 
-    bool hasHit = path.contains(position - hitBoxCorrectionOffset);
+    bool hasHit = path.contains(position);
 
     onHitTestResult?.call(hasHit);
     return hasHit;
@@ -452,7 +446,6 @@ class RoundedBackgroundTextPainter extends CustomPainter {
             painter.preferredLineHeight ||
         oldDelegate.innerRadius != innerRadius ||
         oldDelegate.textAlign != textAlign ||
-        oldDelegate.hitBoxCorrectionOffset != hitBoxCorrectionOffset ||
         oldDelegate.textDirection != textDirection ||
         oldDelegate.outerRadius != outerRadius;
 
@@ -472,7 +465,6 @@ class RoundedBackgroundTextPainter extends CustomPainter {
         other.textAlign == textAlign &&
         other.textDirection == textDirection &&
         other.cursorWidth == cursorWidth &&
-        other.hitBoxCorrectionOffset == hitBoxCorrectionOffset &&
         other.innerRadius == innerRadius &&
         other.outerRadius == outerRadius;
   }
@@ -485,7 +477,6 @@ class RoundedBackgroundTextPainter extends CustomPainter {
         textAlign.hashCode ^
         textDirection.hashCode ^
         cursorWidth.hashCode ^
-        hitBoxCorrectionOffset.hashCode ^
         innerRadius.hashCode ^
         outerRadius.hashCode;
   }

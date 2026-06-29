@@ -87,6 +87,12 @@ class LayerInteractionManager {
   /// helper lines or alignment guides do not accumulate drift.
   final Map<String, Offset> _rawLayerOffsets = {};
 
+  /// The snapped layer offset on each axis while a center snap is active.
+  /// Used at gesture end to re-apply the snap if a tiny finger-lift jitter
+  /// nudged the layer just off the line it had snapped to.
+  final Map<String, double> _snapHoldX = {};
+  final Map<String, double> _snapHoldY = {};
+
   /// X-coordinate where snapping started.
   double snapStartPosX = 0;
 
@@ -99,8 +105,19 @@ class LayerInteractionManager {
   /// Flag indicating if horizontal helper lines should be displayed.
   bool showHorizontalHelperLine = false;
 
-  /// Flag indicating if rotation helper lines should be displayed.
+  /// Flag indicating that the rotation snap is currently *locked* to a snap
+  /// angle. This drives the actual snapping behaviour and is intentionally
+  /// independent of whether the guide line is shown.
   bool showRotationHelperLine = false;
+
+  /// Whether the rotation guide *line* should be painted.
+  ///
+  /// Decoupled from [showRotationHelperLine] (the snap lock): the rotation
+  /// still snaps silently, but the line only appears once the user has shown
+  /// real rotation intent (see [HelperLineConfigs.rotateLineMinIntentDeg]).
+  /// This keeps the line from flashing during a pure scaling gesture without
+  /// weakening the snap itself.
+  bool showRotationHelperLineUi = false;
 
   /// Whether to show the vertical alignment line for the active layer.
   bool isVerticalGuideVisible = false;
@@ -715,6 +732,7 @@ class LayerInteractionManager {
           // Sync raw offset to snap position so releasing the snap
           // doesn't cause a jump.
           _rawLayerOffsets[layer.id] = layer.offset;
+          _snapHoldX[layer.id] = snapX;
           lastPositionX = LayerLastPosition.center;
         } else {
           showVerticalHelperLine = false;
@@ -738,6 +756,7 @@ class LayerInteractionManager {
           // Sync raw offset to snap position so releasing the snap
           // doesn't cause a jump.
           _rawLayerOffsets[layer.id] = layer.offset;
+          _snapHoldY[layer.id] = snapY;
           lastPositionY = LayerLastPosition.center;
         } else {
           showHorizontalHelperLine = false;
@@ -859,6 +878,15 @@ class LayerInteractionManager {
               helperLineConfigs.showRotateLine &&
               !(editorScaleFactor > 1 && helperLineConfigs.isDisabledAtZoom);
 
+          // Whether the user has rotated enough within this gesture to *show*
+          // the guide line. This gates only the line, not the snap itself —
+          // detail.rotation is the rotation accumulated since gesture start,
+          // so a pure scaling gesture (≈0° net) keeps the line hidden while
+          // the object still snaps silently.
+          final gestureRotationDeg = detail.rotation.abs() * 180 / pi;
+          final hasRotationIntent =
+              gestureRotationDeg >= helperLineConfigs.rotateLineMinIntentDeg;
+
           if (canSnap) {
             const breakFreeDeg = 10.0; // how far to rotate to escape lock
 
@@ -873,6 +901,7 @@ class LayerInteractionManager {
                 // Break free: correct base so rotation continues
                 // smoothly from the snap angle (no visual jump).
                 showRotationHelperLine = false;
+                showRotationHelperLineUi = false;
                 _smoothedRotationSpeed = 0.0;
                 _baseAngleFactor[layer.id] =
                     rotationHelperLineDeg - detail.rotation;
@@ -881,6 +910,7 @@ class LayerInteractionManager {
               } else {
                 // Stay locked at snap angle.
                 layer.rotation = rotationHelperLineDeg;
+                showRotationHelperLineUi = hasRotationIntent;
               }
             } else {
               // ── NOT LOCKED: check if rotation crossed a snap angle ──
@@ -915,8 +945,10 @@ class LayerInteractionManager {
 
               if (crossedSnap) {
                 // Rotation naturally passed through snap angle → LOCK.
+                // The snap always engages; the line only shows with intent.
                 final snapRad = nearestSnapDeg / 180 * pi;
                 showRotationHelperLine = true;
+                showRotationHelperLineUi = hasRotationIntent;
                 rotationHelperLineDeg = snapRad;
                 _snapDetailRotation[layer.id] = detail.rotation;
                 _baseAngleFactor[layer.id] = snapRad - detail.rotation;
@@ -938,6 +970,7 @@ class LayerInteractionManager {
             }
           } else {
             showRotationHelperLine = false;
+            showRotationHelperLineUi = false;
           }
         }
       }
@@ -971,6 +1004,15 @@ class LayerInteractionManager {
 
     double lastRotation = _getLayerSnapLastRotation(layer.id);
 
+    // Rotation applied within this gesture (current angle minus the gesture's
+    // base). Used only to decide whether the guide *line* is shown — the snap
+    // itself always engages, so a scale-dominated handle drag with tiny
+    // incidental rotation still snaps silently without flashing the line.
+    final gestureRotationDeg =
+        (layer.rotation - _getLayerBaseAngle(layer.id)).abs() * 180 / pi;
+    final hasRotationIntent =
+        gestureRotationDeg >= helperLineConfigs.rotateLineMinIntentDeg;
+
     if ((!showRotationHelperLine &&
             ((degHit > 0 && degHit <= hitSpanX && lastRotation < deg) ||
                 (degHit < 45 &&
@@ -996,10 +1038,12 @@ class LayerInteractionManager {
           helperLinesCallbacks?.handleRotateLineHit();
         }
         showRotationHelperLine = true;
+        showRotationHelperLineUi = hasRotationIntent;
       }
       _snapLastRotation[layer.id] = deg;
     } else {
       showRotationHelperLine = false;
+      showRotationHelperLineUi = false;
       _rotationStartedHelper = true;
     }
   }
@@ -1038,6 +1082,9 @@ class LayerInteractionManager {
     _lastRotationTimestamp = DateTime.now();
 
 
+    _snapHoldX.clear();
+    _snapHoldY.clear();
+
     for (Layer layer in selectedLayers) {
       _baseScaleFactor[layer.id] = layer.scale;
       _baseAngleFactor[layer.id] = layer.rotation;
@@ -1073,6 +1120,21 @@ class LayerInteractionManager {
   /// Handles cleanup and resets various flags and states after scaling
   /// interaction ends.
   void onScaleEnd() {
+    // Re-apply an active center snap if the layer only drifted a tiny bit off
+    // it (a finger-lift jitter). If the user genuinely dragged far away from
+    // the snapped line, the difference is large and we leave it as-is.
+    const double snapReleaseTolerance = 20.0;
+    for (final layer in selectedLayersScaleStart) {
+      final holdX = _snapHoldX[layer.id];
+      if (holdX != null && (layer.offset.dx - holdX).abs() <= snapReleaseTolerance) {
+        layer.offset = Offset(holdX, layer.offset.dy);
+      }
+      final holdY = _snapHoldY[layer.id];
+      if (holdY != null && (layer.offset.dy - holdY).abs() <= snapReleaseTolerance) {
+        layer.offset = Offset(layer.offset.dx, holdY);
+      }
+    }
+
     // Clear gesture-mode rendering → content re-renders sharply at final
     // scale/position.
     for (final layer in selectedLayersScaleStart) {
@@ -1086,6 +1148,8 @@ class LayerInteractionManager {
     _snapLastRotation.clear();
     _snapDetailRotation.clear();
     _rawLayerOffsets.clear();
+    _snapHoldX.clear();
+    _snapHoldY.clear();
     _lastLocalFocalPoint = null;
     _smoothedDragSpeed = 0.0;
     _smoothedRotationSpeed = 0.0;
@@ -1097,6 +1161,7 @@ class LayerInteractionManager {
     showHorizontalHelperLine = false;
     showVerticalHelperLine = false;
     showRotationHelperLine = false;
+    showRotationHelperLineUi = false;
     isVerticalGuideVisible = false;
     isHorizontalGuideVisible = false;
     showHelperLines = false;

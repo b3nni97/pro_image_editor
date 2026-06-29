@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 
 import '/core/models/editor_callbacks/text_editor_callbacks.dart';
@@ -28,6 +30,7 @@ class TextEditorInput extends StatefulWidget {
     required this.callbacks,
     required this.configs,
     required this.heroTag,
+    required this.enableHero,
     required this.focusNode,
     required this.i18n,
     required this.selectedTextStyle,
@@ -53,6 +56,11 @@ class TextEditorInput extends StatefulWidget {
 
   /// Optional tag for hero animations during transitions.
   final String? heroTag;
+
+  /// Whether the field participates in the hero flight. When `false` the hero
+  /// uses a non-matching tag and stays inert (no flight), which keeps the real
+  /// field mounted — used for new text while open so the keyboard is reliable.
+  final bool enableHero;
 
   /// The text style applied to the input text.
   final TextStyle selectedTextStyle;
@@ -120,18 +128,87 @@ class _TextEditorInputState extends State<TextEditorInput> {
     final shuttleChild =
         InheritedTheme.captureAll(fromHeroContext, toHero.child);
 
-    return isOpening
-        ? SingleChildScrollView(
-            clipBehavior: Clip.none,
-            scrollDirection: Axis.horizontal,
-            child: IntrinsicWidth(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: widget.maxWidth),
-                child: shuttleChild,
-              ),
+    // Normalize to the shortest equivalent angle in (-π, π] so a layer that
+    // was rotated several full turns (e.g. 720°) doesn't make the hero
+    // shuttle spin around multiple times — it takes the shortest visual path
+    // to straight instead.
+    var layerRotation = (widget.layer?.rotation ?? 0.0) % (2 * pi);
+    if (layerRotation > pi) layerRotation -= 2 * pi;
+    final rotationTween =
+        Tween<double>(begin: layerRotation, end: 0.0);
+
+    final content = isOpening
+        ? IntrinsicWidth(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: widget.maxWidth),
+              child: shuttleChild,
             ),
           )
         : shuttleChild;
+
+    if (layerRotation != 0) {
+      // Use the Layer hero's content and size for the shuttle.
+      // This ensures the shuttle has the exact same proportions
+      // as the layer, eliminating size mismatch at the layer
+      // endpoint.
+      final fromHero = fromHeroContext.widget as Hero;
+      final layerRb = fromHeroContext.findRenderObject() as RenderBox?;
+      final naturalSize = (layerRb != null && layerRb.hasSize)
+          ? layerRb.size
+          : null;
+
+      return AnimatedBuilder(
+        animation: animation,
+        builder: (context, child) {
+          final angle = rotationTween.evaluate(animation);
+
+          // No correction needed when straight.
+          if (angle.abs() < 0.001 || naturalSize == null) {
+            return FittedBox(fit: BoxFit.contain, child: child);
+          }
+
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              final sw = constraints.maxWidth;
+              final sh = constraints.maxHeight;
+
+              final w = naturalSize.width;
+              final h = naturalSize.height;
+
+              final absA = angle.abs();
+              final cosA = cos(absA);
+              final sinA = sin(absA);
+              final aabbW = w * cosA + h * sinA;
+              final aabbH = w * sinA + h * cosA;
+
+              final fittedScale = min(sw / w, sh / h);
+              final neededScale = min(sw / aabbW, sh / aabbH);
+              final correction = neededScale / fittedScale;
+
+              return FittedBox(
+                fit: BoxFit.contain,
+                child: Transform.scale(
+                  scale: correction,
+                  child: Transform.rotate(
+                    angle: angle,
+                    child: child,
+                  ),
+                ),
+              );
+            },
+          );
+        },
+        child: SizedBox.fromSize(
+          size: naturalSize ?? Size.zero,
+          child: fromHero.child,
+        ),
+      );
+    }
+
+    return FittedBox(
+      fit: BoxFit.contain,
+      child: content,
+    );
   }
 
   @override
@@ -164,19 +241,22 @@ class _TextEditorInputState extends State<TextEditorInput> {
   }
 
   Widget _buildInputField() {
+    // When the hero is disabled we use a tag that has no counterpart on the
+    // main editor, so the Hero stays inert (no flight) and the real field is
+    // never unmounted. New text uses this while open (reliable keyboard) and
+    // switches to the real tag only on close, so the text flies into place.
+    final heroTag = widget.enableHero
+        ? (widget.heroTag ?? 'Text-Image-Editor-Empty-Hero')
+        : 'Text-Editor-Inert-No-Hero';
     return Transform.scale(
       scale: widget.scaleFactor,
       child: Hero(
         flightShuttleBuilder: _flightShuttleBuilder,
-        tag: widget.heroTag ?? 'Text-Image-Editor-Empty-Hero',
+        tag: heroTag,
         child: Container(
           padding: widget.configs.style.inputTextFieldPadding,
           decoration: BoxDecoration(
             color: widget.configs.style.inputTextFieldBackground,
-            border: Border.all(
-              color: widget.configs.style.inputTextFieldBorderColor,
-              width: 1,
-            ),
             borderRadius: widget.configs.style.inputTextFieldBorderRadius,
           ),
           child: RoundedBackgroundTextField(
@@ -191,8 +271,9 @@ class _TextEditorInputState extends State<TextEditorInput> {
             },
             onEditingComplete: widget.callbacks?.handleEditingComplete,
             onSubmitted: widget.callbacks?.handleSubmitted,
-            textAlign:
-                widget.textCtrl.text.isEmpty ? TextAlign.center : widget.align,
+            textAlign: widget.textCtrl.text.isEmpty
+                ? TextAlign.center
+                : widget.align,
             configs: widget.configs,
             cursorHeight: widget.textFontSize,
             cursorWidth: widget.cursorWidth,
@@ -212,8 +293,9 @@ class _TextEditorInputState extends State<TextEditorInput> {
               shadows: [],
             ),
 
-            /// If we edit an layer we focus to the textfield after the
-            /// hero animation is done
+            /// New text has no hero flight, so the field stays mounted and can
+            /// autofocus directly. While editing, focus is instead handed over
+            /// from the keep-alive field after the flight, so autofocus is off.
             autofocus: widget.layer == null,
           ),
         ),

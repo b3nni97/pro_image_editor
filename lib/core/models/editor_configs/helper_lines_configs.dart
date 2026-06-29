@@ -15,6 +15,7 @@ class HelperLineConfigs {
     this.showLayerAlignLine = true,
     this.isDisabledAtZoom = false,
     this.releaseThreshold = 10.0,
+    this.rotateLineMinIntentDeg = 5.0,
     this.style = const HelperLineStyle(),
   });
 
@@ -46,6 +47,16 @@ class HelperLineConfigs {
   /// released from a helper line for the snapping effect to be deactivated.
   final double releaseThreshold;
 
+  /// The minimum rotation (in degrees) the user must apply within the current
+  /// gesture before the rotation guide *line* is shown.
+  ///
+  /// This only gates the visual line — the rotation snap itself always
+  /// engages. It prevents the line from flashing during a pure scaling
+  /// gesture (where tiny incidental rotations would otherwise reveal it),
+  /// while the object still snaps cleanly to 45° multiples. Set to `0` to
+  /// show the line on any rotation.
+  final double rotateLineMinIntentDeg;
+
   /// Creates a copy of this `HelperLineConfigs` object with the given fields
   /// replaced with new values.
   ///
@@ -59,6 +70,7 @@ class HelperLineConfigs {
     bool? showLayerAlignLine,
     bool? isDisabledAtZoom,
     double? releaseThreshold,
+    double? rotateLineMinIntentDeg,
     HelperLineStyle? style,
   }) {
     return HelperLineConfigs(
@@ -68,6 +80,8 @@ class HelperLineConfigs {
       showLayerAlignLine: showLayerAlignLine ?? this.showLayerAlignLine,
       isDisabledAtZoom: isDisabledAtZoom ?? this.isDisabledAtZoom,
       releaseThreshold: releaseThreshold ?? this.releaseThreshold,
+      rotateLineMinIntentDeg:
+          rotateLineMinIntentDeg ?? this.rotateLineMinIntentDeg,
       style: style ?? this.style,
     );
   }

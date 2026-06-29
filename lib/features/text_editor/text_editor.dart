@@ -13,6 +13,7 @@ import '/features/text_editor/widgets/text_editor_color_picker.dart';
 import '/features/text_editor/widgets/text_editor_input.dart';
 import '/pro_image_editor.dart';
 import '/shared/extensions/color_extension.dart';
+import '/shared/widgets/layer/services/hero_flight_overrides.dart';
 import '/shared/widgets/slider_bottom_sheet.dart';
 import 'widgets/text_editor_bottom_bar.dart';
 
@@ -86,6 +87,29 @@ class TextEditorState extends State<TextEditor>
   /// Node for managing focus on the text input.
   final FocusNode focusNode = FocusNode();
 
+  /// Focus node for the hidden "keep-alive" text field.
+  ///
+  /// Opening the editor (both new text and editing) runs a hero flight that
+  /// temporarily removes the real text field from the tree, which would close
+  /// the keyboard. This off-screen field lives *outside* the hero, so focusing
+  /// it on open brings the keyboard up immediately and keeps it up; once the
+  /// flight completes, focus is handed off to the real field (moving focus
+  /// between two text fields does not dismiss the keyboard).
+  final FocusNode keepAliveFocusNode = FocusNode();
+
+  /// For new text the hero is inert while open (so the field stays mounted and
+  /// the keyboard is reliable). This flag flips to `true` right before closing
+  /// so the *closing* flight runs — the text flies to its placed position on
+  /// the canvas. (Editing always uses the hero, so this only matters for new
+  /// text.)
+  bool _useHeroForClose = false;
+
+  /// Set the moment the editor starts closing. The text field is hidden
+  /// immediately (opacity 0) so the route's fade-out doesn't briefly show it
+  /// at the target while the hero shuttle already flies the same content —
+  /// which looked like a second, fading text.
+  bool _closing = false;
+
   /// Alignment of the text.
   late TextAlign align;
 
@@ -146,10 +170,18 @@ class TextEditorState extends State<TextEditor>
 
     textEditorCallbacks?.onInit?.call();
     WidgetsBinding.instance.addPostFrameCallback((timeStamp) {
-      // Request focus immediately so the keyboard opens right away,
-      // instead of waiting for the hero animation to complete.
+      // New text opens without a hero (the field stays mounted), so focusing
+      // the real field directly opens the keyboard reliably.
+      //
+      // Editing runs a hero flight that temporarily removes the real field
+      // from the tree, which would close the keyboard. So we focus the hidden
+      // keep-alive field (outside the hero, always mounted) to keep the
+      // keyboard up; focus is handed to the real field once the flight
+      // completes (in TextEditorInput._flightShuttleBuilder).
       if (widget.layer == null) {
         focusNode.requestFocus();
+      } else {
+        keepAliveFocusNode.requestFocus();
       }
       textEditorCallbacks?.onAfterViewInit?.call();
     });
@@ -160,6 +192,7 @@ class TextEditorState extends State<TextEditor>
     uiStream.close();
     textCtrl.dispose();
     focusNode.dispose();
+    keepAliveFocusNode.dispose();
     super.dispose();
   }
 
@@ -341,6 +374,9 @@ class TextEditorState extends State<TextEditor>
   /// Closes the editor without applying changes.
   void close() {
     Navigator.pop(context);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() => _closing = true);
+    });
     textEditorCallbacks?.handleCloseEditor();
   }
 
@@ -363,11 +399,62 @@ class TextEditorState extends State<TextEditor>
             : null,
       );
 
-      Navigator.of(context).pop(layer);
+      if (widget.layer == null) {
+        // New text: the hero tag switches from inert to real on close, so the
+        // rebuild must happen *before* the pop → defer the pop one frame. The
+        // field flies via the hero (no opacity hide needed).
+        setState(() => _useHeroForClose = true);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) Navigator.of(context).pop(layer);
+        });
+      } else {
+        _popWithEditedLayer(layer);
+      }
     } else {
       Navigator.of(context).pop();
     }
     textEditorCallbacks?.handleDone();
+  }
+
+  /// Closes the editor for an *edited* existing layer, flying the new content
+  /// back to its place on the canvas via the hero.
+  void _popWithEditedLayer(TextLayer layer) {
+    // Publish the edited content as the hero override *before* popping, with
+    // the layer's current scale so it renders at the right size. The override
+    // is the trigger for the deterministic end-rect path in the layer's
+    // createRectTween (which derives the flight's target size from *this*
+    // editor field, already laid out with the final text, not from the lagging
+    // canvas copy) and supplies the shuttle content.
+    layer.scale = widget.layer!.scale;
+    HeroFlightOverrides.instance.set(widget.layer!.id, layer);
+
+    // Defer the pop two frames so the override-tick rebuild fully installs the
+    // new destination hero child *before* the route transition starts. The end
+    // rect no longer depends on this (it's derived from the editor field), but
+    // the flight-start sync still does: pop too early and the hero flight
+    // begins a frame after the route already fades, so the new text is briefly
+    // visible at the destination before the shuttle and the placeholder cover
+    // it.
+    _runAfterFrames(2, () {
+      if (!mounted) return;
+      Navigator.of(context).pop(layer);
+      // Hide the field one more frame later, synced with the shuttle appearing,
+      // so there's no gap where nothing is visible.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _closing = true);
+      });
+    });
+  }
+
+  /// Invokes [action] after [frames] post-frame callbacks have elapsed.
+  void _runAfterFrames(int frames, VoidCallback action) {
+    if (frames <= 0) {
+      action();
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _runAfterFrames(frames - 1, action),
+    );
   }
 
   /// Exports the current text layer state.
@@ -392,7 +479,7 @@ class TextEditorState extends State<TextEditor>
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) {  
     return LayoutBuilder(
       builder: (context, constraints) {
         return ExtendedPopScope(
@@ -466,6 +553,13 @@ class TextEditorState extends State<TextEditor>
       editorBodySize = constraints.biggest;
 
       Widget textField = _buildTextField();
+      // Hide the field the instant the editor starts closing, so the route's
+      // fade-out doesn't briefly show it at the target while the hero shuttle
+      // already flies the same content. Opacity keeps the layout/render box,
+      // so the hero still captures the correct source rect.
+      if (_closing) {
+        textField = Opacity(opacity: 0, child: textField);
+      }
       if (textEditorConfigs.widgets.wrapTextField != null) {
         textField =
             textEditorConfigs.widgets.wrapTextField!(this, textField);
@@ -473,6 +567,9 @@ class TextEditorState extends State<TextEditor>
 
       Widget content = Stack(
         children: [
+          // Keep-alive is only needed while editing (the hero flight unmounts
+          // the real field). New text opens without a hero, so it isn't used.
+          if (widget.layer != null) _buildKeepAliveField(),
           textField,
           _buildColorPicker(),
           if (textEditorConfigs.showSelectFontStyleBottomBar)
@@ -529,12 +626,64 @@ class TextEditorState extends State<TextEditor>
     );
   }
 
+  /// Builds the hidden keep-alive text field.
+  ///
+  /// It sits outside the hero (so it is never unmounted by the flight) and is
+  /// focused on open to bring the keyboard up immediately and keep it up. Once
+  /// the hero flight completes, focus is handed to the real field. It is laid
+  /// out at 1×1 and fully transparent so it is invisible and doesn't capture
+  /// pointers, but still mountable/focusable so the IME stays attached.
+  ///
+  /// Its IME configuration MUST mirror the real field (see
+  /// [RoundedBackgroundTextField]); otherwise the keyboard reconfigures during
+  /// the focus hand-off and visibly jumps (e.g. light/dark appearance, layout,
+  /// suggestion bar).
+  Widget _buildKeepAliveField() {
+    return Positioned(
+      left: 0,
+      top: 0,
+      child: IgnorePointer(
+        child: Opacity(
+          opacity: 0,
+          child: SizedBox(
+            width: 1,
+            height: 1,
+            child: TextField(
+              // Share the real controller so the keep-alive mirrors the exact
+              // text *and* selection. The IME's shift/auto-capitalization
+              // state derives from text + cursor position, so an empty field
+              // would hand off with a different shift state (e.g. capital at
+              // start vs. lowercase mid-word). Sharing also means characters
+              // typed during the flight aren't lost.
+              controller: textCtrl,
+              focusNode: keepAliveFocusNode,
+              maxLines: null,
+              style: const TextStyle(fontSize: 1),
+              decoration: const InputDecoration.collapsed(hintText: ''),
+              // ── Mirror RoundedBackgroundTextField's IME config ──
+              keyboardType: TextInputType.multiline,
+              textCapitalization: TextCapitalization.sentences,
+              textInputAction: TextInputAction.newline,
+              keyboardAppearance: widget.theme.brightness,
+              autocorrect: textEditorConfigs.enableAutocorrect,
+              smartDashesType: SmartDashesType.enabled,
+              smartQuotesType: SmartQuotesType.enabled,
+              enableSuggestions: textEditorConfigs.enableSuggestions,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   /// Builds the text field for text input.
   Widget _buildTextField() {
     return TextEditorInput(
       callbacks: textEditorCallbacks,
       configs: textEditorConfigs,
       heroTag: widget.heroTag,
+      // Editing always flies; new text flies only on close (see done()).
+      enableHero: widget.layer != null || _useHeroForClose,
       align: align,
       backgroundColor: _backgroundColor,
       textCtrl: textCtrl,

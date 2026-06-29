@@ -754,6 +754,7 @@ class FilterEditorState extends State<FilterEditor>
                         if (filterEditorConfigs.showLayers && layers != null)
                           filterEditorConfigs.enableInteractiveLayers
                               ? InteractiveLayerStack(
+                                  enableHero: true,
                                   configs: configs,
                                   callbacks: callbacks,
                                   layers: _mutableLayers,
@@ -773,6 +774,8 @@ class FilterEditorState extends State<FilterEditor>
                                       kImageEditorBackground,
                                   onLayersChanged: () {
                                     _layersModified = true;
+                                    initConfigs.onLayerTransformChanged
+                                        ?.call(_mutableLayers);
                                   },
                                   onBeforeLayerChange: _useGlobalHistory
                                       ? () {

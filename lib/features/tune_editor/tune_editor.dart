@@ -664,6 +664,7 @@ class TuneEditorState extends State<TuneEditor>
   Widget _buildLayers() {
     if (tuneEditorConfigs.enableInteractiveLayers) {
       return InteractiveLayerStack(
+        enableHero: true,
         configs: configs,
         callbacks: callbacks,
         layers: _mutableLayers,
@@ -681,6 +682,7 @@ class TuneEditorState extends State<TuneEditor>
         onTextLayerTap: initConfigs.onTextLayerTap,
         onLayersChanged: () {
           _layersModified = true;
+          initConfigs.onLayerTransformChanged?.call(_mutableLayers);
         },
         onBeforeLayerChange: _useGlobalHistory
             ? () {

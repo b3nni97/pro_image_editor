@@ -164,6 +164,7 @@ class Layer {
   /// `null` when no gesture is active → content renders at [scale] directly.
   double? gestureBaseScale;
 
+
   /// Indicates whether this layer is a [TextLayer].
   ///
   /// Subclasses can override this to return `true` if the layer represents

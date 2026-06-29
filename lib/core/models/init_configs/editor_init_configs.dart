@@ -43,6 +43,7 @@ abstract class EditorInitConfigs {
     this.convertToUint8List = false,
     this.enableCloseButton = true,
     this.historyScope,
+    this.onLayerTransformChanged,
   });
 
   /// Determines whether the close button is displayed on the widget.
@@ -88,4 +89,12 @@ abstract class EditorInitConfigs {
   /// global undo/redo history instead of maintaining a local undo stack.
   /// This enables unified undo/redo across all editors.
   final EditorHistoryScope? historyScope;
+
+  /// Callback triggered whenever layers are transformed (moved, scaled,
+  /// or rotated) in the interactive layer stack.
+  ///
+  /// The main editor hooks into this to sync the sub-editor's layer
+  /// positions back to [activeLayers], keeping the backgroundOverride's
+  /// Hero rects up-to-date.
+  final void Function(List<Layer> layers)? onLayerTransformChanged;
 }
