@@ -735,6 +735,7 @@ class ProImageEditorState extends State<ProImageEditor>
 
   @override
   void dispose() {
+    _prewarmedKeyboardConnection?.close();
     _rebuildController.close();
     _controllers.dispose();
     layerInteractionManager.scaleDebounce.dispose();
@@ -1606,6 +1607,61 @@ class ProImageEditorState extends State<ProImageEditor>
   /// based on the user's input.
   ///
   /// [layerData] - The text layer data to be edited.
+  /// Throwaway IME connection that brings the keyboard up before the text
+  /// editor opens and *holds it* through the whole hero flight (see
+  /// [_prewarmKeyboard]).
+  TextInputConnection? _prewarmedKeyboardConnection;
+
+  /// The client behind [_prewarmedKeyboardConnection]. Typing during the
+  /// flight flows through it into the editor's text controller (see
+  /// [_KeyboardWarmupClient.targetController]).
+  _KeyboardWarmupClient? _keyboardWarmupClient;
+
+  /// Opens the software keyboard via a throwaway IME connection and waits a
+  /// few frames so the expensive keyboard bring-up (~50-85ms UI-thread
+  /// stall on iOS) happens *before* the text-editor route and its hero
+  /// flight start. Frames only complete once the attach stall has cleared,
+  /// so the frame waits reliably put the push on the clean side of it; with
+  /// an already warm keyboard this adds just 2-3 imperceptible frames.
+  ///
+  /// The connection stays attached during the flight — switching IME clients
+  /// mid-flight (even to an identically configured field) makes iOS rebuild
+  /// the input view, which drops flight frames. The TextEditor's real field
+  /// only takes over once the flight settled (`_handOffFocusWhenSettled`),
+  /// which detaches this client seamlessly.
+  ///
+  /// [initialValue] seeds the IME editing state (text + caret) so the
+  /// keyboard's shift/auto-capitalization state matches the edited text and
+  /// typing during the flight edits the right value.
+  ///
+  /// The configuration mirrors the TextEditor's fields so the keyboard looks
+  /// identical from the first frame (appearance, layout, suggestion bar).
+  Future<void> _prewarmKeyboard({TextEditingValue? initialValue}) async {
+    _prewarmedKeyboardConnection?.close();
+    final client = _KeyboardWarmupClient(
+      initialValue ?? TextEditingValue.empty,
+    );
+    _keyboardWarmupClient = client;
+    _prewarmedKeyboardConnection = TextInput.attach(
+      client,
+      TextInputConfiguration(
+        inputType: TextInputType.multiline,
+        inputAction: TextInputAction.newline,
+        textCapitalization: TextCapitalization.sentences,
+        keyboardAppearance: _theme.brightness,
+        autocorrect: textEditorConfigs.enableAutocorrect,
+        smartDashesType: SmartDashesType.enabled,
+        smartQuotesType: SmartQuotesType.enabled,
+        enableSuggestions: textEditorConfigs.enableSuggestions,
+      ),
+    )
+      ..setEditingState(client.currentTextEditingValue)
+      ..show();
+    for (var i = 0; i < 3 && mounted; i++) {
+      await WidgetsBinding.instance.endOfFrame;
+    }
+  }
+
   void _onTextLayerTap(TextLayer layerData) async {
     final customCallback = mainEditorCallbacks?.onEditTextLayer;
     TextLayer? updatedLayer;
@@ -1614,12 +1670,38 @@ class ProImageEditorState extends State<ProImageEditor>
       updatedLayer = await customCallback(
           _layerCopyManager.copyLayer(layerData) as TextLayer);
     } else {
+      // The tapped layer instance can be a *stale* sub-editor copy: after a
+      // previous edit, the canvas shows the new content via the flight
+      // override while the real layer swap (and the sub-editor's copy
+      // re-sync) intentionally waits for the closing flight to finish.
+      // Re-opening the editor within that window must show the freshest
+      // content — the pending override first, then the main editor's layer,
+      // and only then the tapped copy itself. Transforms stay live on the
+      // tapped copy (they are synced continuously during drags), so only the
+      // content source is resolved here.
+      final mainLayerIndex =
+          activeLayers.indexWhere((layer) => layer.id == layerData.id);
+      final freshest = (HeroFlightOverrides.instance[layerData.id] ??
+          (mainLayerIndex >= 0 ? activeLayers[mainLayerIndex] : null) ??
+          layerData) as TextLayer;
+
+      // Opening the keyboard blocks the UI thread ~50-85ms on iOS. Paying
+      // that cost *before* the push — while the layer is still static —
+      // keeps the hero flight gap-free (see _prewarmKeyboard docs).
+      await _prewarmKeyboard(
+        initialValue: TextEditingValue(
+          text: freshest.text,
+          selection: TextSelection.collapsed(offset: freshest.text.length),
+        ),
+      );
+      if (!mounted) return;
+
       // The TextEditor renders at full size (scaleFactor=1.0) for editing
       // comfort. The Hero FittedBox shuttle handles the size transition.
-      updatedLayer = await openPage(
+      final pageFuture = openPage<TextLayer>(
         TextEditor(
           key: textEditor,
-          layer: _layerCopyManager.copyLayer(layerData) as TextLayer,
+          layer: _layerCopyManager.copyLayer(freshest) as TextLayer,
           heroTag: layerData.id,
           configs: configs,
           theme: _theme,
@@ -1628,6 +1710,25 @@ class ProImageEditorState extends State<ProImageEditor>
           imageSize: sizesManager.decodedImageSize,
         ),
       );
+
+      // The editor state exists after the route's first frame; from then on,
+      // typing during the flight flows from the throwaway IME client into
+      // the editor's controller — visible live in the flight shuttle — until
+      // the real field takes the connection over after the flight settles.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _keyboardWarmupClient?.targetController =
+            textEditor.currentState?.textCtrl;
+      });
+
+      updatedLayer = await pageFuture;
+
+      // Stop forwarding before anything else: the editor (and its
+      // controller) is being disposed with the popped route.
+      _keyboardWarmupClient?.targetController = null;
+      // No-op if the editor's real field already took the connection over;
+      // hides the keyboard if the editor closed before the hand-off ran.
+      _prewarmedKeyboardConnection?.close();
+      _prewarmedKeyboardConnection = null;
     }
 
     if (!mounted || updatedLayer == null) return;
@@ -3705,3 +3806,38 @@ class ProImageEditorState extends State<ProImageEditor>
     }
   }
 }
+
+/// Throwaway [TextInputClient] used by
+/// [ProImageEditorState._prewarmKeyboard] to bring up the keyboard before the
+/// text editor opens and hold the IME through the hero flight.
+///
+/// It is seeded with the edited text's editing state (so the keyboard's
+/// shift/auto-capitalization context is correct) and forwards everything the
+/// user types into [targetController] — the editor's shared text controller —
+/// so typing already works during the flight, live in the flight shuttle.
+/// The TextEditor's real field replaces the connection once the flight
+/// settles. All remaining callbacks are no-ops via [noSuchMethod] (which also
+/// keeps this robust against [TextInputClient] interface additions across
+/// Flutter versions).
+class _KeyboardWarmupClient implements TextInputClient {
+  _KeyboardWarmupClient(this._value);
+
+  TextEditingValue _value;
+
+  /// The editor's text controller, wired once the editor route is built.
+  /// While null, input only updates the local [_value].
+  TextEditingController? targetController;
+
+  @override
+  TextEditingValue get currentTextEditingValue => _value;
+
+  @override
+  void updateEditingValue(TextEditingValue value) {
+    _value = value;
+    targetController?.value = value;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
+

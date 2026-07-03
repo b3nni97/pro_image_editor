@@ -29,10 +29,17 @@ class RoundedBackgroundTextField extends StatefulWidget {
     this.hint,
     this.hintStyle,
     this.autofocus = false,
+    this.readOnly = false,
     this.onChanged,
     this.onEditingComplete,
     this.onSubmitted,
   });
+
+  /// Whether the field is read-only (it can still be focused and show its
+  /// cursor, but never attaches an IME connection). Used while the hero
+  /// flight runs: input flows through the pre-warmed throwaway IME client,
+  /// and the field only takes the connection over once the flight settled.
+  final bool readOnly;
 
   /// Controls the text being edited in the text editor.
   final TextEditingController controller;
@@ -251,6 +258,7 @@ class _RoundedBackgroundTextFieldState
         cursorRadius: widget.cursorRadius,
         enableInteractiveSelection: true,
         showCursor: true,
+        readOnly: widget.readOnly,
         autocorrect: widget.configs.enableAutocorrect,
         smartDashesType: SmartDashesType.enabled,
         smartQuotesType: SmartQuotesType.enabled,

@@ -176,21 +176,21 @@ class TextEditorState extends State<TextEditor>
         // focused directly and the keyboard opens right away.
         focusNode.requestFocus();
       } else {
-        // Editing runs a hero flight during which the real field is hidden
-        // (and mirrored in the flight shuttle). Focus the hidden keep-alive
-        // field so the keyboard comes up early and stays up, then hand focus
-        // to the real field once the route transition is done (moving focus
-        // between two text fields doesn't dismiss the keyboard).
+        // Editing: the keyboard was already brought up by the throwaway
+        // prewarm connection before the push (see
+        // ProImageEditorState._prewarmKeyboard), and it must keep the IME
+        // for the whole flight — switching clients (even to an identically
+        // configured field) makes iOS rebuild the input view, a ~50-80ms
+        // UI-thread stall that would drop flight frames.
         //
-        // The focus request is deferred two frames: the first frames of the
-        // push already carry the editor's expensive initial build + the hero
-        // flight start, and kicking off the IME in the same frame batch
-        // amplifies the visible stall at the start of the transition.
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) keepAliveFocusNode.requestFocus();
-          });
-        });
+        // The real field is therefore READ-ONLY for now: focusing a
+        // read-only field never attaches an IME connection, so this focus
+        // request is stall-free — but it makes the cursor blink in the text
+        // as soon as the field becomes visible (from the flight handoff on),
+        // while typed input still flows in through the prewarm client. Once
+        // the flight settles, the field flips to editable and takes the IME
+        // connection over (see _handOffFocusWhenSettled).
+        focusNode.requestFocus();
         _handOffFocusWhenSettled();
       }
       textEditorCallbacks?.onAfterViewInit?.call();
@@ -206,21 +206,42 @@ class TextEditorState extends State<TextEditor>
   /// the keyboard alive in the meantime, and typing already works because
   /// both fields share the same [TextEditingController]. The deadline is a
   /// safety net in case the flight never reports its end.
+  /// Whether the real field is still read-only (true for the whole edit-open
+  /// flight): it can be focused — blinking cursor — without attaching an IME
+  /// connection, while typed input flows in through the pre-warmed throwaway
+  /// client. Flipped to editable once the flight settles, which is the
+  /// moment the field takes the IME connection over.
+  late bool _fieldReadOnly = widget.layer != null;
+
   Future<void> _handOffFocusWhenSettled() async {
     final tag = widget.heroTag;
     final deadline = DateTime.now().add(const Duration(seconds: 3));
-    while (mounted &&
-        tag != null &&
-        HeroineController.isTagInFlight(tag) &&
-        DateTime.now().isBefore(deadline)) {
+    // The flight only starts a post-frame after the push, so checking
+    // `isTagInFlight` alone would exit too early and attach the real field
+    // (= IME client switch = UI-thread stall) mid-flight after all. Wait for
+    // the route transition to finish first — by then the flight has started
+    // and only its landing may still be running.
+    bool settled() {
+      final route = ModalRoute.of(context);
+      if (route != null && !(route.animation?.isCompleted ?? true)) {
+        return false;
+      }
+      return tag == null || !HeroineController.isTagInFlight(tag);
+    }
+
+    while (mounted && !settled() && DateTime.now().isBefore(deadline)) {
       await WidgetsBinding.instance.endOfFrame;
     }
     if (!mounted) return;
-    // Never grab focus once the editor started closing — the open flight can
-    // end right around the pop, and re-focusing then re-opens the keyboard
-    // mid-close (visible as the keyboard bouncing back up).
+    // Never take the IME over once the editor started closing — the open
+    // flight can end right around the pop, and attaching then re-opens the
+    // keyboard mid-close (visible as the keyboard bouncing back up).
     final route = ModalRoute.of(context);
     if (route != null && !route.isCurrent) return;
+    // Flipping to editable while focused makes the field attach its IME
+    // connection now (EditableText re-opens the connection when readOnly
+    // turns off) — seamlessly replacing the pre-warmed throwaway client.
+    setState(() => _fieldReadOnly = false);
     focusNode.requestFocus();
   }
 
@@ -678,6 +699,7 @@ class TextEditorState extends State<TextEditor>
   /// Builds the text field for text input.
   Widget _buildTextField() {
     return TextEditorInput(
+      readOnly: _fieldReadOnly,
       callbacks: textEditorCallbacks,
       configs: textEditorConfigs,
       heroTag: widget.heroTag,

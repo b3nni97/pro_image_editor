@@ -43,7 +43,14 @@ class TextEditorInput extends StatefulWidget {
     required this.textCtrl,
     required this.maxWidth,
     required this.cursorWidth,
+    this.readOnly = false,
   });
+
+  /// Whether the field is read-only. While the hero flight runs, the field
+  /// stays read-only so it can be focused (blinking cursor) without
+  /// attaching an IME connection — typing flows through the pre-warmed
+  /// throwaway client until the flight settles.
+  final bool readOnly;
 
   /// Optional callbacks for text editor interactions.
   final TextEditorCallbacks? callbacks;
@@ -105,7 +112,42 @@ class TextEditorInput extends StatefulWidget {
   State<TextEditorInput> createState() => _TextEditorInputState();
 }
 
+/// Marks a subtree as living inside the hero flight shuttle (the flying
+/// copy in the overlay), so widgets that hold shared resources can behave
+/// differently there — see the focus-node selection in
+/// [_TextEditorInputState._buildInputField].
+class _InFlightShuttle extends InheritedWidget {
+  const _InFlightShuttle({required super.child});
+
+  static bool of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<_InFlightShuttle>() != null;
+
+  @override
+  bool updateShouldNotify(_InFlightShuttle oldWidget) => false;
+}
+
 class _TextEditorInputState extends State<TextEditorInput> {
+  /// Focus node for the *shuttle copy* of the input field.
+  ///
+  /// The shuttle re-instantiates the heroine child in the overlay. If that
+  /// copy attached the REAL focus node, it would steal the node's attachment
+  /// (a FocusNode can only be attached to one context) — and since the copy
+  /// sits inside ExcludeFocus, the real node reports `canRequestFocus ==
+  /// false` and the focus hand-off after the flight silently fails (no
+  /// cursor, typing goes into the throwaway IME connection). The copy gets
+  /// this inert node instead; the real node never leaves the real field.
+  final FocusNode _shuttleFocusNode = FocusNode(
+    canRequestFocus: false,
+    skipTraversal: true,
+    debugLabel: 'text-editor-shuttle-copy',
+  );
+
+  @override
+  void dispose() {
+    _shuttleFocusNode.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Align(
@@ -165,54 +207,63 @@ class _TextEditorInputState extends State<TextEditorInput> {
         ),
         flightShuttleBuilder: _FittedShuttleBuilder(maxWidth: widget.maxWidth),
         tag: heroTag,
-        child: Container(
-          padding: widget.configs.style.inputTextFieldPadding,
-          decoration: BoxDecoration(
-            color: widget.configs.style.inputTextFieldBackground,
-            borderRadius: widget.configs.style.inputTextFieldBorderRadius,
-          ),
-          child: RoundedBackgroundTextField(
-            key: const ValueKey('rounded-background-text-editor-field'),
-            maxTextWidth: widget.maxWidth,
-            controller: widget.textCtrl,
-            focusNode: widget.focusNode,
-            textFieldBuilder: widget.configs.widgets.textFieldBuilder,
-            onChanged: (value) {
-              widget.callbacks?.handleChanged(value);
-              setState(() {});
-            },
-            onEditingComplete: widget.callbacks?.handleEditingComplete,
-            onSubmitted: widget.callbacks?.handleSubmitted,
-            textAlign:
-                widget.textCtrl.text.isEmpty ? TextAlign.center : widget.align,
-            configs: widget.configs,
-            cursorHeight: widget.textFontSize,
-            cursorWidth: widget.cursorWidth,
-            hint: widget.i18n.inputHintText,
-            hintStyle: widget.selectedTextStyle.copyWith(
-              color: widget.configs.style.inputHintColor?.call(context) ??
-                  const Color(0xFFBDBDBD),
-              fontSize: widget.textFontSize,
-              shadows: [],
+        // Builder so the focus-node choice happens at the MOUNT location:
+        // the same child widget is re-instantiated inside the flight shuttle
+        // (see _FittedShuttleBuilder), and the copy must not attach the real
+        // focus node (see [_shuttleFocusNode]).
+        child: Builder(builder: (fieldContext) {
+          final inShuttle = _InFlightShuttle.of(fieldContext);
+          return Container(
+            padding: widget.configs.style.inputTextFieldPadding,
+            decoration: BoxDecoration(
+              color: widget.configs.style.inputTextFieldBackground,
+              borderRadius: widget.configs.style.inputTextFieldBorderRadius,
             ),
-            backgroundColor: widget.backgroundColor,
-            style: widget.selectedTextStyle.copyWith(
-              color: widget.textColor,
-              fontSize: widget.textFontSize,
-              letterSpacing: 0,
-              decoration: TextDecoration.none,
-              shadows: [],
-            ),
+            child: RoundedBackgroundTextField(
+              key: const ValueKey('rounded-background-text-editor-field'),
+              maxTextWidth: widget.maxWidth,
+              controller: widget.textCtrl,
+              focusNode: inShuttle ? _shuttleFocusNode : widget.focusNode,
+              readOnly: widget.readOnly,
+              textFieldBuilder: widget.configs.widgets.textFieldBuilder,
+              onChanged: (value) {
+                widget.callbacks?.handleChanged(value);
+                setState(() {});
+              },
+              onEditingComplete: widget.callbacks?.handleEditingComplete,
+              onSubmitted: widget.callbacks?.handleSubmitted,
+              textAlign: widget.textCtrl.text.isEmpty
+                  ? TextAlign.center
+                  : widget.align,
+              configs: widget.configs,
+              cursorHeight: widget.textFontSize,
+              cursorWidth: widget.cursorWidth,
+              hint: widget.i18n.inputHintText,
+              hintStyle: widget.selectedTextStyle.copyWith(
+                color: widget.configs.style.inputHintColor?.call(context) ??
+                    const Color(0xFFBDBDBD),
+                fontSize: widget.textFontSize,
+                shadows: [],
+              ),
+              backgroundColor: widget.backgroundColor,
+              style: widget.selectedTextStyle.copyWith(
+                color: widget.textColor,
+                fontSize: widget.textFontSize,
+                letterSpacing: 0,
+                decoration: TextDecoration.none,
+                shadows: [],
+              ),
 
-            /// Never autofocus: the flight shuttle builds a *copy* of this
-            /// field, and an autofocusing copy re-opens the keyboard
-            /// mid-flight (visible as the keyboard bouncing during the
-            /// new-text close). Focus is always requested explicitly in
-            /// TextEditorState.initState (directly for new text, via the
-            /// keep-alive hand-off while editing).
-            autofocus: false,
-          ),
-        ),
+              /// Never autofocus: the flight shuttle builds a *copy* of this
+              /// field, and an autofocusing copy re-opens the keyboard
+              /// mid-flight (visible as the keyboard bouncing during the
+              /// new-text close). Focus is always requested explicitly in
+              /// TextEditorState.initState (directly for new text, via the
+              /// settle hand-off while editing).
+              autofocus: false,
+            ),
+          );
+        }),
       ),
     );
   }
@@ -258,16 +309,15 @@ class _FittedShuttleBuilder extends HeroineShuttleBuilder {
   /// The canvas-layer side: pin the content to its measured natural size so
   /// FittedBox scales instead of re-layouting.
   Widget _layerSide(Widget child, BuildContext heroContext) {
-    final renderBox = heroContext.findRenderObject();
-    final naturalSize =
-        renderBox is RenderBox && renderBox.hasSize ? renderBox.size : null;
+    // No size pin: inside the FittedBox the content lays out unconstrained —
+    // exactly like the canvas layer does in-tree — so it measures the same
+    // natural size at takeoff AND keeps growing horizontally when the text
+    // changes mid-flight (a size pinned at flight start would force typed
+    // characters onto a second line instead).
     return FittedBox(
       fit: BoxFit.contain,
       clipBehavior: Clip.none,
-      child: SizedBox.fromSize(
-        size: naturalSize,
-        child: child,
-      ),
+      child: child,
     );
   }
 
@@ -296,11 +346,16 @@ class _FittedShuttleBuilder extends HeroineShuttleBuilder {
     // the source exactly at t=0 and the destination exactly at t=1. The texts
     // are identical, so the mid-flight blend is invisible.
     final isPush = flightDirection == HeroFlightDirection.push;
-    // ExcludeFocus: the editor-side copy shares the real field's FocusNode —
-    // the flying copy must never be able to attach it to the focus tree or
-    // re-open the IME (visible as the keyboard bouncing back up mid-close).
+    // ExcludeFocus: the flying copy must never take focus or re-open the IME
+    // (visible as the keyboard bouncing back up mid-close). _InFlightShuttle
+    // additionally makes the copy attach its own inert focus node instead of
+    // the real field's — a FocusNode can only be attached to one context, so
+    // a copy sharing the real node would steal its attachment and break the
+    // focus hand-off after the flight (no cursor, dead keyboard).
     final editorSide = ExcludeFocus(
-      child: _editorSide(heroChild(isPush ? toHeroContext : fromHeroContext)),
+      child: _InFlightShuttle(
+        child: _editorSide(heroChild(isPush ? toHeroContext : fromHeroContext)),
+      ),
     );
     final layerSide = _layerSide(
       heroChild(isPush ? fromHeroContext : toHeroContext),

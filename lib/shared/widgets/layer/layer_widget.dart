@@ -394,9 +394,65 @@ class _LayerWidgetState extends State<LayerWidget>
       placeholderBuilder: (context, heroSize, child) => IgnorePointer(
         child: Opacity(opacity: 0, child: child),
       ),
+      // In-tree, this layer is clipped by its ancestors (interactive-viewer
+      // viewport, host app canvas card, ...), but the flight overlay renders
+      // above everything unclipped — a layer poking over such an edge would
+      // pop fully visible the moment the flight starts. Passing the
+      // effective ancestor clip lets heroine clip the shuttle identically
+      // (interpolated open towards the unclipped editor side).
+      flightClipBounds: _resolveAncestorClipBounds,
       tag: tag,
       child: child,
     );
+  }
+
+  /// The intersection of all ancestor clips above this layer, in global
+  /// coordinates — i.e. the region in which the layer is actually visible
+  /// in-tree. Returns null when nothing clips (flight stays unclipped).
+  ///
+  /// Walking the render tree keeps this correct regardless of where the
+  /// clipping happens (the image-bounds ClipPath around the layer stack,
+  /// the ExtendedInteractiveViewer viewport, a host app's canvas card, ...)
+  /// and accounts for the interactive viewer's zoom/pan, since every clip's
+  /// own transform to global is used. Each clip contributes its *actual*
+  /// clip geometry (via its clipper), approximated by its bounding rect —
+  /// not just the clip widget's box, which can be much larger (e.g. the
+  /// image-bounds clipper cuts the letterboxed image area out of the
+  /// full-body layer stack).
+  Rect? _resolveAncestorClipBounds() {
+    if (!mounted) return null;
+    final renderObject = context.findRenderObject();
+    if (renderObject is! RenderBox || !renderObject.attached) return null;
+
+    Rect? clip;
+    RenderObject? node = renderObject.parent;
+    while (node != null) {
+      if (node is RenderBox && node.hasSize) {
+        final size = node.size;
+        final Rect? localClip = switch (node) {
+          final RenderClipRect n => n.clipper?.getClip(size),
+          final RenderClipRRect n => n.clipper?.getClip(size).outerRect,
+          final RenderClipOval n => n.clipper?.getClip(size),
+          final RenderClipPath n => n.clipper?.getClip(size).getBounds(),
+          _ => null,
+        } ??
+            (node is RenderClipRect ||
+                    node is RenderClipRRect ||
+                    node is RenderClipOval ||
+                    node is RenderClipPath
+                ? Offset.zero & size
+                : null);
+        if (localClip != null) {
+          final global = MatrixUtils.transformRect(
+            node.getTransformTo(null),
+            localClip,
+          );
+          clip = clip == null ? global : clip.intersect(global);
+        }
+      }
+      node = node.parent;
+    }
+    return clip;
   }
 
   /// Latched once the pending flight for this layer has actually started, so
