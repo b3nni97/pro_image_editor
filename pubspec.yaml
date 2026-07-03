@@ -40,6 +40,8 @@ dependencies:
   flutter:
     sdk: flutter
 
+  heroine:
+    path: ../heroine
   http: ^1.5.0
   plugin_platform_interface: ^2.1.8
   shared_preferences: ^2.5.3

@@ -5,6 +5,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:heroine/heroine.dart';
 
 import '/core/models/history/editor_history_scope.dart';
 
@@ -201,16 +202,58 @@ class BlurEditorState extends State<BlurEditor>
     super.dispose();
   }
 
+  /// Whether a deferred layer sync is already scheduled
+  /// (see [_syncLayersWhenIdle]).
+  bool _layerSyncScheduled = false;
+
   @override
   void didUpdateWidget(covariant BlurEditor oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (blurEditorConfigs.enableInteractiveLayers) {
-      final newLayers = layers ?? [];
-      _mutableLayers
-        ..clear()
-        ..addAll(newLayers);
-      _layersModified = false;
+      _syncLayersWhenIdle();
     }
+  }
+
+  /// Replaces [_mutableLayers] with the widget's layer list — but never while
+  /// one of the current layers is mid hero-flight.
+  ///
+  /// The main editor passes *fresh copies* (new [Layer.key] GlobalKeys) on
+  /// every rebuild, so the swap remounts the LayerWidgets. Doing that during
+  /// a flight destroys the heroine that owns the flight's motion controller
+  /// and cuts the landing animation short (visible snap when the text editor
+  /// closes). Defer the sync until the flight is over instead.
+  void _syncLayersWhenIdle({bool deferred = false}) {
+    if (!mounted) return;
+    if (_mutableLayers.any((l) => HeroineController.isTagInFlight(l.id))) {
+      if (_layerSyncScheduled) return;
+      _layerSyncScheduled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _layerSyncScheduled = false;
+        _syncLayersWhenIdle(deferred: true);
+      });
+      return;
+    }
+    // Preserve widget identity across the swap: carry the previous copies'
+    // GlobalKeys over to the incoming copies (matched by id). Otherwise every
+    // sync remounts the LayerWidgets, which resets the Heroine state — e.g.
+    // the "hidden while its editor is open" flight status of an edited text
+    // layer, making it briefly visible at the target before the close flight.
+    final incoming = List<Layer>.from(layers ?? []);
+    for (final layer in incoming) {
+      final i = _mutableLayers.indexWhere((l) => l.id == layer.id);
+      if (i >= 0) {
+        layer
+          ..key = _mutableLayers[i].key
+          ..keyInternalSize = _mutableLayers[i].keyInternalSize;
+      }
+    }
+    _mutableLayers
+      ..clear()
+      ..addAll(incoming);
+    _layersModified = false;
+    // The immediate path runs during didUpdateWidget, where a rebuild
+    // follows anyway; the deferred path needs its own.
+    if (deferred) setState(() {});
   }
 
   @override

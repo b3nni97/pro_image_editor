@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:heroine/heroine.dart';
 
 import '/core/mixins/converted_callbacks.dart';
 import '/core/mixins/converted_configs.dart';
@@ -32,8 +33,14 @@ class TextEditor extends StatefulWidget with SimpleConfigsAccess {
     this.configs = const ProImageEditorConfigs(),
     this.scaleFactor = 1.0,
     this.imageSize = Size.zero,
+    this.heroFlightDuration,
     required this.theme,
   });
+
+  /// Duration for the hero flight spring. When `null`, falls back to
+  /// [SubEditorPageStyle.transitionDuration]. Pass the same value that was
+  /// used as the page transition duration so flight and route stay in sync.
+  final Duration? heroFlightDuration;
   @override
   final ProImageEditorConfigs configs;
 
@@ -104,12 +111,6 @@ class TextEditorState extends State<TextEditor>
   /// text.)
   bool _useHeroForClose = false;
 
-  /// Set the moment the editor starts closing. The text field is hidden
-  /// immediately (opacity 0) so the route's fade-out doesn't briefly show it
-  /// at the target while the hero shuttle already flies the same content —
-  /// which looked like a second, fading text.
-  bool _closing = false;
-
   /// Alignment of the text.
   late TextAlign align;
 
@@ -167,24 +168,60 @@ class TextEditorState extends State<TextEditor>
         textEditorConfigs.defaultTextStyle;
     _initializeFromLayer();
 
-
     textEditorCallbacks?.onInit?.call();
     WidgetsBinding.instance.addPostFrameCallback((timeStamp) {
-      // New text opens without a hero (the field stays mounted), so focusing
-      // the real field directly opens the keyboard reliably.
-      //
-      // Editing runs a hero flight that temporarily removes the real field
-      // from the tree, which would close the keyboard. So we focus the hidden
-      // keep-alive field (outside the hero, always mounted) to keep the
-      // keyboard up; focus is handed to the real field once the flight
-      // completes (in TextEditorInput._flightShuttleBuilder).
+      if (!mounted) return;
       if (widget.layer == null) {
+        // New text opens without a hero flight, so the real field can be
+        // focused directly and the keyboard opens right away.
         focusNode.requestFocus();
       } else {
-        keepAliveFocusNode.requestFocus();
+        // Editing runs a hero flight during which the real field is hidden
+        // (and mirrored in the flight shuttle). Focus the hidden keep-alive
+        // field so the keyboard comes up early and stays up, then hand focus
+        // to the real field once the route transition is done (moving focus
+        // between two text fields doesn't dismiss the keyboard).
+        //
+        // The focus request is deferred two frames: the first frames of the
+        // push already carry the editor's expensive initial build + the hero
+        // flight start, and kicking off the IME in the same frame batch
+        // amplifies the visible stall at the start of the transition.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) keepAliveFocusNode.requestFocus();
+          });
+        });
+        _handOffFocusWhenSettled();
       }
       textEditorCallbacks?.onAfterViewInit?.call();
     });
+  }
+
+  /// Hands focus from the keep-alive field to the real field once the hero
+  /// flight has fully settled.
+  ///
+  /// Re-attaching the IME to the real field costs a heavy frame; doing it at
+  /// route completion (like before) caused a visible stutter right when the
+  /// landing was still following the keyboard up. The keep-alive field keeps
+  /// the keyboard alive in the meantime, and typing already works because
+  /// both fields share the same [TextEditingController]. The deadline is a
+  /// safety net in case the flight never reports its end.
+  Future<void> _handOffFocusWhenSettled() async {
+    final tag = widget.heroTag;
+    final deadline = DateTime.now().add(const Duration(seconds: 3));
+    while (mounted &&
+        tag != null &&
+        HeroineController.isTagInFlight(tag) &&
+        DateTime.now().isBefore(deadline)) {
+      await WidgetsBinding.instance.endOfFrame;
+    }
+    if (!mounted) return;
+    // Never grab focus once the editor started closing — the open flight can
+    // end right around the pop, and re-focusing then re-opens the keyboard
+    // mid-close (visible as the keyboard bouncing back up).
+    final route = ModalRoute.of(context);
+    if (route != null && !route.isCurrent) return;
+    focusNode.requestFocus();
   }
 
   @override
@@ -371,18 +408,26 @@ class TextEditorState extends State<TextEditor>
     });
   }
 
+  /// Drops focus before the editor pops. The closing flight's shuttle builds
+  /// a copy of the text field that shares the real [FocusNode] — if that node
+  /// is still focused when the copy mounts, its EditableText re-opens the IME
+  /// connection and the keyboard briefly pops back up mid-flight.
+  void _unfocusBeforeClose() {
+    focusNode.unfocus();
+    keepAliveFocusNode.unfocus();
+  }
+
   /// Closes the editor without applying changes.
   void close() {
+    _unfocusBeforeClose();
     Navigator.pop(context);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) setState(() => _closing = true);
-    });
     textEditorCallbacks?.handleCloseEditor();
   }
 
   /// Handles the "Done" action, either by applying changes or closing the
   /// editor.
   void done() {
+    _unfocusBeforeClose();
     if (textCtrl.text.trim().isNotEmpty || widget.layer != null) {
       TextLayer layer = TextLayer(
         text: textCtrl.text.trim(),
@@ -401,60 +446,24 @@ class TextEditorState extends State<TextEditor>
 
       if (widget.layer == null) {
         // New text: the hero tag switches from inert to real on close, so the
-        // rebuild must happen *before* the pop → defer the pop one frame. The
-        // field flies via the hero (no opacity hide needed).
+        // rebuild must happen *before* the pop → defer the pop one frame.
         setState(() => _useHeroForClose = true);
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) Navigator.of(context).pop(layer);
         });
       } else {
-        _popWithEditedLayer(layer);
+        // Publish the edited content as the hero override *before* popping,
+        // with the layer's current scale, so the canvas layer already renders
+        // the new text during the closing flight (correct end size, no
+        // old-text flash).
+        layer.scale = widget.layer!.scale;
+        HeroFlightOverrides.instance.set(widget.layer!.id, layer);
+        Navigator.of(context).pop(layer);
       }
     } else {
       Navigator.of(context).pop();
     }
     textEditorCallbacks?.handleDone();
-  }
-
-  /// Closes the editor for an *edited* existing layer, flying the new content
-  /// back to its place on the canvas via the hero.
-  void _popWithEditedLayer(TextLayer layer) {
-    // Publish the edited content as the hero override *before* popping, with
-    // the layer's current scale so it renders at the right size. The override
-    // is the trigger for the deterministic end-rect path in the layer's
-    // createRectTween (which derives the flight's target size from *this*
-    // editor field, already laid out with the final text, not from the lagging
-    // canvas copy) and supplies the shuttle content.
-    layer.scale = widget.layer!.scale;
-    HeroFlightOverrides.instance.set(widget.layer!.id, layer);
-
-    // Defer the pop two frames so the override-tick rebuild fully installs the
-    // new destination hero child *before* the route transition starts. The end
-    // rect no longer depends on this (it's derived from the editor field), but
-    // the flight-start sync still does: pop too early and the hero flight
-    // begins a frame after the route already fades, so the new text is briefly
-    // visible at the destination before the shuttle and the placeholder cover
-    // it.
-    _runAfterFrames(2, () {
-      if (!mounted) return;
-      Navigator.of(context).pop(layer);
-      // Hide the field one more frame later, synced with the shuttle appearing,
-      // so there's no gap where nothing is visible.
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) setState(() => _closing = true);
-      });
-    });
-  }
-
-  /// Invokes [action] after [frames] post-frame callbacks have elapsed.
-  void _runAfterFrames(int frames, VoidCallback action) {
-    if (frames <= 0) {
-      action();
-      return;
-    }
-    WidgetsBinding.instance.addPostFrameCallback(
-      (_) => _runAfterFrames(frames - 1, action),
-    );
   }
 
   /// Exports the current text layer state.
@@ -479,7 +488,7 @@ class TextEditorState extends State<TextEditor>
   }
 
   @override
-  Widget build(BuildContext context) {  
+  Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
         return ExtendedPopScope(
@@ -513,8 +522,7 @@ class TextEditorState extends State<TextEditor>
   /// Builds the app bar for the text editor.
   PreferredSizeWidget? _buildAppBar(BoxConstraints constraints) {
     if (textEditorConfigs.widgets.appBar != null) {
-      return textEditorConfigs.widgets.appBar!
-          .call(this, uiStream.stream);
+      return textEditorConfigs.widgets.appBar!.call(this, uiStream.stream);
     }
 
     return TextEditorAppBar(
@@ -535,8 +543,7 @@ class TextEditorState extends State<TextEditor>
   /// Returns a [Widget] representing the bottom navigation bar.
   Widget? _buildBottomBar() {
     if (textEditorConfigs.widgets.bottomBar != null) {
-      return textEditorConfigs.widgets.bottomBar!
-          .call(this, uiStream.stream);
+      return textEditorConfigs.widgets.bottomBar!.call(this, uiStream.stream);
     }
 
     if (isDesktop &&
@@ -553,16 +560,8 @@ class TextEditorState extends State<TextEditor>
       editorBodySize = constraints.biggest;
 
       Widget textField = _buildTextField();
-      // Hide the field the instant the editor starts closing, so the route's
-      // fade-out doesn't briefly show it at the target while the hero shuttle
-      // already flies the same content. Opacity keeps the layout/render box,
-      // so the hero still captures the correct source rect.
-      if (_closing) {
-        textField = Opacity(opacity: 0, child: textField);
-      }
       if (textEditorConfigs.widgets.wrapTextField != null) {
-        textField =
-            textEditorConfigs.widgets.wrapTextField!(this, textField);
+        textField = textEditorConfigs.widgets.wrapTextField!(this, textField);
       }
 
       Widget content = Stack(
@@ -684,6 +683,8 @@ class TextEditorState extends State<TextEditor>
       heroTag: widget.heroTag,
       // Editing always flies; new text flies only on close (see done()).
       enableHero: widget.layer != null || _useHeroForClose,
+      heroFlightDuration: widget.heroFlightDuration ??
+          mainEditorConfigs.style.subEditorPage.transitionDuration,
       align: align,
       backgroundColor: _backgroundColor,
       textCtrl: textCtrl,
@@ -720,4 +721,3 @@ class TextEditorState extends State<TextEditor>
       ..add(DiagnosticsProperty<Size>('editorBodySize', editorBodySize));
   }
 }
-

@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' hide Layer;
+import 'package:heroine/heroine.dart';
 
 import '/core/constants/editor_various_constants.dart';
 import '/core/mixins/converted_configs.dart';
@@ -188,7 +189,6 @@ class _LayerWidgetState extends State<LayerWidget>
 
   /// Handles a pointer down event on the layer.
   void _onPointerDown(PointerDownEvent event) {
-
     if (GestureManager.instance.isBlocked) return;
     bool isLayerSelected = _isSelected;
 
@@ -198,11 +198,9 @@ class _LayerWidgetState extends State<LayerWidget>
     _tapDownTimestamp = DateTime.now();
 
     if (!widget.isInteractive && _isOutsideHitBox()) {
-
       return;
     }
     if (!isDesktop || event.buttons != kSecondaryMouseButton) {
-
       _layersService?.handleTapDown(_layer, event);
     }
     // Start long press detection
@@ -261,8 +259,7 @@ class _LayerWidgetState extends State<LayerWidget>
       // Fire onTap only if selection/edit is enabled and pointer is inside hit box
       final bool canSelect = interaction.enableSelection;
       final bool canEdit = interaction.enableEdit;
-      final bool insideHitBox =
-          widget.isInteractive || !_isOutsideHitBox();
+      final bool insideHitBox = widget.isInteractive || !_isOutsideHitBox();
       final bool isStylus = event.kind == PointerDeviceKind.stylus;
       final bool isTextLayer = _layerType == LayerWidgetType.text;
 
@@ -372,204 +369,60 @@ class _LayerWidgetState extends State<LayerWidget>
     );
   }
 
-  /// Cached end rect for the hero flight.  Flutter calls createRectTween
-  /// multiple times; the first measurement is most reliable (before
-  /// keyboard-dismiss layout shifts).
-  Rect? _cachedHeroEndRect;
-
-  /// Unrotated content size derived for a *closing edit* flight from the
-  /// editor (source) rect. Used so the shuttle box matches the corrected
-  /// end-rect aspect instead of the stale destination measurement.
-  Size? _cachedHeroContentSize;
-
-  /// The scale applied to the layer content on the canvas *outside* the font
-  /// sizing — i.e. the interactive-viewer zoom and transform-helper scale.
-  ///
-  /// [Layer.scale] is baked into the font size (see [LayerWidgetTextItem]), not
-  /// into the render transform, so the transform from the content box to global
-  /// coordinates carries only the viewer/transform component. Rotation is
-  /// stripped via [Matrix4.getMaxScaleOnAxis]. Returns `null` if the content
-  /// box isn't laid out yet.
-  double? _measureCanvasViewerScale() {
-    final ro = _layer.keyInternalSize.currentContext?.findRenderObject();
-    if (ro is! RenderBox || !ro.hasSize) return null;
-    final scale = ro.getTransformTo(null).getMaxScaleOnAxis();
-    return scale > 0 ? scale : null;
-  }
-
   Widget _maybeBuildHero({required String tag, required Widget child}) {
     if (!widget.enableHero) {
       return child;
     }
-    return Hero(
-      createRectTween: (begin, end) {
-        if (_cachedHeroEndRect != null) {
-          return RectTween(begin: begin, end: _cachedHeroEndRect);
-        }
-        Rect? effectiveEnd = end;
-
-        // CLOSING an edit flight: derive the end rect deterministically from
-        // the source (editor) rect instead of trusting the freshly-measured
-        // destination. The destination is the canvas layer, whose new size
-        // lags a frame — or more, for the copied layer in an embedded
-        // sub-editor — behind the edited text, so measuring it captures the
-        // *old* size and the flight shifts sideways on length changes.
-        //
-        // `begin` is the editor field, already laid out with the *final* text
-        // at scaleFactor 1.0, so its size is the new text's natural size (plus
-        // the field's input padding, which we subtract). The canvas renders the
-        // same text with `layer.scale` baked into the font, then the viewer
-        // scale on top:
-        //   end.size = (begin.size - inputPadding) * layer.scale * viewerScale
-        // The position is text-size-independent (center-anchored layer), so we
-        // keep the measured end center.
-        final override = HeroFlightOverrides.instance[_layer.id];
-        final viewerScale = _measureCanvasViewerScale();
-        if (override is TextLayer &&
-            begin != null &&
-            end != null &&
-            viewerScale != null) {
-          final pad = textEditorConfigs.style.inputTextFieldPadding;
-          final textW =
-              (begin.width - pad.horizontal).clamp(0.0, begin.width);
-          final textH = (begin.height - pad.vertical).clamp(0.0, begin.height);
-          final contentW = textW * _layer.scale * viewerScale;
-          final contentH = textH * _layer.scale * viewerScale;
-          _cachedHeroContentSize = Size(contentW, contentH);
-
-          // The measured end rect is an axis-aligned bounding box, so expand
-          // the (unrotated) content size to its AABB to match.
-          var rot = _layer.rotation % (2 * pi);
-          if (rot > pi) rot -= 2 * pi;
-          final a = rot.abs();
-          final aabbW = contentW * cos(a) + contentH * sin(a);
-          final aabbH = contentW * sin(a) + contentH * cos(a);
-          effectiveEnd = Rect.fromCenter(
-            center: end.center,
-            width: aabbW,
-            height: aabbH,
-          );
-        }
-
-        _cachedHeroEndRect = effectiveEnd;
-        return RectTween(begin: begin, end: effectiveEnd);
-      },
-      flightShuttleBuilder:
-          (flightContext, animation, direction, fromContext, toContext) {
-        // Normalize to the shortest equivalent angle in (-π, π] so a layer
-        // that was rotated several full turns (e.g. 720°) doesn't make the
-        // hero shuttle spin around multiple times — it takes the shortest
-        // visual path to straight instead.
-        var layerRotation = _layer.rotation % (2 * pi);
-        if (layerRotation > pi) layerRotation -= 2 * pi;
-
-        // Clear cache when this flight finishes so the next
-        // flight gets a fresh measurement.
-        void onFlightEnd(AnimationStatus status) {
-          if (status == AnimationStatus.completed ||
-              status == AnimationStatus.dismissed) {
-            _cachedHeroEndRect = null;
-            _cachedHeroContentSize = null;
-            animation.removeStatusListener(onFlightEnd);
-          }
-        }
-        animation.addStatusListener(onFlightEnd);
-
-        // Rotation goes layerRotation→0 matching user's expected
-        // visual direction (rotated→straight).
-        final rotationTween =
-            Tween<double>(begin: layerRotation, end: 0.0);
-        // Use the Layer hero's content for the shuttle.
-        // This matches perfectly at the Layer endpoint.
-        // At the TextEditor endpoint there's a sub-pixel gap
-        // (~0.8px) from the slight aspect-ratio difference
-        // between the two hero widgets.
-        final toHero = toContext.widget as Hero;
-        final toRb = toContext.findRenderObject() as RenderBox?;
-        // Prefer the size derived from the editor (source) rect for a closing
-        // edit — it matches the corrected end rect's aspect, so the FittedBox
-        // shuttle lands the text exactly. Fall back to the measured
-        // destination size when no edit override drove the rect correction.
-        final naturalSize = _cachedHeroContentSize ??
-            ((toRb != null && toRb.hasSize) ? toRb.size : const Size(100, 30));
-
-        return AnimatedBuilder(
-          animation: animation,
-          builder: (context, _) {
-            final angle = rotationTween.evaluate(animation);
-
-            // Read the flight override *per frame* by layer id: it is set
-            // right after the pop starts (when the edited content is known),
-            // so reading it live lets the shuttle pick up the new text. Keyed
-            // by id because sub-editors render copies — the shuttle's layer is
-            // a different instance than the one that handled the edit. While
-            // closing, the canvas layer keeps its old content (hidden behind
-            // the placeholder, no flash); the override flies the new text.
-            final flightOverride = HeroFlightOverrides.instance[_layer.id];
-            final Widget content = SizedBox.fromSize(
-              size: naturalSize,
-              // Center the override: it renders the *edited* text, which can be
-              // a different width than the original (naturalSize) box. Without
-              // centering, a shorter edited text sits left-aligned in the old,
-              // wider box and visibly jumps sideways during the flight. The
-              // layer is center-anchored, so centering keeps it aligned with
-              // where the real layer lands.
-              child: (flightOverride is TextLayer)
-                  ? Center(
-                      child: LayerWidgetTextItem(
-                        layer: flightOverride,
-                        textEditorConfigs: textEditorConfigs,
-                        showMoveCursor: _showMoveCursor,
-                        onHitChanged: (_) {},
-                      ),
-                    )
-                  : toHero.child,
-            );
-
-            // When there's no rotation, FittedBox alone is correct.
-            if (angle.abs() < 0.001) {
-              return FittedBox(fit: BoxFit.contain, child: content);
-            }
-
-            return LayoutBuilder(
-              builder: (context, constraints) {
-                final sw = constraints.maxWidth;
-                final sh = constraints.maxHeight;
-
-                final w = naturalSize.width;
-                final h = naturalSize.height;
-
-                final absA = angle.abs();
-                final cosA = cos(absA);
-                final sinA = sin(absA);
-                final aabbW = w * cosA + h * sinA;
-                final aabbH = w * sinA + h * cosA;
-
-                final fittedScale = min(sw / w, sh / h);
-                final neededScale = min(sw / aabbW, sh / aabbH);
-                final correction = neededScale / fittedScale;
-
-                return FittedBox(
-                  fit: BoxFit.contain,
-                  child: Transform.scale(
-                    scale: correction,
-                    child: Transform.rotate(
-                      angle: angle,
-                      child: content,
-                    ),
-                  ),
-                );
-              },
-            );
-          },
-        );
-      },
-      placeholderBuilder: (context, heroSize, child) {
-        return SizedBox.fromSize(size: heroSize);
-      },
+    return Heroine(
+      // Spring tuned to the sub-editor page transition — governs the
+      // *closing* text-editor flight (heroine uses the destination hero's
+      // motion), so flight and route fade end together. Matches the
+      // editor-side heroine in TextEditorInput.
+      motion: CupertinoMotion.smooth(
+        duration: mainEditorConfigs.style.subEditorPage.transitionDuration,
+        snapToEnd: true,
+      ),
+      // Don't pin the hidden layer to the size captured at flight start
+      // (heroine's default placeholder): while the text editor is open the
+      // layer renders the *edited* content via HeroFlightOverrides, and the
+      // closing flight must measure THAT size — with the pinned stale size,
+      // longer/shorter edits landed shifted sideways and snapped into place
+      // at the flight end. Opacity (NOT Offstage, which collapses to zero
+      // size) keeps the child laid out at its current natural size while
+      // invisible. Layout changes are safe here: the layer is center-anchored
+      // and positioned independently of its siblings.
+      placeholderBuilder: (context, heroSize, child) => IgnorePointer(
+        child: Opacity(opacity: 0, child: child),
+      ),
       tag: tag,
       child: child,
     );
+  }
+
+  /// Latched once the pending flight for this layer has actually started, so
+  /// the content stays visible through the landing and after the flight ends
+  /// (see [_buildFlightPendingGuard]).
+  bool _pendingFlightStarted = false;
+
+  /// Keeps the content invisible while this layer is the destination of an
+  /// *imminent* hero flight that hasn't engaged yet.
+  ///
+  /// The new-text flow swaps the real layer onto the canvas one frame before
+  /// the closing flight starts (the flight needs a content-ful destination to
+  /// measure) — without this guard the text is visible at the target for that
+  /// frame while the editor still shows the same text. Opacity (not
+  /// Visibility) so the layout is preserved for the flight measurement.
+  Widget _buildFlightPendingGuard({required Widget child}) {
+    final overrides = HeroFlightOverrides.instance;
+    if (!overrides.isFlightPending(_layer.id)) {
+      _pendingFlightStarted = false;
+      return child;
+    }
+    if (HeroineController.isTagInFlight(_layer.id)) {
+      _pendingFlightStarted = true;
+    }
+    if (_pendingFlightStarted) return child;
+    return Opacity(opacity: 0, child: child);
   }
 
   Widget _buildInteractionHandlers() {
@@ -606,8 +459,7 @@ class _LayerWidgetState extends State<LayerWidget>
                     padding: _isSelected
                         ? layerInteraction.style.overlayPadding
                         : (widget.isInteractive
-                            ? EdgeInsets.all(
-                                12.0 / widget.editorScaleFactor)
+                            ? EdgeInsets.all(12.0 / widget.editorScaleFactor)
                             : EdgeInsets.zero),
                     child: KeyedSubtree(
                       key: widget.enableHero ? _layer.keyInternalSize : null,
@@ -619,7 +471,9 @@ class _LayerWidgetState extends State<LayerWidget>
                         // edited text changed length).
                         child: ValueListenableBuilder<int>(
                           valueListenable: HeroFlightOverrides.instance.tick,
-                          builder: (_, __, ___) => _buildContent(),
+                          builder: (_, __, ___) => _buildFlightPendingGuard(
+                            child: _buildContent(),
+                          ),
                         ),
                       ),
                     ),

@@ -10,6 +10,7 @@ class SubEditorPageStyle {
   const SubEditorPageStyle({
     this.enforceSizeFromMainEditor = false,
     this.barrierDismissible = false,
+    this.transitionDuration = const Duration(milliseconds: 250),
     this.borderRadius,
     this.positionTop,
     this.positionLeft,
@@ -18,6 +19,13 @@ class SubEditorPageStyle {
     this.barrierColor,
     this.transitionsBuilder,
   });
+
+  /// Duration of the sub-editor page transition (push and pop).
+  ///
+  /// The text-editor hero flight (its spring motion) is tuned to this value
+  /// as well, so flight and route fade end together. Kept deliberately short
+  /// because long durations make the hero transition feel sluggish.
+  final Duration transitionDuration;
 
   /// Whether to enforce the size from the main editor.
   final bool enforceSizeFromMainEditor;
@@ -72,6 +80,7 @@ class SubEditorPageStyle {
   SubEditorPageStyle copyWith({
     bool? enforceSizeFromMainEditor,
     bool? barrierDismissible,
+    Duration? transitionDuration,
     BorderRadiusGeometry? borderRadius,
     double? positionTop,
     double? positionLeft,
@@ -85,6 +94,7 @@ class SubEditorPageStyle {
       enforceSizeFromMainEditor:
           enforceSizeFromMainEditor ?? this.enforceSizeFromMainEditor,
       barrierDismissible: barrierDismissible ?? this.barrierDismissible,
+      transitionDuration: transitionDuration ?? this.transitionDuration,
       borderRadius: borderRadius ?? this.borderRadius,
       positionTop: positionTop ?? this.positionTop,
       positionLeft: positionLeft ?? this.positionLeft,

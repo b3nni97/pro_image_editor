@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:heroine/heroine.dart';
 
 import '/core/constants/editor_various_constants.dart';
 import '/core/constants/image_constants.dart';
@@ -1626,9 +1627,6 @@ class ProImageEditorState extends State<ProImageEditor>
           scaleFactor: 1.0,
           imageSize: sizesManager.decodedImageSize,
         ),
-
-        /// Small Duration is important for a smooth hero animation
-        duration: const Duration(milliseconds: 250),
       );
     }
 
@@ -1661,8 +1659,15 @@ class ProImageEditorState extends State<ProImageEditor>
     // already set by the TextEditor before the pop; this keeps it in sync.)
     HeroFlightOverrides.instance.set(layerData.id, updatedLayer);
 
-    // Wait for the pop flight to finish before swapping the real layer in.
-    while (isSubEditorOpen && mounted) {
+    // Wait for the pop route AND the heroine landing to finish before
+    // swapping the real layer in — the swap remounts the layer's Heroine, and
+    // doing that mid-landing cuts the closing animation short (visible snap).
+    // The deadline is a safety net against a flight that never reports its
+    // end.
+    final flightDeadline = DateTime.now().add(const Duration(seconds: 3));
+    while (mounted &&
+        (isSubEditorOpen || HeroineController.isTagInFlight(layerData.id)) &&
+        DateTime.now().isBefore(flightDeadline)) {
       await WidgetsBinding.instance.endOfFrame;
     }
     if (!mounted) return;
@@ -1735,7 +1740,8 @@ class ProImageEditorState extends State<ProImageEditor>
   /// This method navigates to a new page using a fade transition animation.
   Future<T?> openPage<T>(
     Widget page, {
-    Duration duration = const Duration(milliseconds: 300),
+    /// Overrides [SubEditorPageStyle.transitionDuration] when set.
+    Duration? duration,
   }) {
     layerInteractionManager.clearSelectedLayers();
     _checkInteractiveViewer();
@@ -1777,12 +1783,13 @@ class ProImageEditorState extends State<ProImageEditor>
     _pageOpenCompleter = Completer();
 
     final subEditorStyle = mainEditorConfigs.style.subEditorPage;
+    final effectiveDuration = duration ?? subEditorStyle.transitionDuration;
     var route = PageRouteBuilder<T?>(
       opaque: false,
       barrierColor: subEditorStyle.barrierColor,
       barrierDismissible: subEditorStyle.barrierDismissible,
-      transitionDuration: duration,
-      reverseTransitionDuration: duration,
+      transitionDuration: effectiveDuration,
+      reverseTransitionDuration: effectiveDuration,
       transitionsBuilder: subEditorStyle.transitionsBuilder ??
           (context, animation, secondaryAnimation, child) {
             return FadeTransition(opacity: animation, child: child);
@@ -1982,8 +1989,8 @@ class ProImageEditorState extends State<ProImageEditor>
   /// This method opens the text editor, allowing the user to add or edit text
   /// layers on the image.
   void openTextEditor({
-    /// Small Duration is important for a smooth hero animation
-    Duration duration = const Duration(milliseconds: 250),
+    /// Overrides [SubEditorPageStyle.transitionDuration] when set.
+    Duration? duration,
   }) async {
     await _commitCurrentSubEditorState();
     final customCallback = mainEditorCallbacks?.onCreateTextLayer;
@@ -2024,6 +2031,10 @@ class ProImageEditorState extends State<ProImageEditor>
               ? _activeInteractiveViewer?.scaleFactor ?? 1.0
               : 1.0,
           imageSize: sizesManager.decodedImageSize,
+          // Keep the hero flight spring in sync with a per-call duration
+          // override; both fall back to
+          // SubEditorPageStyle.transitionDuration.
+          heroFlightDuration: duration,
         ),
         duration: duration,
       );
@@ -2035,11 +2046,15 @@ class ProImageEditorState extends State<ProImageEditor>
         return;
       }
 
-      // Reuse the placeholder's ID **and** key so the LayerWidget's
-      // Hero tag stays identical during the closing animation.
+      // Reuse the placeholder's ID **and** keys so the LayerWidget's
+      // Hero tag stays identical during the closing animation and the
+      // pre-pop swap doesn't remount the layer subtree (a changed
+      // keyInternalSize remounts the KeyedSubtree around the Heroine, which
+      // kills the flight's motion controller mid-flight).
       layer
         ..id = placeholder.id
-        ..key = placeholder.key;
+        ..key = placeholder.key
+        ..keyInternalSize = placeholder.keyInternalSize;
 
       // Place the text at the center of the currently visible (zoomed)
       // area at the correct visual size. The placeholder/replace flow
@@ -2060,6 +2075,14 @@ class ProImageEditorState extends State<ProImageEditor>
       // flash because the placeholder was invisible to begin with.
       if (!mounted) return;
 
+      // The swap makes the canvas layer render the real text one frame
+      // before the closing flight engages and hides it — which showed the
+      // text at the target while the editor still displayed the same text
+      // ("two texts"). Mark the flight as pending so the LayerWidget keeps
+      // the content invisible (layout preserved for the flight measurement)
+      // until the flight has actually started.
+      HeroFlightOverrides.instance.markPendingFlight(layer.id);
+
       // Replace in-place so the widget tree sees the same list index
       // and GlobalKey – this avoids destroying/recreating the Hero.
       final idx = activeLayers.indexOf(placeholder);
@@ -2074,6 +2097,16 @@ class ProImageEditorState extends State<ProImageEditor>
 
       setState(() {});
       mainEditorCallbacks?.handleUpdateUI();
+
+      // Release the pending mark once the flight is over (deadline as a
+      // safety net if the flight never engages, e.g. hero disabled).
+      final pendingDeadline = DateTime.now().add(const Duration(seconds: 3));
+      while (mounted &&
+          (isSubEditorOpen || HeroineController.isTagInFlight(layer.id)) &&
+          DateTime.now().isBefore(pendingDeadline)) {
+        await WidgetsBinding.instance.endOfFrame;
+      }
+      HeroFlightOverrides.instance.clearPendingFlight(layer.id);
       return;
     }
 

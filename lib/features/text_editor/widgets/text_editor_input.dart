@@ -1,6 +1,5 @@
-import 'dart:math';
-
 import 'package:flutter/material.dart';
+import 'package:heroine/heroine.dart';
 
 import '/core/models/editor_callbacks/text_editor_callbacks.dart';
 import '/core/models/editor_configs/pro_image_editor_configs.dart';
@@ -31,6 +30,7 @@ class TextEditorInput extends StatefulWidget {
     required this.configs,
     required this.heroTag,
     required this.enableHero,
+    required this.heroFlightDuration,
     required this.focusNode,
     required this.i18n,
     required this.selectedTextStyle,
@@ -61,6 +61,11 @@ class TextEditorInput extends StatefulWidget {
   /// uses a non-matching tag and stays inert (no flight), which keeps the real
   /// field mounted — used for new text while open so the keyboard is reliable.
   final bool enableHero;
+
+  /// Duration for the hero flight spring, matched to the sub-editor page
+  /// transition (see [SubEditorPageStyle.transitionDuration]) so flight and
+  /// route fade end together.
+  final Duration heroFlightDuration;
 
   /// The text style applied to the input text.
   final TextStyle selectedTextStyle;
@@ -101,116 +106,6 @@ class TextEditorInput extends StatefulWidget {
 }
 
 class _TextEditorInputState extends State<TextEditorInput> {
-  Widget _flightShuttleBuilder(
-    BuildContext flightContext,
-    Animation<double> animation,
-    HeroFlightDirection flightDirection,
-    BuildContext fromHeroContext,
-    BuildContext toHeroContext,
-  ) {
-    final Hero toHero = toHeroContext.widget as Hero;
-
-    final isOpening = flightDirection == HeroFlightDirection.push;
-
-    if (isOpening) {
-      void animationStatusListener(AnimationStatus status) {
-        if (status == AnimationStatus.completed) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            widget.focusNode.requestFocus();
-          });
-          animation.removeStatusListener(animationStatusListener);
-        }
-      }
-
-      animation.addStatusListener(animationStatusListener);
-    }
-
-    final shuttleChild =
-        InheritedTheme.captureAll(fromHeroContext, toHero.child);
-
-    // Normalize to the shortest equivalent angle in (-π, π] so a layer that
-    // was rotated several full turns (e.g. 720°) doesn't make the hero
-    // shuttle spin around multiple times — it takes the shortest visual path
-    // to straight instead.
-    var layerRotation = (widget.layer?.rotation ?? 0.0) % (2 * pi);
-    if (layerRotation > pi) layerRotation -= 2 * pi;
-    final rotationTween =
-        Tween<double>(begin: layerRotation, end: 0.0);
-
-    final content = isOpening
-        ? IntrinsicWidth(
-            child: ConstrainedBox(
-              constraints: BoxConstraints(maxWidth: widget.maxWidth),
-              child: shuttleChild,
-            ),
-          )
-        : shuttleChild;
-
-    if (layerRotation != 0) {
-      // Use the Layer hero's content and size for the shuttle.
-      // This ensures the shuttle has the exact same proportions
-      // as the layer, eliminating size mismatch at the layer
-      // endpoint.
-      final fromHero = fromHeroContext.widget as Hero;
-      final layerRb = fromHeroContext.findRenderObject() as RenderBox?;
-      final naturalSize = (layerRb != null && layerRb.hasSize)
-          ? layerRb.size
-          : null;
-
-      return AnimatedBuilder(
-        animation: animation,
-        builder: (context, child) {
-          final angle = rotationTween.evaluate(animation);
-
-          // No correction needed when straight.
-          if (angle.abs() < 0.001 || naturalSize == null) {
-            return FittedBox(fit: BoxFit.contain, child: child);
-          }
-
-          return LayoutBuilder(
-            builder: (context, constraints) {
-              final sw = constraints.maxWidth;
-              final sh = constraints.maxHeight;
-
-              final w = naturalSize.width;
-              final h = naturalSize.height;
-
-              final absA = angle.abs();
-              final cosA = cos(absA);
-              final sinA = sin(absA);
-              final aabbW = w * cosA + h * sinA;
-              final aabbH = w * sinA + h * cosA;
-
-              final fittedScale = min(sw / w, sh / h);
-              final neededScale = min(sw / aabbW, sh / aabbH);
-              final correction = neededScale / fittedScale;
-
-              return FittedBox(
-                fit: BoxFit.contain,
-                child: Transform.scale(
-                  scale: correction,
-                  child: Transform.rotate(
-                    angle: angle,
-                    child: child,
-                  ),
-                ),
-              );
-            },
-          );
-        },
-        child: SizedBox.fromSize(
-          size: naturalSize ?? Size.zero,
-          child: fromHero.child,
-        ),
-      );
-    }
-
-    return FittedBox(
-      fit: BoxFit.contain,
-      child: content,
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Align(
@@ -250,8 +145,25 @@ class _TextEditorInputState extends State<TextEditorInput> {
         : 'Text-Editor-Inert-No-Hero';
     return Transform.scale(
       scale: widget.scaleFactor,
-      child: Hero(
-        flightShuttleBuilder: _flightShuttleBuilder,
+      child: Heroine(
+        continuouslyTrackTarget: true,
+        // Spring tuned to the sub-editor page transition: flight and route
+        // fade end together (no long settle tail), no bounce. snapToEnd lets
+        // the flight report completion promptly, which also shortens the
+        // waits keyed on isTagInFlight (focus hand-off etc.).
+        motion: CupertinoMotion.smooth(
+          duration: widget.heroFlightDuration,
+          snapToEnd: true,
+        ),
+        // Keep the hidden field laid out at its *current* natural size while
+        // in flight (heroine's default placeholder pins the size captured at
+        // flight start). Typing during the flight changes the text width;
+        // with the pinned width the landing rendered the field too narrow
+        // and the new character briefly wrapped to a second line.
+        placeholderBuilder: (context, heroSize, child) => IgnorePointer(
+          child: Opacity(opacity: 0, child: child),
+        ),
+        flightShuttleBuilder: _FittedShuttleBuilder(maxWidth: widget.maxWidth),
         tag: heroTag,
         child: Container(
           padding: widget.configs.style.inputTextFieldPadding,
@@ -271,9 +183,8 @@ class _TextEditorInputState extends State<TextEditorInput> {
             },
             onEditingComplete: widget.callbacks?.handleEditingComplete,
             onSubmitted: widget.callbacks?.handleSubmitted,
-            textAlign: widget.textCtrl.text.isEmpty
-                ? TextAlign.center
-                : widget.align,
+            textAlign:
+                widget.textCtrl.text.isEmpty ? TextAlign.center : widget.align,
             configs: widget.configs,
             cursorHeight: widget.textFontSize,
             cursorWidth: widget.cursorWidth,
@@ -293,13 +204,139 @@ class _TextEditorInputState extends State<TextEditorInput> {
               shadows: [],
             ),
 
-            /// New text has no hero flight, so the field stays mounted and can
-            /// autofocus directly. While editing, focus is instead handed over
-            /// from the keep-alive field after the flight, so autofocus is off.
-            autofocus: widget.layer == null,
+            /// Never autofocus: the flight shuttle builds a *copy* of this
+            /// field, and an autofocusing copy re-opens the keyboard
+            /// mid-flight (visible as the keyboard bouncing during the
+            /// new-text close). Focus is always requested explicitly in
+            /// TextEditorState.initState (directly for new text, via the
+            /// keep-alive hand-off while editing).
+            autofocus: false,
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Scales the destination hero content into the animated flight box.
+///
+/// Heroine's default [FadeShuttleBuilder] re-lays-out both hero children at
+/// the flight-box size on every frame (`Stack(fit: StackFit.expand)`), which
+/// makes text re-wrap and jump around during the flight. This builder instead
+/// renders the destination child once at its natural size and scales it
+/// visually via [FittedBox] — the text keeps its layout for the whole flight.
+///
+/// Used for both directions: on push the destination is the editor field, on
+/// pop it is the canvas layer (heroine falls back to the source hero's shuttle
+/// builder when the destination has none).
+class _FittedShuttleBuilder extends HeroineShuttleBuilder {
+  const _FittedShuttleBuilder({required this.maxWidth});
+
+  /// The editor field's max text width — the shuttle mirrors the field's real
+  /// layout environment so the text lays out at its intrinsic width.
+  final double maxWidth;
+
+  @override
+  List<Object?> get props => [maxWidth];
+
+  /// The editor-field side: recreate the field's real layout environment
+  /// (IntrinsicWidth capped at [maxWidth], like TextEditorInput.build) so the
+  /// text lays out at its intrinsic width and can never wrap mid-flight.
+  Widget _editorSide(Widget child) {
+    return FittedBox(
+      fit: BoxFit.contain,
+      clipBehavior: Clip.none,
+      child: IntrinsicWidth(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: maxWidth),
+          child: child,
+        ),
+      ),
+    );
+  }
+
+  /// The canvas-layer side: pin the content to its measured natural size so
+  /// FittedBox scales instead of re-layouting.
+  Widget _layerSide(Widget child, BuildContext heroContext) {
+    final renderBox = heroContext.findRenderObject();
+    final naturalSize =
+        renderBox is RenderBox && renderBox.hasSize ? renderBox.size : null;
+    return FittedBox(
+      fit: BoxFit.contain,
+      clipBehavior: Clip.none,
+      child: SizedBox.fromSize(
+        size: naturalSize,
+        child: child,
+      ),
+    );
+  }
+
+  @override
+  Widget call(
+    BuildContext flightContext,
+    Animation<double> animation,
+    HeroFlightDirection flightDirection,
+    BuildContext fromHeroContext,
+    BuildContext toHeroContext,
+  ) {
+    // A hero can be unmounted mid-flight (e.g. the canvas layer being swapped
+    // right after an edit); reading `.widget` on a defunct element throws.
+    Widget heroChild(BuildContext heroContext) => heroContext.mounted
+        ? InheritedTheme.captureAll(
+            heroContext,
+            (heroContext.widget as Heroine).child,
+          )
+        : const SizedBox.shrink();
+
+    // The two hero endpoints differ slightly in geometry (the editor field
+    // reserves cursor width + input padding, the canvas layer doesn't), so a
+    // single-content shuttle makes the text jump ~1-3px sideways at one
+    // endpoint. Cross-fade both contents instead — each rendered
+    // pixel-faithfully in its own layout environment — so the shuttle matches
+    // the source exactly at t=0 and the destination exactly at t=1. The texts
+    // are identical, so the mid-flight blend is invisible.
+    final isPush = flightDirection == HeroFlightDirection.push;
+    // ExcludeFocus: the editor-side copy shares the real field's FocusNode —
+    // the flying copy must never be able to attach it to the focus tree or
+    // re-open the IME (visible as the keyboard bouncing back up mid-close).
+    final editorSide = ExcludeFocus(
+      child: _editorSide(heroChild(isPush ? toHeroContext : fromHeroContext)),
+    );
+    final layerSide = _layerSide(
+      heroChild(isPush ? fromHeroContext : toHeroContext),
+      isPush ? fromHeroContext : toHeroContext,
+    );
+    final fromSide = isPush ? layerSide : editorSide;
+    final toSide = isPush ? editorSide : layerSide;
+
+    return AnimatedBuilder(
+      animation: animation,
+      builder: (context, _) {
+        // 0 = fully the source hero, 1 = fully the destination hero.
+        final t = (isPush ? animation.value : 1 - animation.value)
+            .clamp(0.0, 1.0)
+            .toDouble();
+        // A plain cross-fade dips to ~75% combined alpha mid-flight (two 50%
+        // layers don't add up to opaque), which reads as the text briefly
+        // turning translucent. Instead, fade the destination in over the
+        // first 40% and the source out over the last 40%, so at least one
+        // layer is fully opaque at all times. The contents are near-identical
+        // so the full-opacity overlap in the middle is invisible.
+        final toOpacity = (t / 0.4).clamp(0.0, 1.0).toDouble();
+        final fromOpacity = ((1 - t) / 0.4).clamp(0.0, 1.0).toDouble();
+        return Stack(
+          children: [
+            if (fromOpacity > 0)
+              Positioned.fill(
+                child: Opacity(opacity: fromOpacity, child: fromSide),
+              ),
+            if (toOpacity > 0)
+              Positioned.fill(
+                child: Opacity(opacity: toOpacity, child: toSide),
+              ),
+          ],
+        );
+      },
     );
   }
 }
