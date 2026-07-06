@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:heroine/heroine.dart';
 
 import '/shared/widgets/smart_hero.dart';
 
@@ -54,6 +55,12 @@ class MainEditorBackgroundVideo extends StatelessWidget {
   Widget build(BuildContext context) {
     return SmartHero(
       tag: configs.heroTag,
+      // Match the sub-editor screen transition: same duration, same spring
+      // as the layer/text heroines.
+      motion: CupertinoMotion.smooth(
+        duration: configs.mainEditor.style.subEditorPage.transitionDuration,
+        snapToEnd: true,
+      ),
       child: !isInitialized
           ? videoPlayer
           : TransformedContentGenerator(

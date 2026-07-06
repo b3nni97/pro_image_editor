@@ -189,6 +189,9 @@ class _TextEditorInputState extends State<TextEditorInput> {
       scale: widget.scaleFactor,
       child: Heroine(
         continuouslyTrackTarget: true,
+        // Match the layer-side heroine: text flights render above the
+        // (heroine-based) image hero, which uses the default z-index of 0.
+        zIndex: 10,
         // Spring tuned to the sub-editor page transition: flight and route
         // fade end together (no long settle tail), no bounce. snapToEnd lets
         // the flight report completion promptly, which also shortens the

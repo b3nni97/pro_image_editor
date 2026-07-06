@@ -28,6 +28,7 @@ class FilterEditorInitConfigs extends EditorInitConfigs {
     super.historyScope,
     super.onLayerTransformChanged,
     this.backgroundImageOverride,
+    super.onTextLayerTap,
     required super.theme,
   });
 

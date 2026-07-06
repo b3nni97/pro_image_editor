@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:heroine/heroine.dart';
 
 import '/shared/widgets/smart_hero.dart';
 
@@ -260,6 +261,12 @@ class _MainEditorBackgroundImageState extends State<MainEditorBackgroundImage>
     final w = widget;
     return SmartHero(
       tag: w.heroTag,
+      // Match the sub-editor screen transition: same duration, same spring
+      // as the layer/text heroines.
+      motion: CupertinoMotion.smooth(
+        duration: w.configs.mainEditor.style.subEditorPage.transitionDuration,
+        snapToEnd: true,
+      ),
       child: _buildContent(),
     );
   }

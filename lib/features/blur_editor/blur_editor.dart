@@ -185,7 +185,6 @@ class BlurEditorState extends State<BlurEditor>
   @override
   void initState() {
     super.initState();
-    _mutableLayers = List<Layer>.from(layers ?? []);
     _uiBlurStream = StreamController.broadcast();
     _uiBlurStream.stream.listen((_) => rebuildController.add(null));
 
@@ -202,58 +201,12 @@ class BlurEditorState extends State<BlurEditor>
     super.dispose();
   }
 
-  /// Whether a deferred layer sync is already scheduled
-  /// (see [_syncLayersWhenIdle]).
-  bool _layerSyncScheduled = false;
-
   @override
   void didUpdateWidget(covariant BlurEditor oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (blurEditorConfigs.enableInteractiveLayers) {
-      _syncLayersWhenIdle();
+      syncLayersWhenIdle();
     }
-  }
-
-  /// Replaces [_mutableLayers] with the widget's layer list — but never while
-  /// one of the current layers is mid hero-flight.
-  ///
-  /// The main editor passes *fresh copies* (new [Layer.key] GlobalKeys) on
-  /// every rebuild, so the swap remounts the LayerWidgets. Doing that during
-  /// a flight destroys the heroine that owns the flight's motion controller
-  /// and cuts the landing animation short (visible snap when the text editor
-  /// closes). Defer the sync until the flight is over instead.
-  void _syncLayersWhenIdle({bool deferred = false}) {
-    if (!mounted) return;
-    if (_mutableLayers.any((l) => HeroineController.isTagInFlight(l.id))) {
-      if (_layerSyncScheduled) return;
-      _layerSyncScheduled = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _layerSyncScheduled = false;
-        _syncLayersWhenIdle(deferred: true);
-      });
-      return;
-    }
-    // Preserve widget identity across the swap: carry the previous copies'
-    // GlobalKeys over to the incoming copies (matched by id). Otherwise every
-    // sync remounts the LayerWidgets, which resets the Heroine state — e.g.
-    // the "hidden while its editor is open" flight status of an edited text
-    // layer, making it briefly visible at the target before the close flight.
-    final incoming = List<Layer>.from(layers ?? []);
-    for (final layer in incoming) {
-      final i = _mutableLayers.indexWhere((l) => l.id == layer.id);
-      if (i >= 0) {
-        layer
-          ..key = _mutableLayers[i].key
-          ..keyInternalSize = _mutableLayers[i].keyInternalSize;
-      }
-    }
-    _mutableLayers
-      ..clear()
-      ..addAll(incoming);
-    _layersModified = false;
-    // The immediate path runs during didUpdateWidget, where a rebuild
-    // follows anyway; the deferred path needs its own.
-    if (deferred) setState(() {});
   }
 
   @override
@@ -282,15 +235,9 @@ class BlurEditorState extends State<BlurEditor>
     return blurFactor;
   }
 
-  /// Mutable copy of the layers list for interactive editing.
-  late final List<Layer> _mutableLayers;
-
-  /// Whether the layers have been modified during this editing session.
-  bool _layersModified = false;
-
   /// Exports the current layers if they were modified.
   List<Layer>? exportLayers() {
-    if (_layersModified) return _mutableLayers;
+    if (layersModified) return mutableLayers;
     return null;
   }
 
@@ -313,7 +260,7 @@ class BlurEditorState extends State<BlurEditor>
     if (_useGlobalHistory) {
       _historyScope!.addHistory(
         blur: blurFactor,
-        layers: _historyScope!.copyLayers(_mutableLayers),
+        layers: _historyScope!.copyLayers(mutableLayers),
         blockCaptureScreenshot: true,
       );
     }
@@ -405,7 +352,8 @@ class BlurEditorState extends State<BlurEditor>
                                 enableHero: true,
                                 configs: configs,
                                 callbacks: callbacks,
-                                layers: _mutableLayers,
+                                onTextLayerTap: initConfigs.onTextLayerTap,
+                                layers: mutableLayers,
                                 editorBodySize: editorBodySize,
                                 transformHelper: TransformHelper(
                                   mainBodySize: getValidSizeOrDefault(
@@ -419,16 +367,16 @@ class BlurEditorState extends State<BlurEditor>
                                 overlayColor:
                                     blurEditorConfigs.style.background,
                                 onLayersChanged: () {
-                                  _layersModified = true;
+                                  layersModified = true;
                                   initConfigs.onLayerTransformChanged
-                                      ?.call(_mutableLayers);
+                                      ?.call(mutableLayers);
                                 },
                                 onBeforeLayerChange: _useGlobalHistory
                                     ? () {
                                         _historyScope!.addHistory(
                                           blur: blurFactor,
                                           layers: _historyScope!
-                                              .copyLayers(_mutableLayers),
+                                              .copyLayers(mutableLayers),
                                           blockCaptureScreenshot: true,
                                         );
                                       }
@@ -479,6 +427,12 @@ class BlurEditorState extends State<BlurEditor>
   Widget _buildBackground() {
     return SmartHero(
       tag: heroTag,
+      // Match the sub-editor screen transition: same duration, same spring
+      // as the layer/text heroines.
+      motion: CupertinoMotion.smooth(
+        duration: mainEditorConfigs.style.subEditorPage.transitionDuration,
+        snapToEnd: true,
+      ),
       child: StreamBuilder(
         stream: _uiBlurStream.stream,
         builder: (context, snapshot) {
@@ -488,8 +442,7 @@ class BlurEditorState extends State<BlurEditor>
             transformConfigs:
                 initialTransformConfigs ?? TransformConfigs.empty(),
             child: FilteredWidget(
-              width:
-                  getValidSizeOrDefault(mainImageSize, editorBodySize).width,
+              width: getValidSizeOrDefault(mainImageSize, editorBodySize).width,
               height:
                   getValidSizeOrDefault(mainImageSize, editorBodySize).height,
               configs: configs,

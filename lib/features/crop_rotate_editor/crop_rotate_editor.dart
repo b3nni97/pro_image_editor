@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart' hide Image;
 import 'package:flutter/services.dart';
+import 'package:heroine/heroine.dart';
 import 'package:vector_math/vector_math_64.dart' as vector_math;
 
 import '/shared/widgets/smart_hero.dart';
@@ -4683,16 +4684,14 @@ class CropRotateEditorState extends State<CropRotateEditor>
                         cutOutsideImageArea: false,
                         enableHero: false,
                         transformHelper: TransformHelper(
-                          mainBodySize:
-                              mainBodySize ?? editorBodySize,
+                          mainBodySize: mainBodySize ?? editorBodySize,
                           mainImageSize: _mainImageSize,
                           editorBodySize: imgSize,
                         ),
                         configs: configs,
                         layers: _rawLayers,
                         clipBehavior: Clip.none,
-                        overlayColor: cropRotateEditorConfigs
-                                .style.background
+                        overlayColor: cropRotateEditorConfigs.style.background
                                 ?.call(context) ??
                             kImageEditorBackground,
                       ),
@@ -4863,6 +4862,13 @@ class CropRotateEditorState extends State<CropRotateEditor>
             children: [
               SmartHero(
                 tag: heroTag,
+                // Match the sub-editor screen transition: same duration,
+                // same spring as the layer/text heroines.
+                motion: CupertinoMotion.smooth(
+                  duration:
+                      mainEditorConfigs.style.subEditorPage.transitionDuration,
+                  snapToEnd: true,
+                ),
                 child: TransformedContentGenerator(
                   isVideoPlayer: videoController != null,
                   transformConfigs: _fakeHeroTransformConfigs,

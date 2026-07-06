@@ -44,6 +44,7 @@ abstract class EditorInitConfigs {
     this.enableCloseButton = true,
     this.historyScope,
     this.onLayerTransformChanged,
+    this.onTextLayerTap,
   });
 
   /// Determines whether the close button is displayed on the widget.
@@ -97,4 +98,9 @@ abstract class EditorInitConfigs {
   /// positions back to [activeLayers], keeping the backgroundOverride's
   /// Hero rects up-to-date.
   final void Function(List<Layer> layers)? onLayerTransformChanged;
+
+  /// Callback triggered when a text layer is tapped for editing within a
+  /// sub-editor's interactive layer stack. The main editor typically passes
+  /// its text-editor opening method here.
+  final void Function(TextLayer layer)? onTextLayerTap;
 }

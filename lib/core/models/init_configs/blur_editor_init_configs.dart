@@ -28,6 +28,7 @@ class BlurEditorInitConfigs extends EditorInitConfigs {
     super.convertToUint8List,
     super.historyScope,
     super.onLayerTransformChanged,
+    super.onTextLayerTap,
     this.backgroundImageOverride,
     required super.theme,
   });

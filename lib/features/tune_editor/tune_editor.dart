@@ -228,17 +228,11 @@ class TuneEditorState extends State<TuneEditor>
   /// when switching between sub-editors.
   List<List<TuneAdjustmentMatrix>> get redoStack => _redoStack;
 
-  /// Mutable copy of the layers list for interactive editing.
-  late final List<Layer> _mutableLayers;
-
-  /// Whether the layers have been modified during this editing session.
-  bool _layersModified = false;
-
   /// Exports the current layers if they were modified.
   ///
   /// Returns `null` if no layer modifications were made.
   List<Layer>? exportLayers() {
-    if (_layersModified) return _mutableLayers;
+    if (layersModified) return mutableLayers;
     return null;
   }
 
@@ -249,7 +243,6 @@ class TuneEditorState extends State<TuneEditor>
   @override
   void initState() {
     super.initState();
-    _mutableLayers = List<Layer>.from(layers ?? []);
     uiStream = StreamController.broadcast();
     uiStream.stream.listen((_) => rebuildController.add(null));
 
@@ -291,60 +284,14 @@ class TuneEditorState extends State<TuneEditor>
     super.dispose();
   }
 
-  /// Whether a deferred layer sync is already scheduled
-  /// (see [_syncLayersWhenIdle]).
-  bool _layerSyncScheduled = false;
-
   @override
   void didUpdateWidget(covariant TuneEditor oldWidget) {
     super.didUpdateWidget(oldWidget);
     // Sync mutable layers when the main editor rebuilds us with a new list
     // (e.g. after adding a text layer or switching sub-editors).
     if (tuneEditorConfigs.enableInteractiveLayers) {
-      _syncLayersWhenIdle();
+      syncLayersWhenIdle();
     }
-  }
-
-  /// Replaces [_mutableLayers] with the widget's layer list — but never while
-  /// one of the current layers is mid hero-flight.
-  ///
-  /// The main editor passes *fresh copies* (new [Layer.key] GlobalKeys) on
-  /// every rebuild, so the swap remounts the LayerWidgets. Doing that during
-  /// a flight destroys the heroine that owns the flight's motion controller
-  /// and cuts the landing animation short (visible snap when the text editor
-  /// closes). Defer the sync until the flight is over instead.
-  void _syncLayersWhenIdle({bool deferred = false}) {
-    if (!mounted) return;
-    if (_mutableLayers.any((l) => HeroineController.isTagInFlight(l.id))) {
-      if (_layerSyncScheduled) return;
-      _layerSyncScheduled = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _layerSyncScheduled = false;
-        _syncLayersWhenIdle(deferred: true);
-      });
-      return;
-    }
-    // Preserve widget identity across the swap: carry the previous copies'
-    // GlobalKeys over to the incoming copies (matched by id). Otherwise every
-    // sync remounts the LayerWidgets, which resets the Heroine state — e.g.
-    // the "hidden while its editor is open" flight status of an edited text
-    // layer, making it briefly visible at the target before the close flight.
-    final incoming = List<Layer>.from(layers ?? []);
-    for (final layer in incoming) {
-      final i = _mutableLayers.indexWhere((l) => l.id == layer.id);
-      if (i >= 0) {
-        layer
-          ..key = _mutableLayers[i].key
-          ..keyInternalSize = _mutableLayers[i].keyInternalSize;
-      }
-    }
-    _mutableLayers
-      ..clear()
-      ..addAll(incoming);
-    _layersModified = false;
-    // The immediate path runs during didUpdateWidget, where a rebuild
-    // follows anyway; the deferred path needs its own.
-    if (deferred) setState(() {});
   }
 
   @override
@@ -443,7 +390,7 @@ class TuneEditorState extends State<TuneEditor>
   void _syncFromGlobalState() {
     tuneAdjustmentMatrix =
         _historyScope!.getActiveTuneAdjustments().map((e) => e.copy()).toList();
-    _mutableLayers
+    mutableLayers
       ..clear()
       ..addAll(_historyScope!.getActiveLayers());
     historyVersion++;
@@ -499,7 +446,7 @@ class TuneEditorState extends State<TuneEditor>
       // The addHistory call captures the full state snapshot.
       _historyScope!.addHistory(
         tuneAdjustments: tuneAdjustmentMatrix.map((e) => e.copy()).toList(),
-        layers: _historyScope!.copyLayers(_mutableLayers),
+        layers: _historyScope!.copyLayers(mutableLayers),
         blockCaptureScreenshot: true,
       );
       return;
@@ -678,6 +625,12 @@ class TuneEditorState extends State<TuneEditor>
   Widget _buildBackground() {
     return SmartHero(
       tag: heroTag,
+      // Match the sub-editor screen transition: same duration, same spring
+      // as the layer/text heroines.
+      motion: CupertinoMotion.smooth(
+        duration: mainEditorConfigs.style.subEditorPage.transitionDuration,
+        snapToEnd: true,
+      ),
       child: StreamBuilder(
         stream: uiStream.stream,
         builder: (context, snapshot) {
@@ -710,7 +663,7 @@ class TuneEditorState extends State<TuneEditor>
         enableHero: true,
         configs: configs,
         callbacks: callbacks,
-        layers: _mutableLayers,
+        layers: mutableLayers,
         editorBodySize: editorBodySize,
         interactiveViewerKey: interactiveViewerKey,
         transformHelper: TransformHelper(
@@ -724,15 +677,15 @@ class TuneEditorState extends State<TuneEditor>
             kImageEditorBackground,
         onTextLayerTap: initConfigs.onTextLayerTap,
         onLayersChanged: () {
-          _layersModified = true;
-          initConfigs.onLayerTransformChanged?.call(_mutableLayers);
+          layersModified = true;
+          initConfigs.onLayerTransformChanged?.call(mutableLayers);
         },
         onBeforeLayerChange: _useGlobalHistory
             ? () {
                 _historyScope!.addHistory(
                   tuneAdjustments:
                       tuneAdjustmentMatrix.map((e) => e.copy()).toList(),
-                  layers: _historyScope!.copyLayers(_mutableLayers),
+                  layers: _historyScope!.copyLayers(mutableLayers),
                   blockCaptureScreenshot: true,
                 );
               }

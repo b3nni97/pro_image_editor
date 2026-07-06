@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:heroine/heroine.dart';
 
 import '/shared/widgets/smart_hero.dart';
 
@@ -75,7 +76,6 @@ class MainEditorInteractiveContent extends StatelessWidget {
 
   /// A builder function to create the layer widgets.
   final Widget Function() buildLayers;
-
 
   /// Manages the state of the editor.
   final StateManager stateManager;
@@ -272,6 +272,12 @@ class MainEditorInteractiveContent extends StatelessWidget {
   Widget _buildCropAreaOverlay() {
     return SmartHero(
       tag: 'crop_layer_painter_hero',
+      // Match the sub-editor screen transition: same duration, same spring
+      // as the layer/text heroines.
+      motion: CupertinoMotion.smooth(
+        duration: configs.mainEditor.style.subEditorPage.transitionDuration,
+        snapToEnd: true,
+      ),
       child: StreamBuilder(
         stream: controllers.cropLayerPainterCtrl.stream,
         builder: (context, snapshot) {

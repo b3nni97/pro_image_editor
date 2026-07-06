@@ -34,13 +34,19 @@ class _RecordInvisibleWidgetState extends State<RecordInvisibleWidget> {
             widget.controller.recordReadyHelper.complete(true);
           }
 
+          // The recorder slot is ALWAYS present (empty while nothing is
+          // being recorded) so the tree shape never changes when a
+          // recording starts or ends. Conditionally inserting it shifted
+          // [RecordInvisibleWidget.child] between stack positions 0 and 1,
+          // which remounted (or, when keyed, reparented) the entire editor
+          // subtree mid-session — visible as a black canvas until the next
+          // full repaint.
           return Stack(
             children: [
-              if (snapshot.data != null)
-                ExtendedRepaintBoundary(
-                  key: widget.controller.recorderKey,
-                  child: snapshot.data,
-                ),
+              ExtendedRepaintBoundary(
+                key: widget.controller.recorderKey,
+                child: snapshot.data ?? const SizedBox.shrink(),
+              ),
               widget.child,
             ],
           );

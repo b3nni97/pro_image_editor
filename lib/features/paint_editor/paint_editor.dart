@@ -8,6 +8,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:heroine/heroine.dart';
 
 import '/shared/widgets/smart_hero.dart';
 
@@ -728,7 +729,7 @@ class PaintEditorState extends State<PaintEditor>
         ..offset *= scale
         ..scale *= scale;
     }).toList();
-    
+
     return PaintEditorResponse(
       layers: transformedLayers,
       removedLayers: activeHistory.removedLayers,
@@ -1004,6 +1005,12 @@ class PaintEditorState extends State<PaintEditor>
     return [
       SmartHero(
         tag: configs.heroTag,
+        // Match the sub-editor screen transition: same duration, same spring
+        // as the layer/text heroines.
+        motion: CupertinoMotion.smooth(
+          duration: mainEditorConfigs.style.subEditorPage.transitionDuration,
+          snapToEnd: true,
+        ),
         child: AutoImage(
           EditorImage(byteArray: _fakeHeroBytes),
           configs: configs,

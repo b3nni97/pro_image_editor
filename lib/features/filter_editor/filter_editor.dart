@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:heroine/heroine.dart';
 
 import '/core/models/history/editor_history_scope.dart';
 
@@ -251,15 +252,9 @@ class FilterEditorState extends State<FilterEditor>
     return _redoStack.isNotEmpty;
   }
 
-  /// Mutable copy of the layers list for interactive editing.
-  late final List<Layer> _mutableLayers;
-
-  /// Whether the layers have been modified during this editing session.
-  bool _layersModified = false;
-
   /// Exports the current layers if they were modified.
   List<Layer>? exportLayers() {
-    if (_layersModified) return _mutableLayers;
+    if (layersModified) return mutableLayers;
     return null;
   }
 
@@ -349,8 +344,7 @@ class FilterEditorState extends State<FilterEditor>
   void _syncFromGlobalState() {
     // Restore filter state from global history
     final activeFilters = _historyScope!.getActiveFilters();
-    final filterList =
-        filterEditorConfigs.filterList ?? presetFiltersList;
+    final filterList = filterEditorConfigs.filterList ?? presetFiltersList;
     if (activeFilters.isNotEmpty &&
         !listEquals(activeFilters.first, identityMatrix)) {
       // Try to find which filter matches
@@ -366,7 +360,7 @@ class FilterEditorState extends State<FilterEditor>
       _selectedFilter = PresetFilters.none;
       _filterOpacity = 1.0;
     }
-    _mutableLayers
+    mutableLayers
       ..clear()
       ..addAll(_historyScope!.getActiveLayers());
     historyVersion++;
@@ -385,7 +379,7 @@ class FilterEditorState extends State<FilterEditor>
         // Global history: save current filter state
         _historyScope!.addHistory(
           filters: _getActiveFilters(),
-          layers: _historyScope!.copyLayers(_mutableLayers),
+          layers: _historyScope!.copyLayers(mutableLayers),
           blockCaptureScreenshot: true,
         );
       } else {
@@ -406,7 +400,6 @@ class FilterEditorState extends State<FilterEditor>
   @override
   void initState() {
     super.initState();
-    _mutableLayers = List<Layer>.from(layers ?? []);
     _uiFilterStream = StreamController.broadcast();
     _uiFilterStream.stream.listen((_) => rebuildController.add(null));
 
@@ -433,12 +426,10 @@ class FilterEditorState extends State<FilterEditor>
   @override
   void didUpdateWidget(covariant FilterEditor oldWidget) {
     super.didUpdateWidget(oldWidget);
+    // Sync mutable layers when the main editor rebuilds us with a new list
+    // (e.g. after adding a text layer or switching sub-editors).
     if (filterEditorConfigs.enableInteractiveLayers) {
-      final newLayers = layers ?? [];
-      _mutableLayers
-        ..clear()
-        ..addAll(newLayers);
-      _layersModified = false;
+      syncLayersWhenIdle();
     }
   }
 
@@ -527,16 +518,14 @@ class FilterEditorState extends State<FilterEditor>
       }
     }
 
-    _setFilterInternal(
-        FilterModel(name: 'Not-Found', filters: [firstApplied]));
+    _setFilterInternal(FilterModel(name: 'Not-Found', filters: [firstApplied]));
   }
 
   /// Tries to derive the opacity `t` such that
   /// `lerp(identity, raw, t) ≈ applied` for all 20 matrix elements.
   ///
   /// Returns `t` if a consistent opacity is found, or `null` otherwise.
-  double? _inferOpacityFromLerp(
-      List<double> applied, List<double> raw) {
+  double? _inferOpacityFromLerp(List<double> applied, List<double> raw) {
     if (applied.length != 20 || raw.length != 20) return null;
 
     const identity = [
@@ -572,8 +561,6 @@ class FilterEditorState extends State<FilterEditor>
     if (result == null || result < 0.01) return null;
     return result;
   }
-
-
 
   /// Set the current filter.
   ///
@@ -700,9 +687,9 @@ class FilterEditorState extends State<FilterEditor>
                         ? mainImageSize!.aspectRatio
                         : null);
 
-            final fit = mainConfigs.viewportFitBuilder
-                    ?.call(effectiveAspectRatio) ??
-                const ViewportFitResult();
+            final fit =
+                mainConfigs.viewportFitBuilder?.call(effectiveAspectRatio) ??
+                    const ViewportFitResult();
 
             // Auto-compute contentInset from the effective aspect
             // ratio so the pan boundaries correctly account for
@@ -757,7 +744,7 @@ class FilterEditorState extends State<FilterEditor>
                                   enableHero: true,
                                   configs: configs,
                                   callbacks: callbacks,
-                                  layers: _mutableLayers,
+                                  layers: mutableLayers,
                                   editorBodySize: editorBodySize,
                                   transformHelper: TransformHelper(
                                     mainBodySize: getValidSizeOrDefault(
@@ -772,18 +759,18 @@ class FilterEditorState extends State<FilterEditor>
                                           .style.background
                                           ?.call(context) ??
                                       kImageEditorBackground,
+                                  onTextLayerTap: initConfigs.onTextLayerTap,
                                   onLayersChanged: () {
-                                    _layersModified = true;
+                                    layersModified = true;
                                     initConfigs.onLayerTransformChanged
-                                        ?.call(_mutableLayers);
+                                        ?.call(mutableLayers);
                                   },
                                   onBeforeLayerChange: _useGlobalHistory
                                       ? () {
                                           _historyScope!.addHistory(
-                                            filters:
-                                                _getActiveFilters(),
+                                            filters: _getActiveFilters(),
                                             layers: _historyScope!
-                                                .copyLayers(_mutableLayers),
+                                                .copyLayers(mutableLayers),
                                             blockCaptureScreenshot: true,
                                           );
                                         }
@@ -838,6 +825,12 @@ class FilterEditorState extends State<FilterEditor>
   Widget _buildBackground() {
     return SmartHero(
       tag: heroTag,
+      // Match the sub-editor screen transition: same duration, same spring
+      // as the layer/text heroines.
+      motion: CupertinoMotion.smooth(
+        duration: mainEditorConfigs.style.subEditorPage.transitionDuration,
+        snapToEnd: true,
+      ),
       child: StreamBuilder(
         stream: _uiFilterStream.stream,
         builder: (context, snapshot) {
@@ -847,8 +840,7 @@ class FilterEditorState extends State<FilterEditor>
             transformConfigs:
                 initialTransformConfigs ?? TransformConfigs.empty(),
             child: FilteredWidget(
-              width:
-                  getValidSizeOrDefault(mainImageSize, editorBodySize).width,
+              width: getValidSizeOrDefault(mainImageSize, editorBodySize).width,
               height:
                   getValidSizeOrDefault(mainImageSize, editorBodySize).height,
               configs: configs,

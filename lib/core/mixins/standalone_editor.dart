@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:heroine/heroine.dart';
 
 import '/core/mixins/converted_callbacks.dart';
 import '/core/models/complete_parameters.dart';
@@ -76,6 +77,89 @@ mixin StandaloneEditorState<T extends StatefulWidget,
 
   /// Returns the layers in the editor.
   List<Layer>? get layers => initConfigs.layers;
+
+  /// The editor's mutable copies of the main editor's layers, rendered by
+  /// the interactive layer stack when interactive layers are enabled for
+  /// this sub-editor.
+  late final List<Layer> mutableLayers = List<Layer>.from(layers ?? []);
+
+  /// Whether [mutableLayers] were changed by user interaction since the
+  /// last sync from the main editor.
+  bool layersModified = false;
+
+  /// Guards against scheduling multiple deferred layer syncs
+  /// (see [syncLayersWhenIdle]).
+  bool _layerSyncScheduled = false;
+
+  /// Replaces [mutableLayers] with the widget's layer list — but never while
+  /// one of the current layers is mid hero-flight.
+  ///
+  /// Call this from `didUpdateWidget` when interactive layers are enabled,
+  /// so the copies follow the main editor's list (e.g. after adding a text
+  /// layer or switching sub-editors).
+  ///
+  /// The main editor passes *fresh copies* (new [Layer.key] GlobalKeys) on
+  /// every rebuild, so the swap remounts the LayerWidgets. Doing that during
+  /// a flight destroys the heroine that owns the flight's motion controller
+  /// and cuts the landing animation short (visible snap when the text editor
+  /// closes). Defer the sync until the flight is over instead.
+  void syncLayersWhenIdle({bool deferred = false}) {
+    if (!mounted) return;
+    if (mutableLayers.any((l) => HeroineController.isTagInFlight(l.id))) {
+      if (_layerSyncScheduled) return;
+      _layerSyncScheduled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _layerSyncScheduled = false;
+        syncLayersWhenIdle(deferred: true);
+      });
+      return;
+    }
+    // Preserve widget identity across the swap: carry the previous copies'
+    // GlobalKeys over to the incoming copies (matched by id). Otherwise every
+    // sync remounts the LayerWidgets, which resets the Heroine state — e.g.
+    // the "hidden while its editor is open" flight status of an edited text
+    // layer, making it briefly visible at the target before the close flight.
+    final incoming = List<Layer>.from(layers ?? []);
+    for (final layer in incoming) {
+      final i = mutableLayers.indexWhere((l) => l.id == layer.id);
+      if (i >= 0) {
+        layer
+          ..key = mutableLayers[i].key
+          ..keyInternalSize = mutableLayers[i].keyInternalSize;
+      }
+    }
+    mutableLayers
+      ..clear()
+      ..addAll(incoming);
+    layersModified = false;
+    // The immediate path runs during didUpdateWidget, where a rebuild
+    // follows anyway; the deferred path needs its own.
+    if (deferred) setState(() {});
+  }
+
+  /// Applies edited layer content from the main editor to this editor's
+  /// copy (matched by id), preserving the copy's own GlobalKeys so the
+  /// mounted LayerWidget updates in place.
+  ///
+  /// Pushed sub-editors never receive a didUpdateWidget-driven re-sync
+  /// (their layer list is captured once at push), so content edits — e.g.
+  /// a text change made through the text editor — are handed over here.
+  void adoptLayerUpdate(Layer updated) {
+    final i = mutableLayers.indexWhere((l) => l.id == updated.id);
+    if (i < 0 || !mounted) return;
+    updated
+      ..key = mutableLayers[i].key
+      ..keyInternalSize = mutableLayers[i].keyInternalSize;
+    setState(() => mutableLayers[i] = updated);
+  }
+
+  /// Removes this editor's copy of the layer with [id] — the counterpart of
+  /// [adoptLayerUpdate] for layers the main editor deleted.
+  void adoptLayerRemoval(String id) {
+    final i = mutableLayers.indexWhere((l) => l.id == id);
+    if (i < 0 || !mounted) return;
+    setState(() => mutableLayers.removeAt(i));
+  }
 
   /// Returns the applied blur factor.
   /// If [_appliedBlurOverride] is set (via [updateAppliedState]), uses that

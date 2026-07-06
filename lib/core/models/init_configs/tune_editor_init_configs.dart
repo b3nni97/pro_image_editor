@@ -1,7 +1,6 @@
 // Project imports:
 import 'package:flutter/widgets.dart';
 
-import '/core/models/layers/layer.dart';
 import 'editor_init_configs.dart';
 
 /// Configuration class for initializing the tune editor.
@@ -29,7 +28,7 @@ class TuneEditorInitConfigs extends EditorInitConfigs {
     super.historyScope,
     super.onLayerTransformChanged,
     this.backgroundImageOverride,
-    this.onTextLayerTap,
+    super.onTextLayerTap,
     required super.theme,
   });
 
@@ -39,9 +38,4 @@ class TuneEditorInitConfigs extends EditorInitConfigs {
   /// allowing the main editor to control the hero and crop animations.
   /// When null, the sub-editor uses its own background rendering.
   final Widget? backgroundImageOverride;
-
-  /// Callback triggered when a text layer is tapped for editing within
-  /// the interactive layer stack. The main editor typically passes its
-  /// [openTextEditor] method here.
-  final void Function(TextLayer layer)? onTextLayerTap;
 }

@@ -382,6 +382,23 @@ class _LayerWidgetState extends State<LayerWidget>
         duration: mainEditorConfigs.style.subEditorPage.transitionDuration,
         snapToEnd: true,
       ),
+      // When switching between sub-editors, the destination editor applies
+      // its canvas transform (e.g. the sub-editor preview scale) only after
+      // its first layout — a one-shot measurement targets the unscaled
+      // (too large) rect and the layer visibly snaps at the flight end.
+      // Tracking re-measures the target every frame and redirects the
+      // spring once the destination transform settled.
+      continuouslyTrackTarget: true,
+      // Layers always fly above the (heroine-based) image hero — see
+      // SmartHero, which uses the default z-index of 0.
+      zIndex: 10,
+      // Scale-don't-relayout shuttle for layer<->layer flights (editor
+      // switches). The default FadeShuttleBuilder lays the content out INTO
+      // the flight box, but the canvas renders layers under the sub-editor
+      // preview transform — the overlay lacks that ancestor scale, so the
+      // text would paint ~1/scale too large for the whole flight and snap
+      // back at landing.
+      flightShuttleBuilder: const _LayerFittedShuttleBuilder(),
       // Don't pin the hidden layer to the size captured at flight start
       // (heroine's default placeholder): while the text editor is open the
       // layer renders the *edited* content via HeroFlightOverrides, and the
@@ -406,36 +423,39 @@ class _LayerWidgetState extends State<LayerWidget>
     );
   }
 
-  /// The intersection of all ancestor clips above this layer, in global
-  /// coordinates — i.e. the region in which the layer is actually visible
-  /// in-tree. Returns null when nothing clips (flight stays unclipped).
+  /// The nearest ancestor clip above this layer (usually the image-bounds
+  /// ClipPath around the layer stack), in global coordinates — i.e. the
+  /// canvas region this layer belongs to. Returns null when nothing clips
+  /// (flight stays unclipped).
   ///
-  /// Walking the render tree keeps this correct regardless of where the
-  /// clipping happens (the image-bounds ClipPath around the layer stack,
-  /// the ExtendedInteractiveViewer viewport, a host app's canvas card, ...)
-  /// and accounts for the interactive viewer's zoom/pan, since every clip's
-  /// own transform to global is used. Each clip contributes its *actual*
-  /// clip geometry (via its clipper), approximated by its bounding rect —
-  /// not just the clip widget's box, which can be much larger (e.g. the
+  /// Deliberately *not* intersected with outer clips (interactive-viewer
+  /// viewport, host app card, ...): the canvas rect is exactly what the
+  /// accompanying canvas hero flies between during editor switches, and
+  /// heroine interpolates the flight mask between both sides' rects to
+  /// track that motion. Clamping at the viewport would break this under
+  /// zoom, where the canvas extends beyond the screen — the screen edge
+  /// crops the overlay naturally anyway. The clip contributes its *actual*
+  /// geometry (via its clipper), approximated by its bounding rect — not
+  /// just the clip widget's box, which can be much larger (e.g. the
   /// image-bounds clipper cuts the letterboxed image area out of the
-  /// full-body layer stack).
+  /// full-body layer stack). Mapping through the clip's transform to
+  /// global keeps it correct under the interactive viewer's zoom/pan.
   Rect? _resolveAncestorClipBounds() {
     if (!mounted) return null;
     final renderObject = context.findRenderObject();
     if (renderObject is! RenderBox || !renderObject.attached) return null;
 
-    Rect? clip;
     RenderObject? node = renderObject.parent;
     while (node != null) {
       if (node is RenderBox && node.hasSize) {
         final size = node.size;
         final Rect? localClip = switch (node) {
-          final RenderClipRect n => n.clipper?.getClip(size),
-          final RenderClipRRect n => n.clipper?.getClip(size).outerRect,
-          final RenderClipOval n => n.clipper?.getClip(size),
-          final RenderClipPath n => n.clipper?.getClip(size).getBounds(),
-          _ => null,
-        } ??
+              final RenderClipRect n => n.clipper?.getClip(size),
+              final RenderClipRRect n => n.clipper?.getClip(size).outerRect,
+              final RenderClipOval n => n.clipper?.getClip(size),
+              final RenderClipPath n => n.clipper?.getClip(size).getBounds(),
+              _ => null,
+            } ??
             (node is RenderClipRect ||
                     node is RenderClipRRect ||
                     node is RenderClipOval ||
@@ -443,16 +463,15 @@ class _LayerWidgetState extends State<LayerWidget>
                 ? Offset.zero & size
                 : null);
         if (localClip != null) {
-          final global = MatrixUtils.transformRect(
+          return MatrixUtils.transformRect(
             node.getTransformTo(null),
             localClip,
           );
-          clip = clip == null ? global : clip.intersect(global);
         }
       }
       node = node.parent;
     }
-    return clip;
+    return null;
   }
 
   /// Latched once the pending flight for this layer has actually started, so
@@ -789,6 +808,80 @@ class _RenderTransformedLayerBox extends RenderProxyBox {
       effectiveTransform,
       (PaintingContext context, Offset offset) {
         context.paintChild(child!, offset);
+      },
+    );
+  }
+}
+
+/// Shuttle for layer<->layer heroine flights (sub-editor switches): renders
+/// both hero contents at their natural (unconstrained) layout size and
+/// scales them into the animated flight box via [FittedBox] — matching how
+/// the canvas renders layers (laid out unconstrained, scaled by ancestor
+/// transforms). The default [FadeShuttleBuilder] would lay the content out
+/// INTO the flight box instead, painting text without the canvas' preview
+/// scale (too large) for the whole flight.
+///
+/// For flights where the *other* endpoint is not a layer (text-editor
+/// open/close), it delegates to the other hero's shuttle builder so those
+/// flights keep their specialized rendering.
+class _LayerFittedShuttleBuilder extends HeroineShuttleBuilder {
+  const _LayerFittedShuttleBuilder();
+
+  @override
+  List<Object?> get props => [];
+
+  @override
+  Widget call(
+    BuildContext flightContext,
+    Animation<double> animation,
+    HeroFlightDirection flightDirection,
+    BuildContext fromHeroContext,
+    BuildContext toHeroContext,
+  ) {
+    // Delegate text-editor flights to the editor-side builder (heroine
+    // prefers the destination hero's builder, which on closing flights is
+    // this one — without delegation the editor side would lose its
+    // specialized max-width layout environment).
+    final otherBuilder =
+        switch (fromHeroContext.mounted ? fromHeroContext.widget : null) {
+      final Heroine heroine
+          when heroine.flightShuttleBuilder != null &&
+              heroine.flightShuttleBuilder is! _LayerFittedShuttleBuilder =>
+        heroine.flightShuttleBuilder,
+      _ => null,
+    };
+    if (otherBuilder != null) {
+      return otherBuilder(
+        flightContext,
+        animation,
+        flightDirection,
+        fromHeroContext,
+        toHeroContext,
+      );
+    }
+
+    Widget side(BuildContext heroContext) {
+      if (!heroContext.mounted) return const SizedBox.shrink();
+      return FittedBox(
+        fit: BoxFit.contain,
+        clipBehavior: Clip.none,
+        child: InheritedTheme.captureAll(
+          heroContext,
+          (heroContext.widget as Heroine).child,
+        ),
+      );
+    }
+
+    // Both endpoints are copies of the SAME layer, so render only one side —
+    // no cross-fade. Drawing both (even briefly at full opacity) doubles the
+    // glyphs' anti-aliased edges and blends two differently rasterized
+    // scales, which reads as text flicker during zoomed editor switches.
+    // Prefer the destination: its rendering is what the landing hands off
+    // to; the mounted check per frame covers an endpoint dying mid-flight.
+    return AnimatedBuilder(
+      animation: animation,
+      builder: (context, _) {
+        return side(toHeroContext.mounted ? toHeroContext : fromHeroContext);
       },
     );
   }

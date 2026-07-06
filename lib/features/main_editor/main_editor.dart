@@ -12,6 +12,8 @@ import '/core/models/history/editor_history_scope.dart';
 import '/core/mixins/converted_configs.dart';
 import '/core/mixins/editor_callbacks_mixin.dart';
 import '/core/mixins/editor_configs_mixin.dart';
+import '/core/mixins/standalone_editor.dart';
+import '/core/models/init_configs/editor_init_configs.dart';
 import '/core/models/styles/draggable_sheet_style.dart';
 import '/core/models/transform_helper.dart';
 import '/core/services/gesture_manager.dart';
@@ -548,6 +550,13 @@ class ProImageEditorState extends State<ProImageEditor>
   /// `backgroundImageOverride`, so enabling main-page heroes during *their*
   /// session would create duplicate-tag conflicts.
   SubEditor _activeSubEditor = SubEditor.unknown;
+
+  /// Whether the open TextEditor route is stacked on top of another pushed
+  /// sub-editor route (e.g. text tapped inside the filter editor). In that
+  /// case the layer heroes of the editor BELOW (which renders its own
+  /// hero-tagged copies) drive the flight, so the main editor's heroes must
+  /// stay disabled to avoid duplicate-tag conflicts.
+  bool _isTextOverSubEditor = false;
 
   /// Whether a dialog is currently open.
   bool _isDialogOpen = false;
@@ -1251,8 +1260,7 @@ class ProImageEditorState extends State<ProImageEditor>
       final origSize = tc.originalSize;
       final fullRect = Rect.fromLTWH(0, 0, origSize.width, origSize.height);
       final cropRect = tc.cropRect;
-      final needsCropAnim =
-          (cropRect.left - fullRect.left).abs() >= 0.5 ||
+      final needsCropAnim = (cropRect.left - fullRect.left).abs() >= 0.5 ||
           (cropRect.top - fullRect.top).abs() >= 0.5 ||
           (cropRect.width - fullRect.width).abs() >= 0.5 ||
           (cropRect.height - fullRect.height).abs() >= 0.5;
@@ -1586,8 +1594,7 @@ class ProImageEditorState extends State<ProImageEditor>
   /// instances must agree on position to avoid a "jumping" hero flight.
   void _syncLayerTransforms(List<Layer> subEditorLayers) {
     for (final subLayer in subEditorLayers) {
-      final mainIdx =
-          activeLayers.indexWhere((l) => l.id == subLayer.id);
+      final mainIdx = activeLayers.indexWhere((l) => l.id == subLayer.id);
       if (mainIdx >= 0) {
         final mainLayer = activeLayers[mainIdx];
         mainLayer
@@ -1662,6 +1669,18 @@ class ProImageEditorState extends State<ProImageEditor>
     }
   }
 
+  /// The currently open sub-editor state that works on its own layer
+  /// copies, if any (pushed or embedded).
+  StandaloneEditorState<StatefulWidget, EditorInitConfigs>?
+      get _openSubEditorState {
+    final states = <StandaloneEditorState<StatefulWidget, EditorInitConfigs>?>[
+      filterEditor.currentState,
+      tuneEditor.currentState,
+      blurEditor.currentState,
+    ];
+    return states.firstWhere((state) => state != null, orElse: () => null);
+  }
+
   void _onTextLayerTap(TextLayer layerData) async {
     final customCallback = mainEditorCallbacks?.onEditTextLayer;
     TextLayer? updatedLayer;
@@ -1733,10 +1752,18 @@ class ProImageEditorState extends State<ProImageEditor>
 
     if (!mounted || updatedLayer == null) return;
 
+    // Bind the result to the *main* layer's keys: [layerData] can be a
+    // pushed sub-editor's copy whose GlobalKeys belong to that editor's
+    // (still mounted) layer stack and must not enter the main history.
+    final mainLayerIdx =
+        activeLayers.indexWhere((layer) => layer.id == layerData.id);
+    final keySource =
+        mainLayerIdx >= 0 ? activeLayers[mainLayerIdx] : layerData;
+
     updatedLayer
       ..id = layerData.id
-      ..key = layerData.key
-      ..keyInternalSize = layerData.keyInternalSize
+      ..key = keySource.key
+      ..keyInternalSize = keySource.keyInternalSize
       ..flipX = layerData.flipX
       ..flipY = layerData.flipY
       ..offset = layerData.offset
@@ -1751,7 +1778,10 @@ class ProImageEditorState extends State<ProImageEditor>
       // The TextEditor published an override before popping; clear it since the
       // layer is being removed rather than swapped (otherwise it would leak).
       HeroFlightOverrides.instance.clear(layerData.id);
-      removeLayer(layerData);
+      // Remove the *main* instance — [layerData] can be a sub-editor copy
+      // that [removeLayer]'s identity lookup wouldn't find.
+      if (mainLayerIdx >= 0) removeLayer(activeLayers[mainLayerIdx]);
+      _openSubEditorState?.adoptLayerRemoval(layerData.id);
       return;
     }
 
@@ -1765,9 +1795,14 @@ class ProImageEditorState extends State<ProImageEditor>
     // doing that mid-landing cuts the closing animation short (visible snap).
     // The deadline is a safety net against a flight that never reports its
     // end.
+    // `_activeSubEditor` stays [SubEditor.text] until the text route's pop
+    // animation is fully dismissed — unlike [isSubEditorOpen], which stays
+    // true for the whole session of a sub-editor the text editor may be
+    // stacked on and would keep this loop spinning until the deadline.
     final flightDeadline = DateTime.now().add(const Duration(seconds: 3));
     while (mounted &&
-        (isSubEditorOpen || HeroineController.isTagInFlight(layerData.id)) &&
+        (_activeSubEditor == SubEditor.text ||
+            HeroineController.isTagInFlight(layerData.id)) &&
         DateTime.now().isBefore(flightDeadline)) {
       await WidgetsBinding.instance.endOfFrame;
     }
@@ -1775,6 +1810,18 @@ class ProImageEditorState extends State<ProImageEditor>
 
     final i = activeLayers.indexWhere((element) => element.id == layerData.id);
     replaceLayer(index: i, layer: updatedLayer);
+
+    // Pushed sub-editors capture their layer copies once at push (no
+    // didUpdateWidget re-sync), so hand the edited content to the open
+    // editor's copy directly. The copy keeps that editor's own GlobalKeys.
+    _openSubEditorState?.adoptLayerUpdate(
+      _layerCopyManager.duplicateLayer(
+        updatedLayer,
+        offset: Offset.zero,
+        enableCopyId: true,
+        enableCopyKey: false,
+      ),
+    );
 
     // Keep the override a few frames after the swap so the (copied) layer in
     // the embedded editor re-syncs to the new content before we stop
@@ -1868,6 +1915,17 @@ class ProImageEditorState extends State<ProImageEditor>
       editorName = SubEditor.emoji;
     }
 
+    // A TextEditor opened while another sub-editor route is active (e.g.
+    // tapping a text layer inside the filter editor) must STACK on top of
+    // that route instead of replacing it: pushReplacement unmounts the
+    // editor below — visible as a black canvas behind the text editor,
+    // because the main editor's background stays hidden while a sub-editor
+    // is open — and silently discards that editor's un-committed result.
+    final bool stackOnSubEditor =
+        wasSubEditorOpen && editorName == SubEditor.text;
+    final SubEditor previousSubEditor = _activeSubEditor;
+    if (stackOnSubEditor) _isTextOverSubEditor = true;
+
     // Record which editor is open *before* the rebuild so the main-editor
     // layers build with the correct enableHero value from the first frame
     // (the TextEditor keeps layer heroes enabled for its whole session).
@@ -1877,11 +1935,13 @@ class ProImageEditorState extends State<ProImageEditor>
 
     mainEditorCallbacks?.handleOpenSubEditor(editorName);
 
-    if (wasSubEditorOpen && !_pageOpenCompleter.isCompleted) {
-      _pageOpenCompleter.complete(true);
-    }
+    if (!stackOnSubEditor) {
+      if (wasSubEditorOpen && !_pageOpenCompleter.isCompleted) {
+        _pageOpenCompleter.complete(true);
+      }
 
-    _pageOpenCompleter = Completer();
+      _pageOpenCompleter = Completer();
+    }
 
     final subEditorStyle = mainEditorConfigs.style.subEditorPage;
     final effectiveDuration = duration ?? subEditorStyle.transitionDuration;
@@ -1921,6 +1981,14 @@ class ProImageEditorState extends State<ProImageEditor>
               break;
             case AnimationStatus.dismissed:
               setState(() {
+                if (stackOnSubEditor) {
+                  // The sub-editor below this route is still open; restore
+                  // its bookkeeping instead of marking everything closed.
+                  _isTextOverSubEditor = false;
+                  isSubEditorClosing = false;
+                  _activeSubEditor = previousSubEditor;
+                  return;
+                }
                 isSubEditorOpen = false;
                 isSubEditorClosing = false;
                 _activeSubEditor = SubEditor.unknown;
@@ -1986,13 +2054,13 @@ class ProImageEditorState extends State<ProImageEditor>
       },
     );
     if (mainEditorConfigs.enableSubEditorPage) {
-      if (wasSubEditorOpen) {
+      if (wasSubEditorOpen && !stackOnSubEditor) {
         return _navigatorKey.currentState!
             .pushReplacement<T?, dynamic>(route, result: null);
       }
       return _navigatorKey.currentState!.push<T?>(route);
     }
-    if (wasSubEditorOpen) {
+    if (wasSubEditorOpen && !stackOnSubEditor) {
       return Navigator.pushReplacement<T?, dynamic>(context, route,
           result: null);
     }
@@ -2203,7 +2271,8 @@ class ProImageEditorState extends State<ProImageEditor>
       // safety net if the flight never engages, e.g. hero disabled).
       final pendingDeadline = DateTime.now().add(const Duration(seconds: 3));
       while (mounted &&
-          (isSubEditorOpen || HeroineController.isTagInFlight(layer.id)) &&
+          (_activeSubEditor == SubEditor.text ||
+              HeroineController.isTagInFlight(layer.id)) &&
           DateTime.now().isBefore(pendingDeadline)) {
         await WidgetsBinding.instance.endOfFrame;
       }
@@ -2321,7 +2390,15 @@ class ProImageEditorState extends State<ProImageEditor>
             configs: configs,
             callbacks: callbacks,
             transformConfigs: stateManager.transformConfigs,
-            layers: _layerCopyManager.copyLayerList(activeLayers),
+            // Use new GlobalKeys (enableCopyKey: false) so these copies
+            // don't conflict with the layer stack that keeps the original
+            // keys mounted underneath the pushed route.
+            layers: _layerCopyManager.duplicateLayerList(
+              activeLayers,
+              offset: Offset.zero,
+              enableCopyKey: false,
+              enableCopyId: true,
+            ),
             mainImageSize: widget.blankSize ?? sizesManager.decodedImageSize,
             mainBodySize: sizesManager.bodySize,
             convertToUint8List: false,
@@ -2329,6 +2406,7 @@ class ProImageEditorState extends State<ProImageEditor>
             appliedFilters: stateManager.activeFilters,
             appliedTuneAdjustments: stateManager.activeTuneAdjustments,
             onTextLayerTap: _onTextLayerTap,
+            onLayerTransformChanged: _syncLayerTransforms,
             historyScope: _editorHistoryScope,
           ),
         ),
@@ -2380,13 +2458,23 @@ class ProImageEditorState extends State<ProImageEditor>
           configs: configs,
           callbacks: callbacks,
           transformConfigs: stateManager.transformConfigs,
-          layers: _layerCopyManager.copyLayerList(activeLayers),
+          // Use new GlobalKeys (enableCopyKey: false) so these copies
+          // don't conflict with the layer stack that keeps the original
+          // keys mounted underneath the pushed route.
+          layers: _layerCopyManager.duplicateLayerList(
+            activeLayers,
+            offset: Offset.zero,
+            enableCopyKey: false,
+            enableCopyId: true,
+          ),
           mainImageSize: widget.blankSize ?? sizesManager.decodedImageSize,
           mainBodySize: sizesManager.bodySize,
           convertToUint8List: false,
           appliedBlurFactor: stateManager.activeBlur,
           appliedFilters: stateManager.activeFilters,
           appliedTuneAdjustments: stateManager.activeTuneAdjustments,
+          onTextLayerTap: _onTextLayerTap,
+          onLayerTransformChanged: _syncLayerTransforms,
           historyScope: _editorHistoryScope,
         ),
       ),
@@ -2427,7 +2515,15 @@ class ProImageEditorState extends State<ProImageEditor>
           theme: _theme,
           mainImageSize: widget.blankSize ?? sizesManager.decodedImageSize,
           mainBodySize: sizesManager.bodySize,
-          layers: _layerCopyManager.copyLayerList(activeLayers),
+          // Use new GlobalKeys (enableCopyKey: false) so these copies
+          // don't conflict with the layer stack that keeps the original
+          // keys mounted underneath the pushed route.
+          layers: _layerCopyManager.duplicateLayerList(
+            activeLayers,
+            offset: Offset.zero,
+            enableCopyKey: false,
+            enableCopyId: true,
+          ),
           configs: configs,
           callbacks: callbacks,
           transformConfigs: stateManager.transformConfigs,
@@ -2435,6 +2531,8 @@ class ProImageEditorState extends State<ProImageEditor>
           appliedBlurFactor: stateManager.activeBlur,
           appliedFilters: stateManager.activeFilters,
           appliedTuneAdjustments: stateManager.activeTuneAdjustments,
+          onTextLayerTap: _onTextLayerTap,
+          onLayerTransformChanged: _syncLayerTransforms,
           historyScope: _editorHistoryScope,
         ),
       ),
@@ -2678,8 +2776,7 @@ class ProImageEditorState extends State<ProImageEditor>
   /// (paint, cropRotate). Tune/Filter/Blur use global history.
   /// Returns true if the sub-editor handled the undo.
   bool _delegateUndoToLocalSubEditor() {
-    if (paintEditor.currentState != null &&
-        paintEditor.currentState!.canUndo) {
+    if (paintEditor.currentState != null && paintEditor.currentState!.canUndo) {
       paintEditor.currentState!.undoAction();
       return true;
     }
@@ -2695,8 +2792,7 @@ class ProImageEditorState extends State<ProImageEditor>
   /// (paint, cropRotate). Tune/Filter/Blur use global history.
   /// Returns true if the sub-editor handled the redo.
   bool _delegateRedoToLocalSubEditor() {
-    if (paintEditor.currentState != null &&
-        paintEditor.currentState!.canRedo) {
+    if (paintEditor.currentState != null && paintEditor.currentState!.canRedo) {
       paintEditor.currentState!.redoAction();
       return true;
     }
@@ -2880,11 +2976,36 @@ class ProImageEditorState extends State<ProImageEditor>
     });
   }
 
+  /// Adopts layer copies exported by a sub-editor into the main editor.
+  ///
+  /// Pushed sub-editors work on copies with their own GlobalKeys (see
+  /// [openFilterEditor] and friends). Re-copies them and rebinds each copy
+  /// to the live layer's keys (matched by id), so adopting them into
+  /// history neither mounts the sub-editor's keys a second time while its
+  /// route is still animating out, nor remounts the live LayerWidgets.
+  List<Layer>? _adoptExportedLayers(List<Layer>? exported) {
+    if (exported == null) return null;
+    final adopted = _layerCopyManager.duplicateLayerList(
+      exported,
+      offset: Offset.zero,
+      enableCopyId: true,
+      enableCopyKey: false,
+    );
+    for (final layer in adopted) {
+      final i = activeLayers.indexWhere((l) => l.id == layer.id);
+      if (i >= 0) {
+        layer
+          ..key = activeLayers[i].key
+          ..keyInternalSize = activeLayers[i].keyInternalSize;
+      }
+    }
+    return adopted;
+  }
+
   /// Extracts the state of the currently open subeditor (if any) and adds it
   /// to the history before switching to another subeditor. This ensures the
   /// newly opened subeditor receives the most up-to-date image state.
   Future<void> _commitCurrentSubEditorState() async {
-
     // Also commit when an embedded sub-editor is active
     // (initialSubEditor != null) because the embedded editor has no
     // navigation route, so isSubEditorOpen may be false.
@@ -2908,7 +3029,7 @@ class ProImageEditorState extends State<ProImageEditor>
         if (hasChanged || exportedLayers != null) {
           addHistory(
             filters: hasChanged ? exported : null,
-            layers: exportedLayers,
+            layers: _adoptExportedLayers(exportedLayers),
           );
         }
       } else if (tuneEditor.currentState != null) {
@@ -2926,7 +3047,7 @@ class ProImageEditorState extends State<ProImageEditor>
         if (hasChanged || exportedLayers != null) {
           addHistory(
             tuneAdjustments: hasChanged ? exported : null,
-            layers: exportedLayers,
+            layers: _adoptExportedLayers(exportedLayers),
           );
         }
 
@@ -2952,7 +3073,7 @@ class ProImageEditorState extends State<ProImageEditor>
         if (hasChanged || exportedLayers != null) {
           addHistory(
             blur: hasChanged ? exported : null,
-            layers: exportedLayers,
+            layers: _adoptExportedLayers(exportedLayers),
           );
         }
       } else if (paintEditor.currentState != null) {
@@ -3373,9 +3494,9 @@ class ProImageEditorState extends State<ProImageEditor>
 
                             var scaffold = Scaffold(
                               backgroundColor: mainEditorConfigs
-                                          .style.background
-                                          ?.call(context) ??
-                                      kImageEditorBackground,
+                                      .style.background
+                                      ?.call(context) ??
+                                  kImageEditorBackground,
                               resizeToAvoidBottomInset:
                                   mainEditorConfigs.resizeToAvoidBottomInset,
                               appBar: _buildAppBar(),
@@ -3594,7 +3715,8 @@ class ProImageEditorState extends State<ProImageEditor>
       bottomBarHeight: sizesManager.bottomBarHeight,
       overlayColor: kImageEditorBackground,
       isInteractive: !isSubEditorOpen,
-      enableHero: !isSubEditorOpen || _activeSubEditor == SubEditor.text,
+      enableHero: !isSubEditorOpen ||
+          (_activeSubEditor == SubEditor.text && !_isTextOverSubEditor),
       enableHelperLines: true,
       enableRemoveArea: true,
       heroResetStream: _controllers.layerHeroResetCtrl.stream,
@@ -3764,6 +3886,7 @@ class ProImageEditorState extends State<ProImageEditor>
             appliedFilters: stateManager.activeFilters,
             appliedTuneAdjustments: stateManager.activeTuneAdjustments,
             backgroundImageOverride: backgroundOverride,
+            onTextLayerTap: _onTextLayerTap,
             onLayerTransformChanged: _syncLayerTransforms,
             historyScope: _editorHistoryScope,
           ),
@@ -3788,6 +3911,7 @@ class ProImageEditorState extends State<ProImageEditor>
             appliedFilters: stateManager.activeFilters,
             appliedTuneAdjustments: stateManager.activeTuneAdjustments,
             backgroundImageOverride: backgroundOverride,
+            onTextLayerTap: _onTextLayerTap,
             onLayerTransformChanged: _syncLayerTransforms,
             historyScope: _editorHistoryScope,
           ),
@@ -3797,8 +3921,7 @@ class ProImageEditorState extends State<ProImageEditor>
         return Scaffold(
           backgroundColor: mainEditorConfigs.style.background?.call(context) ??
               kImageEditorBackground,
-          resizeToAvoidBottomInset:
-              mainEditorConfigs.resizeToAvoidBottomInset,
+          resizeToAvoidBottomInset: mainEditorConfigs.resizeToAvoidBottomInset,
           appBar: _buildAppBar(),
           body: _buildBody(),
           bottomNavigationBar: _buildBottomNavBar(),
@@ -3840,4 +3963,3 @@ class _KeyboardWarmupClient implements TextInputClient {
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
 }
-
