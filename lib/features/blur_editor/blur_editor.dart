@@ -425,7 +425,7 @@ class BlurEditorState extends State<BlurEditor>
   }
 
   Widget _buildBackground() {
-    return SmartHero(
+    final Widget hero = SmartHero(
       tag: heroTag,
       // Match the sub-editor screen transition: same duration, same spring
       // as the layer/text heroines.
@@ -456,6 +456,18 @@ class BlurEditorState extends State<BlurEditor>
           );
         },
       ),
+    );
+
+    // Bound the hero tightly to the visible content (same aspect math as
+    // the crop editor's fake hero) instead of the full body — see
+    // TuneEditor._buildBackground for the full rationale.
+    final double aspectRatio = initialTransformConfigs != null &&
+            initialTransformConfigs!.isNotEmpty
+        ? initialTransformConfigs!.cropRect.size.aspectRatio
+        : getValidSizeOrDefault(mainImageSize, editorBodySize).aspectRatio;
+    if (!aspectRatio.isFinite || aspectRatio <= 0) return hero;
+    return Center(
+      child: AspectRatio(aspectRatio: aspectRatio, child: hero),
     );
   }
 

@@ -72,7 +72,96 @@ class SmartHero extends StatelessWidget {
       motion: motion ?? const CupertinoMotion.smooth(snapToEnd: true),
       zIndex: zIndex,
       shouldTransition: _shouldTransition,
+      flightShuttleBuilder: const _LandingMatchedFadeShuttleBuilder(),
       child: child,
+    );
+  }
+}
+
+/// Cross-fade shuttle whose destination side renders exactly like heroine's
+/// in-tree landing.
+///
+/// The default [FadeShuttleBuilder] lays both hero children out INTO the
+/// animated flight box, so letterboxed content (the editor image) re-fits
+/// itself per frame with aspect-preserving gaps. The landing, however, lays
+/// the destination child out at its real in-tree size and stretches it
+/// per-axis to the remaining flight box. At the route-completion handoff the
+/// flight box still trails the target by the spring's remaining delta — the
+/// two rendering strategies then disagree by exactly that delta (a visible
+/// few-pixel snap at the end of every editor-switch flight).
+///
+/// This builder renders the destination child the same way the landing does
+/// (laid out at its measured in-tree size, [BoxFit.fill]-stretched into the
+/// flight box), making the overlay→landing handoff pixel-identical. The
+/// source side keeps the default into-box layout: it matches the in-tree
+/// rendering at flight start (the box starts at the source rect) and its
+/// letterbox re-fitting gives the nicer mid-flight morph while it fades out.
+class _LandingMatchedFadeShuttleBuilder extends HeroineShuttleBuilder {
+  const _LandingMatchedFadeShuttleBuilder();
+
+  @override
+  List<Object?> get props => [];
+
+  @override
+  Widget call(
+    BuildContext flightContext,
+    Animation<double> animation,
+    HeroFlightDirection flightDirection,
+    BuildContext fromHeroContext,
+    BuildContext toHeroContext,
+  ) {
+    Widget heroChild(BuildContext heroContext) => InheritedTheme.captureAll(
+          heroContext,
+          (heroContext.widget as Heroine).child,
+        );
+
+    Widget fromSide() => fromHeroContext.mounted
+        ? heroChild(fromHeroContext)
+        : const SizedBox.shrink();
+
+    Widget toSide() {
+      if (!toHeroContext.mounted) return const SizedBox.shrink();
+      final box = toHeroContext.findRenderObject();
+      if (box is! RenderBox ||
+          !box.hasSize ||
+          box.size.isEmpty ||
+          !box.size.isFinite) {
+        // No measurement available — fall back to the default into-box
+        // layout rather than showing nothing.
+        return heroChild(toHeroContext);
+      }
+      return FittedBox(
+        fit: BoxFit.fill,
+        clipBehavior: Clip.none,
+        child: SizedBox.fromSize(
+          size: box.size,
+          child: heroChild(toHeroContext),
+        ),
+      );
+    }
+
+    return AnimatedBuilder(
+      animation: animation,
+      builder: (context, _) {
+        final value = flightDirection == HeroFlightDirection.push
+            ? animation.value
+            : 1 - animation.value;
+        final v = value.clamp(0.0, 1.0);
+        // Staggered opacities instead of a plain cross-fade: the
+        // destination is fully opaque after 40% and the source only starts
+        // fading at 60%, so the combined coverage never dips below full —
+        // a linear cross-fade of the (identical) image content blends to
+        // ~75% alpha mid-flight and visibly darkens towards the background.
+        final fadeIn = (v / 0.4).clamp(0.0, 1.0);
+        final fadeOut = ((1 - v) / 0.4).clamp(0.0, 1.0);
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            if (fadeOut > 0) Opacity(opacity: fadeOut, child: fromSide()),
+            if (fadeIn > 0) Opacity(opacity: fadeIn, child: toSide()),
+          ],
+        );
+      },
     );
   }
 }

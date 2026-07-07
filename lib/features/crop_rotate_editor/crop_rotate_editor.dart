@@ -1737,6 +1737,14 @@ class CropRotateEditorState extends State<CropRotateEditor>
     if (!_layoutReadyCompleter.isCompleted) {
       await _layoutReadyCompleter.future;
     }
+
+    // The image heroine keeps settling for a moment after the route
+    // animation completes, and the fake hero is that flight's destination.
+    // Removing it mid-settle cuts the landing short and swaps to the
+    // (independently computed) real content while it is still moving —
+    // visible as a small pixel jump at the end of the transition. Wait for
+    // the flight to end first.
+    await HeroineController.whenTagIdle(heroTag);
     if (!mounted || _heroAnimationId != id) return;
     _showFakeHero = false;
     showWidgets = true;
@@ -4126,7 +4134,12 @@ class CropRotateEditorState extends State<CropRotateEditor>
         },
         child: Stack(
           children: [
-            if (_showFakeHero) _buildFakeHero(),
+            // Keep the fake hero mounted during the fade-to-fakeHero
+            // transition: the editor content above fades to opacity 0, and
+            // without the (geometrically identical) fake hero already behind
+            // it the image dissolves into the bare background — a visible
+            // black flash right before every crop->editor switch.
+            if (_showFakeHero || _isFadingToFakeHero) _buildFakeHero(),
             if (!_showFakeHero &&
                 !_imageSizeIsDecoded &&
                 initConfigs.convertToUint8List)

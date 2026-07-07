@@ -624,7 +624,7 @@ class TuneEditorState extends State<TuneEditor>
   }
 
   Widget _buildBackground() {
-    return SmartHero(
+    final Widget hero = SmartHero(
       tag: heroTag,
       // Match the sub-editor screen transition: same duration, same spring
       // as the layer/text heroines.
@@ -655,6 +655,21 @@ class TuneEditorState extends State<TuneEditor>
           );
         },
       ),
+    );
+
+    // Bound the hero tightly to the visible content (same aspect math as
+    // the crop editor's fake hero) instead of the full body: heroine
+    // interpolates the two hero boxes, and a body-sized box with the image
+    // letterboxed INSIDE doesn't frame the same object as the crop editor's
+    // tight fake hero — the flight geometry (and its landing) can then
+    // never match the rendered image on both ends.
+    final double aspectRatio = initialTransformConfigs != null &&
+            initialTransformConfigs!.isNotEmpty
+        ? initialTransformConfigs!.cropRect.size.aspectRatio
+        : getValidSizeOrDefault(mainImageSize, editorBodySize).aspectRatio;
+    if (!aspectRatio.isFinite || aspectRatio <= 0) return hero;
+    return Center(
+      child: AspectRatio(aspectRatio: aspectRatio, child: hero),
     );
   }
 
