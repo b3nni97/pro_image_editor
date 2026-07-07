@@ -617,12 +617,22 @@ class LayerInteractionManager {
     required GlobalKey removeAreaKey,
     required Function(bool value) onHoveredRemoveChanged,
     required StreamController<void> helperLineCtrl,
+    bool isMultiPointer = false,
+    bool resyncFocalOnly = false,
   }) {
-    if (_activeScale) {
+    // A finger was just added or lifted: the focal point (finger midpoint)
+    // jumps this frame. Resync it and skip the translation so the layer isn't
+    // yanked by the jump — subsequent frames move smoothly from here.
+    if (resyncFocalOnly) {
+      _lastLocalFocalPoint = detail.localFocalPoint;
+      return;
+    }
+    if (!isMultiPointer && _activeScale) {
       // Skip just this one frame to avoid the focal-point jump when
       // transitioning from 2-finger scale to 1-finger drag. Then sync
       // the focal point and clear the flag so subsequent frames work
-      // immediately (no 100ms debounce lag).
+      // immediately (no 100ms debounce lag). While still multi-touch the
+      // translation must keep running alongside the scale/rotation.
       _activeScale = false;
       _lastLocalFocalPoint = detail.localFocalPoint;
       return;

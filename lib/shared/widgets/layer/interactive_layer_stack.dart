@@ -286,12 +286,6 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack>
   /// length visually constant across zoom levels, not to position them.
   double get _viewerScaleFactor => _viewer?.scaleFactor ?? 1.0;
 
-  // ── Drift tracking (debug) ──
-  Offset _debugInitialLayerOffset = Offset.zero;
-  Offset _debugCumulativeDelta = Offset.zero;
-  Offset _debugInitialFocal = Offset.zero;
-  double _debugInitialScale = 1.0;
-
   /// Tracks the previous pointer count to detect 2→1 finger transitions.
   int _lastPointerCount = 0;
 
@@ -429,14 +423,6 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack>
       selectedLayers: _selectedLayers,
     );
 
-    // Debug: record starting state for drift tracking
-    if (_selectedLayers.isNotEmpty) {
-      _debugInitialLayerOffset = _selectedLayers.first.offset;
-      _debugCumulativeDelta = Offset.zero;
-      _debugInitialFocal = details.focalPoint;
-      _debugInitialScale = _editorScaleFactor;
-    }
-
     setState(() {});
   }
 
@@ -501,6 +487,10 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack>
 
     _layerInteractionManager.enabledHitDetection = false;
 
+    // The number of fingers changed this frame (one added or lifted): the focal
+    // point jumps, so the translation must skip this frame and resync.
+    final bool pointerCountChanged = pointerCount != _lastPointerCount;
+
     // Detect 2→1 pointer transition (one finger lifted from pinch).
     // Use a distance-based dead zone to prevent accidental displacement:
     // movement is suppressed until the remaining finger moves > 5px
@@ -510,31 +500,38 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack>
     }
     _lastPointerCount = pointerCount;
 
-    if (pointerCount == 1) {
-      // Skip movement until finger has moved beyond the dead zone.
-      if (_pointerDropFocal != null) {
-        final dist = (details.localFocalPoint - _pointerDropFocal!).distance;
-        if (dist < 5.0) {
-          return;
-        }
-        // Dead zone cleared — allow movement from now on.
-        _pointerDropFocal = null;
+    // Skip movement until the remaining finger has moved beyond the dead zone
+    // after lifting the second finger.
+    if (pointerCount == 1 && _pointerDropFocal != null) {
+      final dist = (details.localFocalPoint - _pointerDropFocal!).distance;
+      if (dist < 5.0) {
+        return;
       }
-      _debugCumulativeDelta += details.focalPointDelta;
-      _layerInteractionManager.calculateMovement(
-        editorScaleFactor: _editorScaleFactor,
-        removeAreaKey: _removeAreaKey,
-        selectedLayers: _selectedLayers,
-        layerList: widget.layers,
-        context: context,
-        detail: details,
-        onHoveredRemoveChanged: (value) {
-          _removeBtnCtrl.add(null);
-          widget.onHoverRemoveAreaChange?.call(value);
-        },
-        helperLineCtrl: _helperLineCtrl,
-      );
-    } else if (pointerCount == 2) {
+      // Dead zone cleared — allow movement from now on.
+      _pointerDropFocal = null;
+    }
+
+    // Translation + position snapping. Runs for both single- and multi-touch,
+    // so a layer can be dragged (and snap to the center / other layers) while
+    // it is simultaneously being rotated or scaled with two fingers.
+    _layerInteractionManager.calculateMovement(
+      editorScaleFactor: _editorScaleFactor,
+      removeAreaKey: _removeAreaKey,
+      selectedLayers: _selectedLayers,
+      layerList: widget.layers,
+      context: context,
+      detail: details,
+      onHoveredRemoveChanged: (value) {
+        _removeBtnCtrl.add(null);
+        widget.onHoverRemoveAreaChange?.call(value);
+      },
+      helperLineCtrl: _helperLineCtrl,
+      isMultiPointer: pointerCount >= 2,
+      resyncFocalOnly: pointerCountChanged,
+    );
+
+    // Scale + rotation (and rotation snap) — two fingers only.
+    if (pointerCount == 2) {
       _layerInteractionManager.calculateScaleRotate(
         configs: widget.configs,
         selectedLayers: _selectedLayers,
