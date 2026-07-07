@@ -928,6 +928,28 @@ class ProImageEditorState extends State<ProImageEditor>
         interactiveViewer.currentState;
   }
 
+  /// The viewer that holds the authoritative zoom state for editors that
+  /// take part in zoom sharing (see [ZoomConfigs.enableShareZoomMatrix]):
+  /// the embedded sub-editor's viewer when one is configured (falling back
+  /// to the main viewer while the embedded editor still renders via
+  /// `backgroundImageOverride`), otherwise the main editor's viewer.
+  ///
+  /// Pushed sub-editors with sharing enabled are seeded from this viewer's
+  /// matrix and live-sync their zoom back into it, so switching between
+  /// sub-editors keeps the current zoom instead of resetting it.
+  ExtendedInteractiveViewerState? get _sharedZoomViewer {
+    switch (mainEditorConfigs.initialSubEditor) {
+      case SubEditorMode.tune:
+        return tuneEditor.currentState?.interactiveViewerKey.currentState ??
+            interactiveViewer.currentState;
+      case SubEditorMode.filter:
+        return filterEditor.currentState?.interactiveViewerKey.currentState ??
+            interactiveViewer.currentState;
+      default:
+        return interactiveViewer.currentState;
+    }
+  }
+
   /// Adjusts [layer]'s offset and scale so that — when added while the active
   /// interactive viewer is zoomed/panned — it lands at the center of the
   /// *currently visible* area at the correct visual size, instead of the
@@ -1956,28 +1978,57 @@ class ProImageEditorState extends State<ProImageEditor>
             return FadeTransition(opacity: animation, child: child);
           },
       pageBuilder: (context, animation, secondaryAnimation) {
+        // Reset zoom of underlying sub-editors, normally once the new
+        // editor fully covers them. This ensures they start at default
+        // scale/translation when the user returns.
+        //
+        // Skipped for the TextEditor: its route is non-opaque and its
+        // background is semi-transparent, so the zoomed editor stays
+        // visible behind it. Resetting here would snap the image back to
+        // scale 1 mid-overlay (a visible "jump") and discard the zoom the
+        // user wants the new text placed at.
+        //
+        // Editors with enableShareZoomMatrix keep their zoom instead: the
+        // opened editor is seeded with the shared zoom matrix and syncs it
+        // back, so their covered state must survive. The crop-rotate editor
+        // always resets everything.
+        bool didHandleCoveredZoomReset = false;
+        void resetCoveredEditorsZoom() {
+          if (didHandleCoveredZoomReset || editorName == SubEditor.text) {
+            return;
+          }
+          didHandleCoveredZoomReset = true;
+          final isCropEditor = editorName == SubEditor.cropRotate;
+          // Paint first: its reset() returns to the seeded zoom matrix and
+          // its share callback writes that back into the shared viewer, so
+          // the resets below must run afterwards to clear it again.
+          if (isCropEditor || !paintEditorConfigs.enableShareZoomMatrix) {
+            paintEditor.currentState?.resetZoom();
+          }
+          if (isCropEditor || !tuneEditorConfigs.enableShareZoomMatrix) {
+            tuneEditor.currentState?.interactiveViewerKey.currentState
+                ?.reset();
+          }
+          if (isCropEditor || !filterEditorConfigs.enableShareZoomMatrix) {
+            filterEditor.currentState?.interactiveViewerKey.currentState
+                ?.reset();
+          }
+          // With zoom sharing the main viewer may carry the shared zoom,
+          // so it has to be cleared as well when the crop editor opens.
+          // Without sharing it is left untouched to preserve the existing
+          // behavior.
+          if (isCropEditor && mainEditorConfigs.enableShareZoomMatrix) {
+            interactiveViewer.currentState?.reset();
+          }
+        }
+
         void animationStatusListener(AnimationStatus status) {
           switch (status) {
             case AnimationStatus.completed:
               if (cropRotateEditor.currentState != null) {
                 cropRotateEditor.currentState!.hideFakeHero();
               }
-              // Reset zoom of underlying sub-editors now that the new
-              // editor fully covers them. This ensures they start at
-              // default scale/translation when the user returns.
-              //
-              // Skip this for the TextEditor: its route is non-opaque and
-              // its background is semi-transparent, so the zoomed editor
-              // stays visible behind it. Resetting here would snap the
-              // image back to scale 1 mid-overlay (a visible "jump") and
-              // discard the zoom the user wants the new text placed at.
-              if (editorName != SubEditor.text) {
-                tuneEditor.currentState?.interactiveViewerKey.currentState
-                    ?.reset();
-                filterEditor.currentState?.interactiveViewerKey.currentState
-                    ?.reset();
-                paintEditor.currentState?.resetZoom();
-              }
+              resetCoveredEditorsZoom();
               break;
             case AnimationStatus.dismissed:
               setState(() {
@@ -2007,6 +2058,11 @@ class ProImageEditorState extends State<ProImageEditor>
               break;
             case AnimationStatus.reverse:
               isSubEditorClosing = true;
+              // When the route is popped before its opening animation ever
+              // completed (fast editor switching), the completed-case reset
+              // never ran — catch up now while the closing route still
+              // mostly covers the editors below.
+              resetCoveredEditorsZoom();
               // Hero stays enabled for the whole TextEditor session via
               // _activeSubEditor (set on open), so no per-frame toggle is
               // needed here — that toggle caused a one-frame flash of the
@@ -2084,7 +2140,7 @@ class ProImageEditorState extends State<ProImageEditor>
       onEditorZoomMatrix4Change: (value) {
         callbacks.paintEditorCallbacks?.onEditorZoomMatrix4Change?.call(value);
         if (paintEditorConfigs.enableShareZoomMatrix) {
-          interactiveViewer.currentState?.transformMatrix4 = value;
+          _sharedZoomViewer?.transformMatrix4 = value;
         }
       },
     );
@@ -2113,7 +2169,7 @@ class ProImageEditorState extends State<ProImageEditor>
           appliedBlurFactor: stateManager.activeBlur,
           appliedFilters: stateManager.activeFilters,
           appliedTuneAdjustments: stateManager.activeTuneAdjustments,
-          initialZoomMatrix: interactiveViewer.currentState?.transformMatrix4,
+          initialZoomMatrix: _sharedZoomViewer?.transformMatrix4,
         ),
       ),
       duration: const Duration(milliseconds: 150),
@@ -2376,6 +2432,27 @@ class ProImageEditorState extends State<ProImageEditor>
       return;
     }
 
+    // When the tune editor takes part in zoom sharing, read the shared zoom
+    // before the route is pushed and let the tune editor mirror its zoom
+    // back into the shared viewer so the editor below shows the same zoom
+    // when this route closes.
+    final bool shareZoom = tuneEditorConfigs.enableShareZoomMatrix;
+    final Matrix4? initialZoomMatrix =
+        shareZoom ? _sharedZoomViewer?.transformMatrix4 : null;
+    final effectiveCallbacks = !shareZoom
+        ? callbacks
+        : callbacks.copyWith(
+            tuneEditorCallbacks:
+                (callbacks.tuneEditorCallbacks ?? const TuneEditorCallbacks())
+                    .copyWith(
+              onEditorZoomMatrix4Change: (value) {
+                callbacks.tuneEditorCallbacks?.onEditorZoomMatrix4Change
+                    ?.call(value);
+                _sharedZoomViewer?.transformMatrix4 = value;
+              },
+            ),
+          );
+
     List<TuneAdjustmentMatrix>? tuneAdjustments = await openPage(
       HeroMode(
         enabled: enableHero,
@@ -2388,7 +2465,8 @@ class ProImageEditorState extends State<ProImageEditor>
           initConfigs: TuneEditorInitConfigs(
             theme: _theme,
             configs: configs,
-            callbacks: callbacks,
+            callbacks: effectiveCallbacks,
+            initialZoomMatrix: initialZoomMatrix,
             transformConfigs: stateManager.transformConfigs,
             // Use new GlobalKeys (enableCopyKey: false) so these copies
             // don't conflict with the layer stack that keeps the original
@@ -2446,6 +2524,27 @@ class ProImageEditorState extends State<ProImageEditor>
       return;
     }
 
+    // When the filter editor takes part in zoom sharing, read the shared
+    // zoom before the route is pushed and let the filter editor mirror its
+    // zoom back into the shared viewer so the editor below shows the same
+    // zoom when this route closes.
+    final bool shareZoom = filterEditorConfigs.enableShareZoomMatrix;
+    final Matrix4? initialZoomMatrix =
+        shareZoom ? _sharedZoomViewer?.transformMatrix4 : null;
+    final effectiveCallbacks = !shareZoom
+        ? callbacks
+        : callbacks.copyWith(
+            filterEditorCallbacks: (callbacks.filterEditorCallbacks ??
+                    const FilterEditorCallbacks())
+                .copyWith(
+              onEditorZoomMatrix4Change: (value) {
+                callbacks.filterEditorCallbacks?.onEditorZoomMatrix4Change
+                    ?.call(value);
+                _sharedZoomViewer?.transformMatrix4 = value;
+              },
+            ),
+          );
+
     FilterMatrix? filters = await openPage(
       FilterEditor.autoSource(
         key: filterEditor,
@@ -2456,7 +2555,8 @@ class ProImageEditorState extends State<ProImageEditor>
         initConfigs: FilterEditorInitConfigs(
           theme: _theme,
           configs: configs,
-          callbacks: callbacks,
+          callbacks: effectiveCallbacks,
+          initialZoomMatrix: initialZoomMatrix,
           transformConfigs: stateManager.transformConfigs,
           // Use new GlobalKeys (enableCopyKey: false) so these copies
           // don't conflict with the layer stack that keeps the original

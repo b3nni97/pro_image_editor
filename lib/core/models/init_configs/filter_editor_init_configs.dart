@@ -28,6 +28,7 @@ class FilterEditorInitConfigs extends EditorInitConfigs {
     super.historyScope,
     super.onLayerTransformChanged,
     this.backgroundImageOverride,
+    this.initialZoomMatrix,
     super.onTextLayerTap,
     required super.theme,
   });
@@ -38,4 +39,11 @@ class FilterEditorInitConfigs extends EditorInitConfigs {
   /// allowing the main editor to control the hero and crop animations.
   /// When null, the sub-editor uses its own background rendering.
   final Widget? backgroundImageOverride;
+
+  /// The zoom matrix the editor's interactive viewer starts at.
+  ///
+  /// Used to carry the current zoom/pan over from the previous editor when
+  /// `FilterEditorConfigs.enableShareZoomMatrix` is enabled. The viewer still
+  /// resets to its fit transform, not to this matrix.
+  final Matrix4? initialZoomMatrix;
 }

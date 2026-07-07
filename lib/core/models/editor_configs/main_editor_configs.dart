@@ -31,6 +31,7 @@ class MainEditorConfigs extends ZoomConfigs {
     this.enableKeyboardShortcuts = true,
     this.enableEscapeButton = true,
     this.canZoomWhenLayerSelected = true,
+    super.enableShareZoomMatrix,
     this.resizeToAvoidBottomInset = false,
     this.mobilePanInteraction = MobilePanInteraction.move,
     this.tools = const [
@@ -165,6 +166,7 @@ class MainEditorConfigs extends ZoomConfigs {
     bool? enableZoom,
     bool? enableDoubleTapZoom,
     bool? canZoomWhenLayerSelected,
+    bool? enableShareZoomMatrix,
     bool? resizeToAvoidBottomInset,
     MobilePanInteraction? mobilePanInteraction,
     bool? invertTrackpadDirection,
@@ -193,6 +195,8 @@ class MainEditorConfigs extends ZoomConfigs {
       enableDoubleTapZoom: enableDoubleTapZoom ?? this.enableDoubleTapZoom,
       canZoomWhenLayerSelected:
           canZoomWhenLayerSelected ?? this.canZoomWhenLayerSelected,
+      enableShareZoomMatrix:
+          enableShareZoomMatrix ?? this.enableShareZoomMatrix,
       mobilePanInteraction: mobilePanInteraction ?? this.mobilePanInteraction,
       invertTrackpadDirection:
           invertTrackpadDirection ?? this.invertTrackpadDirection,

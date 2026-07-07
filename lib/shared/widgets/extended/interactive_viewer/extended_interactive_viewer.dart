@@ -22,6 +22,7 @@ class ExtendedInteractiveViewer extends StatefulWidget {
     required this.onInteractionEnd,
     this.onMatrix4Change,
     this.initialMatrix4,
+    this.startMatrix4,
     this.enableExternalGestureDetector = false,
     this.boundaryMargin = EdgeInsets.zero,
     this.contentInset = EdgeInsets.zero,
@@ -119,6 +120,14 @@ class ExtendedInteractiveViewer extends StatefulWidget {
   /// The initial Matrix4 value.
   final Matrix4? initialMatrix4;
 
+  /// The transform the viewer starts at, when it differs from
+  /// [initialMatrix4].
+  ///
+  /// [initialMatrix4] stays the reset target ([ExtendedInteractiveViewerState
+  /// .reset] and relative zoom/pan calculations), so a viewer seeded with a
+  /// carried-over zoom still resets back to its fit transform.
+  final Matrix4? startMatrix4;
+
   /// The boundary margin for the interactive viewer.
   ///
   /// This defines the margin around the child content that determines
@@ -158,7 +167,7 @@ class ExtendedInteractiveViewerState extends State<ExtendedInteractiveViewer>
   @override
   void initState() {
     super.initState();
-    final initialTransformation = widget.initialMatrix4;
+    final initialTransformation = widget.startMatrix4 ?? widget.initialMatrix4;
 
     _transformCtrl = TransformationController(initialTransformation)
       ..addListener(() {

@@ -33,6 +33,7 @@ class TuneEditorConfigs extends ZoomConfigs implements BaseSubEditorConfigs {
       '[SubEditorMode.tune]',
     )
     super.enableZoom,
+    super.enableShareZoomMatrix,
     super.enableDoubleTapZoom,
     super.doubleTapZoomFactor,
     super.doubleTapZoomDuration,

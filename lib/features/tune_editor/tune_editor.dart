@@ -562,6 +562,7 @@ class TuneEditorState extends State<TuneEditor>
                   minScale: fit.editorMinScale,
                   maxScale: fit.editorMaxScale,
                   initialMatrix4: fit.initialTransform,
+                  startMatrix4: initConfigs.initialZoomMatrix,
                   onInteractionStart: (details) {
                     callbacks.tuneEditorCallbacks?.onEditorZoomScaleStart
                         ?.call(details);

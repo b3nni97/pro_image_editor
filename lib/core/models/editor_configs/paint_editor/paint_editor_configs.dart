@@ -88,7 +88,7 @@ class PaintEditorConfigs extends ZoomConfigs
     this.isInitiallyFilled = false,
     this.showLayers = true,
     this.enableInteractiveLayers = false,
-    this.enableShareZoomMatrix = true,
+    this.enableShareZoomMatrix = false,
     this.resizeToAvoidBottomInset = false,
     this.polygonConnectionThreshold = 20,
     this.minStrokeWidth = 1.0,
@@ -228,7 +228,12 @@ class PaintEditorConfigs extends ZoomConfigs
   /// editor. When `false` (default), layers are displayed as a static preview.
   final bool enableInteractiveLayers;
 
-  /// Shares the zoom matrix between the main and paint editor.
+  /// Whether the paint editor takes part in the shared zoom/pan state.
+  ///
+  /// When `true`, the paint editor opens at the current zoom of the shared
+  /// zoom viewer (embedded sub-editor or main editor) and mirrors its own
+  /// zoom changes back into it. When `false` (default), it opens at the
+  /// standard zoom and its zoom is reset once another sub-editor covers it.
   final bool enableShareZoomMatrix;
 
   /// Whether the Scaffold should resize to avoid the bottom inset (keyboard).

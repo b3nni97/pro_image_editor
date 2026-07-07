@@ -708,6 +708,7 @@ class FilterEditorState extends State<FilterEditor>
               minScale: fit.editorMinScale,
               maxScale: fit.editorMaxScale,
               initialMatrix4: fit.initialTransform,
+              startMatrix4: initConfigs.initialZoomMatrix,
               onInteractionStart: (details) {
                 callbacks.filterEditorCallbacks?.onEditorZoomScaleStart
                     ?.call(details);

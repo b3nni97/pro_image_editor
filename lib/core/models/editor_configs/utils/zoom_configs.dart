@@ -14,6 +14,7 @@ abstract class ZoomConfigs {
   /// Creates a set of zoom configuration options.
   const ZoomConfigs({
     this.enableZoom = false,
+    this.enableShareZoomMatrix = false,
     this.enableDoubleTapZoom = true,
     this.doubleTapZoomFactor = 2,
     this.doubleTapZoomDuration = const Duration(milliseconds: 180),
@@ -33,6 +34,28 @@ abstract class ZoomConfigs {
   /// Default value is `false`.
   /// {@endtemplate}
   final bool enableZoom;
+
+  /// {@template enableShareZoomMatrix}
+  /// Whether this editor takes part in the shared zoom/pan state when
+  /// switching between sub-editors (matching e.g. the native iOS Photos
+  /// editor).
+  ///
+  /// When `true` on a sub-editor config (tune, filter), that editor opens at
+  /// the current zoom of the editor below and mirrors its own zoom changes
+  /// back, so switching to and from it keeps the zoom instead of resetting
+  /// it. When `false`, the editor opens un-zoomed and its covered zoom state
+  /// is reset once another sub-editor fully covers it (legacy behavior).
+  ///
+  /// On [MainEditorConfigs] this controls whether the main editor's viewer
+  /// (which holds the shared zoom when no sub-editor is embedded) is reset
+  /// when the crop-rotate editor opens.
+  ///
+  /// Opening the crop-rotate editor always resets the zoom of all editors,
+  /// regardless of this setting.
+  ///
+  /// Default value is `false`.
+  /// {@endtemplate}
+  final bool enableShareZoomMatrix;
 
   /// Whether double-tap to zoom is enabled.
   ///

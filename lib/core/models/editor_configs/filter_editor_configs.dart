@@ -40,6 +40,7 @@ class FilterEditorConfigs extends ZoomConfigs implements BaseSubEditorConfigs {
       '[SubEditorMode.filter]',
     )
     super.enableZoom,
+    super.enableShareZoomMatrix,
     super.enableDoubleTapZoom,
     super.doubleTapZoomFactor,
     super.doubleTapZoomDuration,
