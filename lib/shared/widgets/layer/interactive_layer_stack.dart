@@ -209,19 +209,43 @@ class InteractiveLayerStack extends StatefulWidget {
   State<InteractiveLayerStack> createState() => _InteractiveLayerStackState();
 }
 
-class _InteractiveLayerStackState extends State<InteractiveLayerStack> {
+class _InteractiveLayerStackState extends State<InteractiveLayerStack>
+    with SingleTickerProviderStateMixin {
   late final LayerInteractionManager _layerInteractionManager;
   late final LayerInteractionService _layersService;
   late final StreamController<void> _uiLayerCtrl;
   late final StreamController<void> _helperLineCtrl;
   late final StreamController<void> _removeBtnCtrl;
 
+  /// Mirrors whether any alignment guide is currently visible, used purely as
+  /// the anchor's lifecycle clock: it is snapped to 1 while a guide shows and
+  /// reversed to 0 when the guides hide. Its duration matches the per-line
+  /// fade, so the anchor is released ([_guideAnchorLayerId]) exactly when the
+  /// fade-out finishes — never a frame early (which would flash the guide
+  /// above the just-manipulated layer) nor via a guessed timer.
+  late final AnimationController _guideAnchorClock;
+
   final GlobalKey _removeAreaKey = GlobalKey();
+  // Stable identity for the helper-line overlay so its animation state
+  // survives being moved within the layer stack (beneath the active layer)
+  // between rebuilds.
+  final GlobalKey _helperLinesKey = GlobalKey();
   final _mouseCursorsKey = GlobalKey<ExtendedRebuildMouseRegionState>();
   final _deferId = ValueNotifier(generateUniqueId());
 
   Size _editorBodySize = Size.infinite;
   bool _isLayerBeingTransformed = false;
+
+  /// Id of the layer the alignment guides are currently anchored to. The
+  /// guides render just beneath this layer (which itself renders above every
+  /// other layer) for the duration of a drag and its fade-out. This is
+  /// deliberately decoupled from selection: selection is cleared the moment
+  /// all fingers lift (see [_onAllPointersUp]), so relying on it would let the
+  /// guides flash above the just-dragged layer while they fade out.
+  ///
+  /// It is released once the fade-out completes, driven by [_guideAnchorClock]
+  /// (whose duration matches the line fade), not on a guessed timer.
+  String? _guideAnchorLayerId;
 
   /// Number of fingers currently touching the layer stack area.
   int _activePointerCount = 0;
@@ -284,6 +308,17 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack> {
     _helperLineCtrl = StreamController.broadcast();
     _removeBtnCtrl = StreamController.broadcast();
 
+    // Matches the per-line fade duration in [_buildHelperLine].
+    _guideAnchorClock = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 100),
+    )..addStatusListener((status) {
+        if (status == AnimationStatus.dismissed &&
+            _guideAnchorLayerId != null) {
+          setState(() => _guideAnchorLayerId = null);
+        }
+      });
+
     // Use external manager if provided, otherwise create our own.
     _layerInteractionManager = widget.layerInteractionManager ??
         LayerInteractionManager(
@@ -341,6 +376,7 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack> {
 
   @override
   void dispose() {
+    _guideAnchorClock.dispose();
     _uiLayerCtrl.close();
     _helperLineCtrl.close();
     _removeBtnCtrl.close();
@@ -366,7 +402,6 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack> {
   }
 
   void _onScaleStart(ScaleStartDetails details) {
-
     if (!_hasSelectedLayers) {
       _viewer?.onScaleStart(details);
       return;
@@ -380,6 +415,15 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack> {
 
     _checkInteractiveViewer();
     _isLayerBeingTransformed = _hasSelectedLayers;
+
+    // Anchor the alignment guides to the layer being manipulated so it renders
+    // above the guides (and every other layer) for the whole gesture. Prefer
+    // [activeInteractionLayer] since it is set for every interaction path —
+    // including the rotate/scale handle, which enters through a different
+    // gesture than this scale detector.
+    _guideAnchorLayerId = _layerInteractionManager.activeInteractionLayer?.id ??
+        (_selectedLayers.isNotEmpty ? _selectedLayers.first.id : null);
+
     _layerInteractionManager.onScaleStart(
       details: details,
       selectedLayers: _selectedLayers,
@@ -402,6 +446,19 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack> {
       return;
     }
 
+    // Keep the guide anchor in sync with the layer currently being
+    // manipulated. This also covers the rotate/scale handle, whose gesture may
+    // bypass [_onScaleStart] but still flows through here (see the
+    // [rotateScaleLayerSizeHelper] branch below). setState so the layer stack
+    // reorders immediately — otherwise the handle path rebuilds only the
+    // guides (targeted), leaving the layer un-elevated beneath the rotate line
+    // during the gesture and its fade-out. The guard makes this fire only once
+    // per gesture (when the anchor first changes).
+    final activeLayer = _layerInteractionManager.activeInteractionLayer;
+    if (activeLayer != null && activeLayer.id != _guideAnchorLayerId) {
+      setState(() => _guideAnchorLayerId = activeLayer.id);
+    }
+
     final int pointerCount = details.pointerCount;
 
     bool beforeShowHorizontalHelperLine =
@@ -419,6 +476,9 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack> {
           beforeShowRotationHelperLine !=
               _layerInteractionManager.showRotationHelperLineUi) {
         _helperLineCtrl.add(null);
+        // A guide appeared/disappeared → keep the anchor clock in sync so it is
+        // "armed" (at 1) whenever a guide is on screen during the gesture.
+        _syncGuideAnchorClock();
       }
     }
 
@@ -474,7 +534,6 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack> {
         },
         helperLineCtrl: _helperLineCtrl,
       );
-
     } else if (pointerCount == 2) {
       _layerInteractionManager.calculateScaleRotate(
         configs: widget.configs,
@@ -526,9 +585,54 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack> {
     _isLayerBeingTransformed = false;
     _checkInteractiveViewer();
     _uiLayerCtrl.add(null);
+
     _layerInteractionManager.onScaleEnd();
 
+    // The gesture is over and the manager has cleared the guide flags. Drive
+    // the anchor clock: if a guide was visible it now fades out and the anchor
+    // is released when the clock hits 0; otherwise it is released immediately.
+    _syncGuideAnchorClock();
+
     setState(() {});
+  }
+
+  /// Whether any alignment guide is currently rendered visible. Hovering the
+  /// remove area collapses every line to size 0, so nothing would animate on
+  /// release — treat that as "not visible" so the anchor is dropped at once.
+  bool get _anyGuideVisible =>
+      !_layerInteractionManager.hoverRemoveBtn &&
+      (_layerInteractionManager.showVerticalHelperLine ||
+          _layerInteractionManager.showHorizontalHelperLine ||
+          _layerInteractionManager.showRotationHelperLineUi ||
+          _layerInteractionManager.isVerticalGuideVisible ||
+          _layerInteractionManager.isHorizontalGuideVisible);
+
+  /// Drives [_guideAnchorClock] from the current guide visibility so the anchor
+  /// is released precisely when the fade-out finishes. Snaps the clock to 1
+  /// while a guide is visible; once the gesture is over and no guide remains,
+  /// reverses it (the [AnimationStatus.dismissed] listener then releases the
+  /// anchor). While an interaction is still active the anchor is always kept.
+  void _syncGuideAnchorClock() {
+    if (_anyGuideVisible) {
+      _guideAnchorClock.value = 1.0;
+      return;
+    }
+    // No guide visible. Never release while an interaction is still running —
+    // [activeInteractionLayer] also covers the rotate/scale handle, which may
+    // not set [_isLayerBeingTransformed].
+    if (_isLayerBeingTransformed ||
+        _layerInteractionManager.activeInteractionLayer != null) {
+      return;
+    }
+    if (_guideAnchorClock.value == 0.0) {
+      // Nothing was showing, so nothing will fade — release immediately.
+      if (_guideAnchorLayerId != null) {
+        setState(() => _guideAnchorLayerId = null);
+      }
+    } else {
+      // A guide is fading out; release the anchor when the clock reaches 0.
+      _guideAnchorClock.reverse();
+    }
   }
 
   void _handleMouseHover(PointerHoverEvent event) {
@@ -573,13 +677,41 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack> {
   }
 
   Widget _buildLayerContent() {
+    // Paint order (bottom → top): every other layer, then the alignment
+    // guides, then the anchored (actively dragged) layer on top. This places
+    // the guides above all other layers but below the layer being dragged, so
+    // a dragged layer (e.g. text) is never covered by the guides — including
+    // while they fade out after release (see [_guideAnchorLayerId]). Only the
+    // paint order changes; the layer data order is untouched and each layer
+    // keeps its state via its own key. When no layer is anchored the guides
+    // are invisible (size 0) and simply sit on top. A stable GlobalKey keeps
+    // the guides' animation state intact as they move between these positions.
+    final layerChildren = <Widget>[];
+    if (widget.enableHelperLines) {
+      Widget? anchoredLayerWidget;
+      for (final layer in widget.layers) {
+        final layerWidget = _buildLayerWidget(layer);
+        if (layer.id == _guideAnchorLayerId) {
+          anchoredLayerWidget = layerWidget;
+        } else {
+          layerChildren.add(layerWidget);
+        }
+      }
+      layerChildren.add(_buildHelperLines());
+      if (anchoredLayerWidget != null) {
+        layerChildren.add(anchoredLayerWidget);
+      }
+    } else {
+      for (final layer in widget.layers) {
+        layerChildren.add(_buildLayerWidget(layer));
+      }
+    }
+
     Widget layerStack = Stack(
       fit: StackFit.expand,
       alignment: Alignment.center,
       clipBehavior: widget.clipBehavior,
-      children: widget.layers.map((layerItem) {
-        return _buildLayerWidget(layerItem);
-      }).toList(),
+      children: layerChildren,
     );
 
     // Apply transform scale for sub-editors.
@@ -615,26 +747,26 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack> {
           onScaleUpdate: _onScaleUpdate,
           onScaleEnd: _onScaleEnd,
           child: Stack(
-          children: [
-            if (_cutOutsideImageArea)
-              ClipPath(
-                clipper: _imageBoundsClipper(),
-                child: layerStack,
-              )
-            else
-              layerStack,
-            if (_cutOutsideImageArea)
-              IgnorePointer(
-                child: RepaintBoundary(
-                  child: CustomPaint(
-                    foregroundPainter: _buildCropPainter(),
-                    child: const SizedBox.expand(),
+            children: [
+              if (_cutOutsideImageArea)
+                ClipPath(
+                  clipper: _imageBoundsClipper(),
+                  child: layerStack,
+                )
+              else
+                layerStack,
+              if (_cutOutsideImageArea)
+                IgnorePointer(
+                  child: RepaintBoundary(
+                    child: CustomPaint(
+                      foregroundPainter: _buildCropPainter(),
+                      child: const SizedBox.expand(),
+                    ),
                   ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
-      ),
       ),
     );
 
@@ -670,11 +802,14 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack> {
       );
     }
 
-    // Build the final stack with helper lines and remove area overlays.
+    // Build the final stack. Helper lines are *not* placed here; they are
+    // injected inside the layer stack (see [_buildLayerContent]) directly
+    // beneath the active layer, so a dragged layer renders on top of the
+    // guides while all other layers stay below them. The remove area stays on
+    // top so the drag-to-delete zone is always visible.
     return Stack(
       children: [
         content,
-        if (widget.enableHelperLines) _buildHelperLines(),
         if (widget.enableRemoveArea) _buildRemoveArea(),
       ],
     );
@@ -719,87 +854,99 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack> {
   }
 
   Widget _buildHelperLines() {
-    if (!_layerInteractionManager.showHelperLines) {
-      return const SizedBox.shrink();
-    }
-
+    // Intentionally *not* gated by [showHelperLines]. Keeping the subtree
+    // mounted lets the per-line AnimatedContainers shrink their thickness
+    // back to 0 when a gesture ends, so the guides fade out symmetrically to
+    // how they faded in. Tearing the subtree out on release would remove the
+    // AnimatedContainers before that exit animation could play. While idle,
+    // every line renders at size 0, so nothing is painted.
     final helperLines = _helperLines;
     final strokeWidth = helperLines.style.strokeWidth;
 
-    return RepaintBoundary(
-      child: StreamBuilder(
-        stream: _removeBtnCtrl.stream,
-        builder: (_, __) {
-          return StreamBuilder<void>(
-            stream: _helperLineCtrl.stream,
-            builder: (context, snapshot) {
-              final scale = _viewerScaleFactor;
-              final editorBodySize = _editorBodySize;
+    return IgnorePointer(
+      key: _helperLinesKey,
+      child: RepaintBoundary(
+        child: StreamBuilder(
+          stream: _removeBtnCtrl.stream,
+          builder: (_, __) {
+            return StreamBuilder<void>(
+              stream: _helperLineCtrl.stream,
+              builder: (context, snapshot) {
+                final scale = _viewerScaleFactor;
+                final editorBodySize = _editorBodySize;
 
-              if (helperLines.isDisabledAtZoom && scale > 1) {
-                return const SizedBox.shrink();
-              }
+                if (helperLines.isDisabledAtZoom && scale > 1) {
+                  return const SizedBox.shrink();
+                }
 
-              final isRemoval = _layerInteractionManager.hoverRemoveBtn;
+                final isRemoval = _layerInteractionManager.hoverRemoveBtn;
 
-              // The viewer already applies zoom+pan, so everything here is in
-              // content coordinates. Stroke width and line length are divided
-              // by the viewer scale so they stay visually constant; lines are
-              // made several times the body size so they still reach the edges
-              // when the view is zoomed out or panned.
-              final thin = strokeWidth / scale;
-              final spanHeight = editorBodySize.height / scale * 3;
-              final spanWidth = editorBodySize.width / scale * 3;
-              final centerX = editorBodySize.width / 2;
-              final centerY = editorBodySize.height / 2;
+                // The viewer already applies zoom+pan, so everything here is in
+                // content coordinates. Stroke width and line length are divided
+                // by the viewer scale so they stay visually constant; lines
+                // are made several times the body size so they still reach the
+                // edges when the view is zoomed out or panned.
+                // Per-line thickness (falls back to the shared strokeWidth).
+                final thinV =
+                    (helperLines.style.verticalStrokeWidth ?? strokeWidth) /
+                        scale;
+                final thinH =
+                    (helperLines.style.horizontalStrokeWidth ?? strokeWidth) /
+                        scale;
+                final spanHeight = editorBodySize.height / scale * 3;
+                final spanWidth = editorBodySize.width / scale * 3;
+                final centerX = editorBodySize.width / 2;
+                final centerY = editorBodySize.height / 2;
 
-              // Clip to the letterboxed image area so the guides never paint
-              // over the black/white background around the image.
-              return SizedBox(
-                width: editorBodySize.width,
-                height: editorBodySize.height,
-                child: ClipPath(
-                  clipper: _imageBoundsClipper(),
-                  child: Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      if (helperLines.showVerticalLine)
-                        _buildHelperLine(
-                          key: const ValueKey('Screen-Vertical-Guide-Line'),
-                          width:
-                              _layerInteractionManager.showVerticalHelperLine &&
-                                      !isRemoval
-                                  ? thin
-                                  : 0,
-                          height: spanHeight,
-                          left: centerX - thin / 2,
-                          top: centerY - spanHeight / 2,
-                          color: helperLines.style.verticalColor,
-                        ),
-                      if (helperLines.showHorizontalLine)
-                        _buildHelperLine(
-                          key: const ValueKey('Screen-Horizontal-Guide-Line'),
-                          width: spanWidth,
-                          height: _layerInteractionManager
-                                      .showHorizontalHelperLine &&
-                                  !isRemoval
-                              ? thin
-                              : 0,
-                          left: centerX - spanWidth / 2,
-                          top: centerY - thin / 2,
-                          color: helperLines.style.horizontalColor,
-                        ),
-                      if (helperLines.showRotateLine)
-                        _buildRotateLine(scale, strokeWidth),
-                      if (helperLines.showLayerAlignLine)
-                        ..._buildLayerAlignLines(scale, strokeWidth),
-                    ],
+                // Clip to the letterboxed image area so the guides never paint
+                // over the black/white background around the image.
+                return SizedBox(
+                  width: editorBodySize.width,
+                  height: editorBodySize.height,
+                  child: ClipPath(
+                    clipper: _imageBoundsClipper(),
+                    child: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        if (helperLines.showVerticalLine)
+                          _buildHelperLine(
+                            key: const ValueKey('Screen-Vertical-Guide-Line'),
+                            width: _layerInteractionManager
+                                        .showVerticalHelperLine &&
+                                    !isRemoval
+                                ? thinV
+                                : 0,
+                            height: spanHeight,
+                            left: centerX - thinV / 2,
+                            top: centerY - spanHeight / 2,
+                            color: helperLines.style.verticalColor,
+                            lineType: helperLines.style.verticalLineType,
+                          ),
+                        if (helperLines.showHorizontalLine)
+                          _buildHelperLine(
+                            key: const ValueKey('Screen-Horizontal-Guide-Line'),
+                            width: spanWidth,
+                            height: _layerInteractionManager
+                                        .showHorizontalHelperLine &&
+                                    !isRemoval
+                                ? thinH
+                                : 0,
+                            left: centerX - spanWidth / 2,
+                            top: centerY - thinH / 2,
+                            color: helperLines.style.horizontalColor,
+                            lineType: helperLines.style.horizontalLineType,
+                          ),
+                        if (helperLines.showRotateLine) _buildRotateLine(scale),
+                        if (helperLines.showLayerAlignLine)
+                          ..._buildLayerAlignLines(scale),
+                      ],
+                    ),
                   ),
-                ),
-              );
-            },
-          );
-        },
+                );
+              },
+            );
+          },
+        ),
       ),
     );
   }
@@ -812,7 +959,9 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack> {
     required Color color,
     Key? key,
     EdgeInsets? margin,
+    HelperLineType lineType = HelperLineType.solid,
   }) {
+    final bool dashed = lineType == HelperLineType.dashed;
     return Positioned(
       key: key,
       left: left,
@@ -822,12 +971,25 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack> {
         width: width,
         height: height,
         margin: margin,
-        color: color,
+        // Solid lines paint via the container color; dashed lines are drawn by
+        // a painter that fills the (animated) box, so the fade still works.
+        color: dashed ? null : color,
+        child: dashed
+            ? CustomPaint(
+                painter: _DashedLinePainter(
+                  color: color,
+                  pattern: _kDashedGuidePattern,
+                ),
+                child: const SizedBox.expand(),
+              )
+            : null,
       ),
     );
   }
 
-  Widget _buildRotateLine(double scale, double strokeWidth) {
+  Widget _buildRotateLine(double scale) {
+    final strokeWidth =
+        _helperLines.style.rotateStrokeWidth ?? _helperLines.style.strokeWidth;
     // Content-space position; the viewer applies the zoom+pan. Stroke and
     // length are scale-compensated to stay visually constant. The base shape
     // is a *horizontal* bar so that at 0° rotation the guide runs along the
@@ -836,6 +998,9 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack> {
     // spans the viewport at any rotation.
     final thin = strokeWidth / scale;
     final length = _editorBodySize.longestSide / scale * 3;
+    final bool dashed =
+        _helperLines.style.rotateLineType == HelperLineType.dashed;
+    final color = _helperLines.style.rotateColor;
     return Positioned(
       left: _layerInteractionManager.rotationHelperLineX,
       top: _layerInteractionManager.rotationHelperLineY,
@@ -851,17 +1016,28 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack> {
                     !_layerInteractionManager.hoverRemoveBtn
                 ? thin
                 : 0,
-            color: _helperLines.style.rotateColor,
+            color: dashed ? null : color,
+            child: dashed
+                ? CustomPaint(
+                    painter: _DashedLinePainter(
+                      color: color,
+                      pattern: _kDashedGuidePattern,
+                    ),
+                    child: const SizedBox.expand(),
+                  )
+                : null,
           ),
         ),
       ),
     );
   }
 
-  List<Widget> _buildLayerAlignLines(double scale, double strokeWidth) {
+  List<Widget> _buildLayerAlignLines(double scale) {
     final editorCenter = _editorBodySize / 2;
     // Content-space positions; the viewer applies zoom+pan. Stroke and length
     // are scale-compensated to stay visually constant across zoom levels.
+    final strokeWidth = _helperLines.style.layerAlignStrokeWidth ??
+        _helperLines.style.strokeWidth;
     final thin = strokeWidth / scale;
     final halfStroke = thin / 2;
     final spanHeight = _editorBodySize.height / scale * 3;
@@ -881,25 +1057,29 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack> {
     final showVertical =
         _layerInteractionManager.isVerticalGuideVisible && !isRemoval;
 
+    // Always mounted; thickness is driven by the visibility flag so the lines
+    // grow in and shrink out via their AnimatedContainer, matching the center
+    // guides instead of popping. While inactive the size is 0 (invisible) and
+    // the last offset is retained for a clean fade-out.
     return [
-      if (showHorizontal)
-        _buildHelperLine(
-          key: const ValueKey('Horizontal-Guide-Line'),
-          width: spanWidth,
-          height: thin,
-          top: horizontalOffset,
-          left: editorCenter.width - spanWidth / 2,
-          color: _helperLines.style.layerAlignColor,
-        ),
-      if (showVertical)
-        _buildHelperLine(
-          key: const ValueKey('Vertical-Guide-Line'),
-          width: thin,
-          height: spanHeight,
-          top: editorCenter.height - spanHeight / 2,
-          left: verticalOffset,
-          color: _helperLines.style.layerAlignColor,
-        ),
+      _buildHelperLine(
+        key: const ValueKey('Horizontal-Guide-Line'),
+        width: spanWidth,
+        height: showHorizontal ? thin : 0,
+        top: horizontalOffset,
+        left: editorCenter.width - spanWidth / 2,
+        color: _helperLines.style.layerAlignColor,
+        lineType: _helperLines.style.layerAlignLineType,
+      ),
+      _buildHelperLine(
+        key: const ValueKey('Vertical-Guide-Line'),
+        width: showVertical ? thin : 0,
+        height: spanHeight,
+        top: editorCenter.height - spanHeight / 2,
+        left: verticalOffset,
+        color: _helperLines.style.layerAlignColor,
+        lineType: _helperLines.style.layerAlignLineType,
+      ),
     ];
   }
 
@@ -998,7 +1178,6 @@ class _ImageBoundsClipper extends CustomClipper<Path> {
 
     final Rect imageRect = Rect.fromCenter(center: center, width: w, height: h);
 
-
     if (isOval) {
       return Path()..addOval(imageRect);
     }
@@ -1010,5 +1189,59 @@ class _ImageBoundsClipper extends CustomClipper<Path> {
     return oldClipper.imgRatio != imgRatio ||
         oldClipper.is90DegRotated != is90DegRotated ||
         oldClipper.isOval != isOval;
+  }
+}
+
+/// The standard dash pattern (dash/gap lengths in logical pixels) used for
+/// [HelperLineType.dashed] helper lines.
+const List<double> _kDashedGuidePattern = [6.0, 4.0];
+
+/// Paints a dashed helper line filling its box. The line runs along the longer
+/// side of [size]; the shorter side is the (animated) thickness, so the fade-in
+/// still works. [pattern] is alternating dash/gap lengths in logical pixels.
+class _DashedLinePainter extends CustomPainter {
+  _DashedLinePainter({required this.color, required this.pattern});
+
+  final Color color;
+  final List<double> pattern;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final bool horizontal = size.width >= size.height;
+    final double lineLength = horizontal ? size.width : size.height;
+    final double thickness = horizontal ? size.height : size.width;
+    if (lineLength <= 0 || thickness <= 0 || pattern.isEmpty) return;
+
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = thickness;
+    final double cross = thickness / 2;
+
+    double pos = 0;
+    int i = 0;
+    while (pos < lineLength) {
+      final double seg = pattern[i % pattern.length];
+      // Even indices are dashes, odd indices are gaps.
+      if (i.isEven && seg > 0) {
+        final double end = (pos + seg).clamp(0.0, lineLength);
+        if (horizontal) {
+          canvas.drawLine(Offset(pos, cross), Offset(end, cross), paint);
+        } else {
+          canvas.drawLine(Offset(cross, pos), Offset(cross, end), paint);
+        }
+      }
+      pos += seg;
+      i++;
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DashedLinePainter oldDelegate) {
+    if (oldDelegate.color != color) return true;
+    if (oldDelegate.pattern.length != pattern.length) return true;
+    for (var i = 0; i < pattern.length; i++) {
+      if (oldDelegate.pattern[i] != pattern[i]) return true;
+    }
+    return false;
   }
 }

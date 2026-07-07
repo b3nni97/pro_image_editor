@@ -93,6 +93,13 @@ class LayerInteractionManager {
   final Map<String, double> _snapHoldX = {};
   final Map<String, double> _snapHoldY = {};
 
+  /// A small, slow drag delta held back by one frame so that the involuntary
+  /// movement of the very last frame before a finger-lift can be discarded
+  /// instead of shifting the layer. Committed on the next frame if the drag
+  /// continues, dropped at gesture end. Gated by
+  /// [HelperLineConfigs.liftJitterTolerance].
+  final Map<String, Offset> _heldDelta = {};
+
   /// X-coordinate where snapping started.
   double snapStartPosX = 0;
 
@@ -642,20 +649,39 @@ class LayerInteractionManager {
     // Compute smoothed drag speed once per frame (outside the layer loop).
     final dragSpeed = contentDelta.distance;
     _smoothedDragSpeed = _smoothedDragSpeed * 0.7 + dragSpeed * 0.3;
-    final bool isFastDrag = _smoothedDragSpeed > 1.0;
+    final bool isFastDrag =
+        _smoothedDragSpeed > helperLineConfigs.fastDragSnapSkipThreshold;
 
     for (Layer layer in selectedLayers) {
       if (!layer.interaction.enableMove) continue;
 
       Offset fractionalOffset = _getFractionalLayerOffset(layer);
 
+      // One-frame deferral of small, slow movements: while the finger is
+      // essentially settling (not a fast drag) and this frame's movement is
+      // tiny, hold it back by one frame instead of applying it immediately.
+      // The previously held delta is committed now (so continuous slow drags
+      // still move, just one frame late — imperceptible), and this frame's
+      // delta is held. At gesture end the held delta is dropped, so the
+      // involuntary movement of the very last frame before the finger lifts is
+      // never rendered — the layer stays put instead of shifting a few pixels.
+      final Offset heldDelta = _heldDelta[layer.id] ?? Offset.zero;
+      final Offset effectiveDelta;
+      if (!isFastDrag &&
+          contentDelta.distance <= helperLineConfigs.liftJitterTolerance) {
+        effectiveDelta = heldDelta;
+        _heldDelta[layer.id] = contentDelta;
+      } else {
+        effectiveDelta = heldDelta + contentDelta;
+        _heldDelta.remove(layer.id);
+      }
 
       // Apply delta to the raw (unsnapped) offset so that snap overrides
       // from helper lines / alignment guides never accumulate drift.
       final rawOffset = _rawLayerOffsets[layer.id] ?? layer.offset;
       final newRawOffset = Offset(
-        rawOffset.dx + contentDelta.dx,
-        rawOffset.dy + contentDelta.dy,
+        rawOffset.dx + effectiveDelta.dx,
+        rawOffset.dy + effectiveDelta.dy,
       );
       _rawLayerOffsets[layer.id] = newRawOffset;
       layer.offset = newRawOffset;
@@ -935,7 +961,9 @@ class LayerInteractionManager {
               // every slow pass-through. After break-free, rotation moves
               // AWAY from snap so crossing can't fire (no infinite loop).
               final speedDegPerSec = _smoothedRotationSpeed;
-              const snapSpeedThreshold = 60.0; // °/sec: skip snap if fast
+              // °/sec: skip snap if fast
+              final snapSpeedThreshold =
+                  helperLineConfigs.rotateSnapSkipSpeedDeg;
 
               final crossedSnap =
                   speedDegPerSec < snapSpeedThreshold &&
@@ -1084,6 +1112,7 @@ class LayerInteractionManager {
 
     _snapHoldX.clear();
     _snapHoldY.clear();
+    _heldDelta.clear();
 
     for (Layer layer in selectedLayers) {
       _baseScaleFactor[layer.id] = layer.scale;
@@ -1120,17 +1149,27 @@ class LayerInteractionManager {
   /// Handles cleanup and resets various flags and states after scaling
   /// interaction ends.
   void onScaleEnd() {
-    // Re-apply an active center snap if the layer only drifted a tiny bit off
-    // it (a finger-lift jitter). If the user genuinely dragged far away from
-    // the snapped line, the difference is large and we leave it as-is.
-    const double snapReleaseTolerance = 20.0;
+    final double snapReleaseTolerance = helperLineConfigs.snapReleaseTolerance;
+
+    // The held delta is the movement of the final settling frame(s) before the
+    // finger lifted. Dropping it (by never applying it) is what makes a lift
+    // "stable": the layer stays exactly where it was, with no shift and no
+    // visible snap-back. See the deferral in [calculateMovement].
+    _heldDelta.clear();
+
+    // Re-apply an active snap (center guide or layer-alignment guide) if the
+    // layer only drifted a tiny bit off it. This is the larger, snap-specific
+    // tolerance: when the user clearly intended the layer on the line, pull it
+    // back exactly. If they genuinely dragged far away, leave it as-is.
     for (final layer in selectedLayersScaleStart) {
       final holdX = _snapHoldX[layer.id];
-      if (holdX != null && (layer.offset.dx - holdX).abs() <= snapReleaseTolerance) {
+      if (holdX != null &&
+          (layer.offset.dx - holdX).abs() <= snapReleaseTolerance) {
         layer.offset = Offset(holdX, layer.offset.dy);
       }
       final holdY = _snapHoldY[layer.id];
-      if (holdY != null && (layer.offset.dy - holdY).abs() <= snapReleaseTolerance) {
+      if (holdY != null &&
+          (layer.offset.dy - holdY).abs() <= snapReleaseTolerance) {
         layer.offset = Offset(layer.offset.dx, holdY);
       }
     }
@@ -1150,6 +1189,7 @@ class LayerInteractionManager {
     _rawLayerOffsets.clear();
     _snapHoldX.clear();
     _snapHoldY.clear();
+    _heldDelta.clear();
     _lastLocalFocalPoint = null;
     _smoothedDragSpeed = 0.0;
     _smoothedRotationSpeed = 0.0;
@@ -1408,8 +1448,12 @@ class LayerInteractionManager {
       verticalGuideOffset = verticalOffset;
       isVerticalGuideVisible = true;
 
-      activeLayer.offset = Offset(
-          verticalOffset.dx - localPointFromCenter.dx, activeLayer.offset.dy);
+      final snapX = verticalOffset.dx - localPointFromCenter.dx;
+      activeLayer.offset = Offset(snapX, activeLayer.offset.dy);
+      // Record the snapped X so a tiny finger-lift jitter is pulled back onto
+      // the guide in onScaleEnd, just like the center snap.
+      _rawLayerOffsets[activeLayer.id] = activeLayer.offset;
+      _snapHoldX[activeLayer.id] = snapX;
     }
 
     // Handle horizontal snapping
@@ -1417,8 +1461,12 @@ class LayerInteractionManager {
       horizontalGuideOffset = horizontalOffset;
       isHorizontalGuideVisible = true;
 
-      activeLayer.offset = Offset(
-          activeLayer.offset.dx, horizontalOffset.dy - localPointFromCenter.dy);
+      final snapY = horizontalOffset.dy - localPointFromCenter.dy;
+      activeLayer.offset = Offset(activeLayer.offset.dx, snapY);
+      // Record the snapped Y so a tiny finger-lift jitter is pulled back onto
+      // the guide in onScaleEnd, just like the center snap.
+      _rawLayerOffsets[activeLayer.id] = activeLayer.offset;
+      _snapHoldY[activeLayer.id] = snapY;
     }
 
     // Notify UI only if something changed

@@ -16,6 +16,10 @@ class HelperLineConfigs {
     this.isDisabledAtZoom = false,
     this.releaseThreshold = 10.0,
     this.rotateLineMinIntentDeg = 5.0,
+    this.fastDragSnapSkipThreshold = 1.0,
+    this.rotateSnapSkipSpeedDeg = 60.0,
+    this.liftJitterTolerance = 10.0,
+    this.snapReleaseTolerance = 20.0,
     this.style = const HelperLineStyle(),
   });
 
@@ -57,6 +61,55 @@ class HelperLineConfigs {
   /// show the line on any rotation.
   final double rotateLineMinIntentDeg;
 
+  /// The smoothed drag speed (in content pixels per frame) above which the
+  /// horizontal/vertical position snap is skipped while dragging a layer.
+  ///
+  /// When the user drags faster than this, the center snap and its helper
+  /// lines are suppressed so quick movements aren't interrupted by snapping.
+  /// Lower values make snapping give up more eagerly on fast drags; higher
+  /// values keep snapping active even during faster drags. Set to
+  /// [double.infinity] to never skip the snap based on speed.
+  final double fastDragSnapSkipThreshold;
+
+  /// The smoothed rotation speed (in degrees per second) above which the
+  /// angle snap (45° multiples) is skipped while rotating a layer.
+  ///
+  /// When the user rotates faster than this, the layer won't lock onto the
+  /// nearest snap angle, so fast spins stay smooth. Lower values make the
+  /// snap give up more eagerly on fast rotation; higher values keep it
+  /// engaging even during faster rotation. Set to [double.infinity] to never
+  /// skip the snap based on speed.
+  final double rotateSnapSkipSpeedDeg;
+
+  /// The maximum per-frame movement (in logical pixels) that is treated as
+  /// finger-settling and deferred by one frame while dragging slowly, so the
+  /// involuntary movement of the final frame before the finger lifts can be
+  /// discarded rather than shifting the layer.
+  ///
+  /// This makes a release look "stable": a slow drag near its end doesn't get
+  /// nudged a few pixels as the finger leaves, and — unlike a snap-back — the
+  /// stray movement is never rendered in the first place. Only small, slow
+  /// movements are deferred, so a deliberate (fast) drag is never affected. The
+  /// default of `10.0` roughly matches the ~10pt allowable-movement tolerance
+  /// iOS uses for its gesture recognizers. Set to `0` to disable it.
+  ///
+  /// See [snapReleaseTolerance] for the larger tolerance used to pull a layer
+  /// back onto an active snap line.
+  final double liftJitterTolerance;
+
+  /// The maximum distance (in logical pixels) a layer may drift off an active
+  /// snap line at the moment the finger lifts and still be pulled back exactly
+  /// onto the line.
+  ///
+  /// This is deliberately larger than [liftJitterTolerance]: when a layer was
+  /// snapped the user clearly intended it on the line, so the pull-back is more
+  /// forgiving. If the layer is farther than this from the snap line (i.e. the
+  /// user genuinely dragged away), it is left where it is.
+  ///
+  /// Applies to both the center guides and the layer-alignment guides. Set to
+  /// `0` to disable the release re-snap.
+  final double snapReleaseTolerance;
+
   /// Creates a copy of this `HelperLineConfigs` object with the given fields
   /// replaced with new values.
   ///
@@ -71,6 +124,10 @@ class HelperLineConfigs {
     bool? isDisabledAtZoom,
     double? releaseThreshold,
     double? rotateLineMinIntentDeg,
+    double? fastDragSnapSkipThreshold,
+    double? rotateSnapSkipSpeedDeg,
+    double? liftJitterTolerance,
+    double? snapReleaseTolerance,
     HelperLineStyle? style,
   }) {
     return HelperLineConfigs(
@@ -82,6 +139,12 @@ class HelperLineConfigs {
       releaseThreshold: releaseThreshold ?? this.releaseThreshold,
       rotateLineMinIntentDeg:
           rotateLineMinIntentDeg ?? this.rotateLineMinIntentDeg,
+      fastDragSnapSkipThreshold:
+          fastDragSnapSkipThreshold ?? this.fastDragSnapSkipThreshold,
+      rotateSnapSkipSpeedDeg:
+          rotateSnapSkipSpeedDeg ?? this.rotateSnapSkipSpeedDeg,
+      liftJitterTolerance: liftJitterTolerance ?? this.liftJitterTolerance,
+      snapReleaseTolerance: snapReleaseTolerance ?? this.snapReleaseTolerance,
       style: style ?? this.style,
     );
   }
