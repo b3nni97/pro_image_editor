@@ -10,7 +10,6 @@ import '/core/models/history/editor_history_scope.dart';
 
 import '/shared/widgets/smart_hero.dart';
 
-import '../../core/mixins/editor_callbacks_mixin.dart';
 import '../../shared/widgets/extended/interactive_viewer/extended_interactive_viewer.dart';
 import '/core/constants/image_constants.dart';
 import '/core/mixins/converted_callbacks.dart';
