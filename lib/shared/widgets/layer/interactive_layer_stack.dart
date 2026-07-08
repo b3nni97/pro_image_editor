@@ -74,6 +74,7 @@ class InteractiveLayerStack extends StatefulWidget {
     this.editorSize,
     this.appBarHeight = 0,
     this.bottomBarHeight = 0,
+    this.removeAreaBuilder,
   });
 
   // ──────────── Required parameters ──────────────
@@ -204,6 +205,21 @@ class InteractiveLayerStack extends StatefulWidget {
 
   /// Height of the bottom bar, used for helper line margins.
   final double bottomBarHeight;
+
+  /// Optional builder to fully override the drag-to-delete area (look and
+  /// position). It receives the [removeAreaKey] (which the returned widget must
+  /// carry so its bounds are hit-tested), this stack's interaction manager
+  /// (for the hover state), a [rebuildStream] that ticks when the hover state
+  /// changes, whether a layer is currently being transformed, and the visible
+  /// (letterboxed) image rectangle within the body so the area can be kept
+  /// inside the image. When `null` the built-in default area is used.
+  final Widget Function(
+    GlobalKey removeAreaKey,
+    LayerInteractionManager layerInteractionManager,
+    Stream<void> rebuildStream,
+    bool isLayerBeingTransformed,
+    Rect imageBounds,
+  )? removeAreaBuilder;
 
   @override
   State<InteractiveLayerStack> createState() => _InteractiveLayerStackState();
@@ -850,6 +866,30 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack>
     );
   }
 
+  /// The rectangle of the visible (letterboxed) image within the editor body,
+  /// in the same coordinate space the layer/remove-area stack is laid out in.
+  /// Mirrors the region [_imageBoundsClipper] clips to.
+  Rect _visibleImageRect() {
+    final size = _editorBodySize;
+    final imgRatio = _transformConfigs?.cropRect.size.aspectRatio ??
+        widget.transformHelper.mainImageSize.aspectRatio;
+    if (imgRatio <= 0 || size.isEmpty) return Offset.zero & size;
+
+    final double ratio =
+        (_transformConfigs?.is90DegRotated ?? false) ? 1 / imgRatio : imgRatio;
+    final center = Offset(size.width / 2, size.height / 2);
+
+    double w, h;
+    if (size.aspectRatio > ratio) {
+      h = size.height;
+      w = size.height * ratio;
+    } else {
+      w = size.width;
+      h = size.width / ratio;
+    }
+    return Rect.fromCenter(center: center, width: w, height: h);
+  }
+
   Widget _buildHelperLines() {
     // Intentionally *not* gated by [showHelperLines]. Keeping the subtree
     // mounted lets the per-line AnimatedContainers shrink their thickness
@@ -1083,17 +1123,72 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack>
   // ──────────── Remove Area ─────────────────────────────────────
 
   Widget _buildRemoveArea() {
-    return Positioned(
-      key: _removeAreaKey,
-      top: 0,
-      left: 0,
-      child: SafeArea(
-        bottom: false,
-        child: StreamBuilder(
-          stream: _removeBtnCtrl.stream,
-          builder: (_, __) => _buildRemoveWidget(),
-        ),
-      ),
+    // A host-provided builder fully overrides look and position. It must attach
+    // [_removeAreaKey] to its widget so the hover hit-test can find its bounds.
+    final builder = widget.removeAreaBuilder;
+    final Widget built = builder != null
+        ? builder(
+            _removeAreaKey,
+            _layerInteractionManager,
+            _removeBtnCtrl.stream,
+            _isLayerBeingTransformed,
+            _visibleImageRect(),
+          )
+        : Positioned(
+            key: _removeAreaKey,
+            top: 0,
+            left: 0,
+            child: SafeArea(
+              bottom: false,
+              child: StreamBuilder(
+                stream: _removeBtnCtrl.stream,
+                builder: (_, __) => _buildRemoveWidget(),
+              ),
+            ),
+          );
+
+    return _pinRemoveAreaToViewport(built);
+  }
+
+  /// Keeps the drag-to-delete area fixed in screen space at the editor's
+  /// un-zoomed base view. The area lives inside the interactive viewer (with
+  /// the layers), so without this it would zoom and pan away when the user
+  /// zooms into the image. We cancel the viewer's current transform and
+  /// re-apply its *base fit* transform, so the area stays at exactly the same
+  /// on-screen spot (e.g. bottom of the image) regardless of zoom/pan.
+  ///
+  /// We deliberately use [initialMatrix4] (the base/reset fit), not
+  /// [startMatrix4]: the latter is the shared zoom the editor may *open* with
+  /// (e.g. after zooming in a previous sub-editor), which would otherwise pin
+  /// the area to that already-zoomed view and push it off screen.
+  Widget _pinRemoveAreaToViewport(Widget child) {
+    final viewer = _viewer;
+    final ctrl = viewer?.transformationController;
+    if (viewer == null || ctrl == null) return child;
+
+    final Matrix4 initial =
+        viewer.widget.initialMatrix4 ?? Matrix4.identity();
+
+    return ListenableBuilder(
+      listenable: ctrl,
+      builder: (context, _) {
+        Matrix4 counter;
+        try {
+          counter = Matrix4.inverted(ctrl.value)..multiply(initial);
+        } catch (_) {
+          // Non-invertible matrix (degenerate) → skip compensation.
+          counter = Matrix4.identity();
+        }
+        return Transform(
+          transform: counter,
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+            width: _editorBodySize.width,
+            height: _editorBodySize.height,
+            child: Stack(clipBehavior: Clip.none, children: [child]),
+          ),
+        );
+      },
     );
   }
 

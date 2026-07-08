@@ -3819,6 +3819,17 @@ class ProImageEditorState extends State<ProImageEditor>
           (_activeSubEditor == SubEditor.text && !_isTextOverSubEditor),
       enableHelperLines: true,
       enableRemoveArea: true,
+      removeAreaBuilder: configs.mainEditor.widgets.removeLayerArea == null
+          ? null
+          : (removeAreaKey, manager, rebuildStream, isLayerBeingTransformed,
+                  imageBounds) =>
+              configs.mainEditor.widgets.removeLayerArea!(
+                removeAreaKey,
+                manager,
+                rebuildStream,
+                isLayerBeingTransformed,
+                imageBounds,
+              ),
       heroResetStream: _controllers.layerHeroResetCtrl.stream,
       mouseService: _mouseService,
       isDragSelectionActive: _layerDragSelectionService.isActive,

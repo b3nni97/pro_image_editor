@@ -44,6 +44,8 @@ class LayerInteractionStyle {
     this.dragSelectionBackground = const Color(0x2F2195F3),
     this.dragSelectionBorderColor = const Color(0xFF2196F3),
     this.dragSelectionBorderWidth = 2,
+    this.removeAreaHoverScale = 0.5,
+    this.removeAreaHoverOpacity = 0.35,
   });
 
   /// The padding to apply around the overlay of the layer.
@@ -142,6 +144,14 @@ class LayerInteractionStyle {
   /// The border width of the drag selection area.
   final double dragSelectionBorderWidth;
 
+  /// Scale a layer animates to while it is held over the drag-to-delete area,
+  /// previewing its removal. `1.0` disables the shrink. Defaults to `0.5`.
+  final double removeAreaHoverScale;
+
+  /// Opacity a layer animates to while it is held over the drag-to-delete area.
+  /// `1.0` disables the fade. Defaults to `0.35`.
+  final double removeAreaHoverOpacity;
+
   /// Creates a copy of this `LayerInteractionStyle` object with the given
   /// fields replaced with new values.
   ///
@@ -172,6 +182,8 @@ class LayerInteractionStyle {
     Color? dragSelectionBackground,
     Color? dragSelectionBorderColor,
     double? dragSelectionBorderWidth,
+    double? removeAreaHoverScale,
+    double? removeAreaHoverOpacity,
   }) {
     return LayerInteractionStyle(
       overlayPadding: overlayPadding ?? this.overlayPadding,
@@ -206,6 +218,9 @@ class LayerInteractionStyle {
           dragSelectionBorderColor ?? this.dragSelectionBorderColor,
       dragSelectionBorderWidth:
           dragSelectionBorderWidth ?? this.dragSelectionBorderWidth,
+      removeAreaHoverScale: removeAreaHoverScale ?? this.removeAreaHoverScale,
+      removeAreaHoverOpacity:
+          removeAreaHoverOpacity ?? this.removeAreaHoverOpacity,
     );
   }
 }

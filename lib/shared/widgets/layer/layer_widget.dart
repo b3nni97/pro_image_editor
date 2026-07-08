@@ -362,9 +362,41 @@ class _LayerWidgetState extends State<LayerWidget>
         fractionalOffset: _fractionalOffset,
         overlayPadding: overlayPadding,
         transform: transformMatrix,
-        child: RepaintBoundary(
-          child: _buildInteractionHandlers(),
+        child: _buildRemoveHoverEffect(
+          child: RepaintBoundary(
+            child: _buildInteractionHandlers(),
+          ),
         ),
+      ),
+    );
+  }
+
+  /// While this layer is dragged over the drag-to-delete area it shrinks and
+  /// fades to preview its removal, animating back to full size when dragged
+  /// out again. Only the layer(s) taking part in the current drag react.
+  Widget _buildRemoveHoverEffect({required Widget child}) {
+    final style = layerInteraction.style;
+    // Nothing to do when the effect is disabled.
+    if (style.removeAreaHoverScale == 1.0 &&
+        style.removeAreaHoverOpacity == 1.0) {
+      return child;
+    }
+
+    final manager = _layerInteractionManager;
+    final bool overRemoveArea = manager != null &&
+        manager.hoverRemoveBtn &&
+        (_isSelected || manager.activeInteractionLayer?.id == _layer.id);
+
+    const duration = Duration(milliseconds: 200);
+    return AnimatedScale(
+      scale: overRemoveArea ? style.removeAreaHoverScale : 1.0,
+      duration: duration,
+      curve: Curves.easeOut,
+      child: AnimatedOpacity(
+        opacity: overRemoveArea ? style.removeAreaHoverOpacity : 1.0,
+        duration: duration,
+        curve: Curves.easeOut,
+        child: child,
       ),
     );
   }

@@ -2,7 +2,7 @@
 import 'package:flutter/widgets.dart';
 import '/core/models/layers/layer.dart';
 
-import '/features/main_editor/main_editor.dart';
+import '/features/main_editor/services/layer_interaction_manager.dart';
 import '/shared/widgets/layer/models/layer_item_interaction.dart';
 import '/shared/widgets/reactive_widgets/reactive_custom_widget.dart';
 
@@ -15,44 +15,49 @@ import '/shared/widgets/reactive_widgets/reactive_custom_widget.dart';
 ///
 /// The [removeAreaKey] parameter is a [GlobalKey] that points to the
 /// specific area where elements should be removed or targeted. The
-/// [editor] parameter allows access to the current editor state, and
-/// the [rebuildStream] stream enables dynamic rebuilding of the widget.
+/// `layerInteractionManager` parameter exposes the active interaction state —
+/// most importantly `hoverRemoveBtn` — of whichever editor currently hosts the
+/// layers (main editor *or* a sub-editor). The [rebuildStream] stream enables
+/// dynamic rebuilding of the widget.
+///
+/// The `imageBounds` parameter is the rectangle of the visible (letterboxed)
+/// image within the editor body — use it to keep the remove area inside the
+/// image rather than in the surrounding background. Its coordinate space is
+/// the same one a [Positioned] returned by this builder is laid out in.
+///
+/// The same builder is reused by the main editor and by the sub-editors that
+/// show layers (Filter, Tune, Blur), so it must not depend on a main-editor
+/// state — it is intentionally driven by the [LayerInteractionManager].
 ///
 /// **Example Usage:**
 /// ```dart
-/// removeLayerArea: (removeAreaKey, editor, rebuildStream) {
+/// removeLayerArea: (removeAreaKey, manager, rebuildStream,
+///     isLayerBeingTransformed, imageBounds) {
 ///   return Positioned(
 ///     key: removeAreaKey,
-///     top: 0,
-///     left: 0,
-///     child: SafeArea(
-///       bottom: false,
-///       child: StreamBuilder(
-///         stream: rebuildStream,
-///         builder: (context, snapshot) {
-///           return Container(
-///             height: kToolbarHeight,
-///             width: kToolbarHeight,
-///             decoration: BoxDecoration(
-///               color: editor.layerInteractionManager.hoverRemoveBtn
-///                   ? editor.imageEditorTheme.layerInteraction
-///                       .removeAreaBackgroundActive
-///                   : editor.imageEditorTheme.layerInteraction
-///                       .removeAreaBackgroundInactive,
-///               borderRadius: const BorderRadius.only(
-///                 bottomRight: Radius.circular(100),
+///     left: imageBounds.left,
+///     top: imageBounds.bottom - 96, // keep it inside the visible image
+///     width: imageBounds.width,
+///     height: 96,
+///     child: StreamBuilder(
+///       stream: rebuildStream,
+///       builder: (context, snapshot) {
+///         final hover = manager.hoverRemoveBtn;
+///         return Center(
+///           child: AnimatedScale(
+///             scale: isLayerBeingTransformed ? 1 : 0,
+///             duration: const Duration(milliseconds: 160),
+///             child: Container(
+///               padding: const EdgeInsets.all(16),
+///               decoration: BoxDecoration(
+///                 color: hover ? Colors.red : Colors.black54,
+///                 shape: BoxShape.circle,
 ///               ),
+///               child: const Icon(Icons.delete, color: Colors.white),
 ///             ),
-///             padding: const EdgeInsets.only(right: 12, bottom: 7),
-///             child: Center(
-///               child: Icon(
-///                 editor.icons.removeElementZone,
-///                 size: 28,
-///               ),
-///             ),
-///           );
-///         },
-///       ),
+///           ),
+///         );
+///       },
 ///     ),
 ///   );
 /// },
@@ -60,9 +65,10 @@ import '/shared/widgets/reactive_widgets/reactive_custom_widget.dart';
 /// {@endtemplate}
 typedef RemoveLayerArea = Widget Function(
   GlobalKey removeAreaKey,
-  ProImageEditorState editor,
+  LayerInteractionManager layerInteractionManager,
   Stream<void> rebuildStream,
   bool isLayerBeingTransformed,
+  Rect imageBounds,
 );
 
 /// A typedef for creating a [ReactiveWidget] that manages crop editor

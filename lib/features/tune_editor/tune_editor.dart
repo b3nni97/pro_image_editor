@@ -682,6 +682,17 @@ class TuneEditorState extends State<TuneEditor>
         layers: mutableLayers,
         editorBodySize: editorBodySize,
         interactiveViewerKey: interactiveViewerKey,
+        removeAreaBuilder: configs.mainEditor.widgets.removeLayerArea == null
+            ? null
+            : (removeAreaKey, manager, rebuildStream, isLayerBeingTransformed,
+                    imageBounds) =>
+                configs.mainEditor.widgets.removeLayerArea!(
+                  removeAreaKey,
+                  manager,
+                  rebuildStream,
+                  isLayerBeingTransformed,
+                  imageBounds,
+                ),
         transformHelper: TransformHelper(
           mainBodySize: getValidSizeOrDefault(mainBodySize, editorBodySize),
           mainImageSize: getValidSizeOrDefault(mainImageSize, editorBodySize),

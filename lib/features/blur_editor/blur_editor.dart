@@ -355,6 +355,21 @@ class BlurEditorState extends State<BlurEditor>
                                 onTextLayerTap: initConfigs.onTextLayerTap,
                                 layers: mutableLayers,
                                 editorBodySize: editorBodySize,
+                                removeAreaBuilder: configs.mainEditor.widgets
+                                            .removeLayerArea ==
+                                        null
+                                    ? null
+                                    : (removeAreaKey, manager, rebuildStream,
+                                            isLayerBeingTransformed,
+                                            imageBounds) =>
+                                        configs.mainEditor.widgets
+                                            .removeLayerArea!(
+                                          removeAreaKey,
+                                          manager,
+                                          rebuildStream,
+                                          isLayerBeingTransformed,
+                                          imageBounds,
+                                        ),
                                 transformHelper: TransformHelper(
                                   mainBodySize: getValidSizeOrDefault(
                                       mainBodySize, editorBodySize),
