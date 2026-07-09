@@ -997,6 +997,33 @@ class ExtendedRawInteractiveViewerState
     }
   }
 
+  /// Cancels any in-flight inertia and animates the pan back to the nearest
+  /// in-bounds position. Used when something else (e.g. a layer interaction)
+  /// takes over mid-bounce, so the image isn't left stuck out of its boundary.
+  /// No-op when the transform is already within bounds.
+  void settleToBounds() {
+    if (_controller.isAnimating) {
+      _controller
+        ..stop()
+        ..reset();
+      _animation?.removeListener(_handleInertiaAnimation);
+      _animation = null;
+    }
+
+    final Matrix4 clamped = _matrixTranslate(_transformer.value, Offset.zero);
+    final Offset begin = _getMatrixTranslation(_transformer.value);
+    final Offset end = _getMatrixTranslation(clamped);
+    if ((begin - end).distance < 0.01) return; // already within bounds
+
+    _gestureType = _GestureType.pan;
+    _animation = Tween<Offset>(begin: begin, end: end).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic),
+    );
+    _controller.duration = const Duration(milliseconds: 250);
+    _animation!.addListener(_handleInertiaAnimation);
+    _controller.forward();
+  }
+
   // Handle mousewheel and web trackpad scroll events.
   void _receivedPointerSignal(PointerSignalEvent event) {
     final Offset local = event.localPosition;

@@ -48,6 +48,8 @@ class InteractiveLayerStack extends StatefulWidget {
     this.onLayerRemoved,
     this.onLayersChanged,
     this.onBeforeLayerChange,
+    this.onLayerScaleStart,
+    this.onLayerScaleEnd,
     // ──── Shared features ────
     this.layerInteractionManager,
     this.mouseService,
@@ -124,6 +126,14 @@ class InteractiveLayerStack extends StatefulWidget {
   /// Called once before a layer interaction starts (drag, scale, remove).
   /// The host editor should save the current state to history here.
   final VoidCallback? onBeforeLayerChange;
+
+  /// Called when a scale/drag/rotate gesture on a *layer* begins (not when the
+  /// gesture pans/zooms the viewer). Useful e.g. to hide surrounding UI while
+  /// a layer is being moved, mirroring the editor's zoom gesture.
+  final Function(ScaleStartDetails details)? onLayerScaleStart;
+
+  /// Called when a layer scale/drag/rotate gesture ends.
+  final Function(ScaleEndDetails details)? onLayerScaleEnd;
 
   // ──────────── Layer interaction features ──────────────
 
@@ -329,11 +339,15 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack>
         }
       });
 
-    // Use external manager if provided, otherwise create our own.
+    // Use external manager if provided, otherwise create our own. Sub-editors
+    // don't pass an external manager, so wire the helper-line callbacks from
+    // the shared main-editor callbacks — otherwise onLineHit (e.g. haptics)
+    // would only fire in the main editor.
     _layerInteractionManager = widget.layerInteractionManager ??
         LayerInteractionManager(
           configs: widget.configs,
-          helperLinesCallbacks: null,
+          helperLinesCallbacks:
+              widget.callbacks.mainEditorCallbacks?.helperLines,
           onSelectedLayersChanged: (_) {},
         );
 
@@ -417,6 +431,9 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack>
       return;
     }
 
+    // A layer gesture (drag/scale/rotate) is starting.
+    widget.onLayerScaleStart?.call(details);
+
     // Save history before the interaction.
     widget.onBeforeLayerChange?.call();
     if (widget.onAddHistory != null) {
@@ -433,6 +450,17 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack>
     // gesture than this scale detector.
     _guideAnchorLayerId = _layerInteractionManager.activeInteractionLayer?.id ??
         (_selectedLayers.isNotEmpty ? _selectedLayers.first.id : null);
+
+    // Bring the moved layer(s) to the front so the last-moved layer stays on
+    // top after the interaction, instead of dropping back behind others once
+    // the temporary anchor is released. Relative order among moved layers is
+    // preserved.
+    final toFront = _selectedLayers.toList();
+    for (final layer in toFront) {
+      if (widget.layers.remove(layer)) {
+        widget.layers.add(layer);
+      }
+    }
 
     _layerInteractionManager.onScaleStart(
       details: details,
@@ -471,15 +499,24 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack>
         _layerInteractionManager.showRotationHelperLineUi;
 
     void checkUpdateHelperLineUI() {
-      if (beforeShowHorizontalHelperLine !=
+      final bool flagChanged = beforeShowHorizontalHelperLine !=
               _layerInteractionManager.showHorizontalHelperLine ||
           beforeShowVerticalHelperLine !=
               _layerInteractionManager.showVerticalHelperLine ||
           beforeShowRotationHelperLine !=
-              _layerInteractionManager.showRotationHelperLineUi) {
+              _layerInteractionManager.showRotationHelperLineUi;
+
+      // Rebuild the guides on a flag change, but also every frame while the
+      // rotation line is shown so it follows the layer as it's dragged — its
+      // position is recomputed per frame, but the guide StreamBuilder only
+      // rebuilds when told to.
+      if (flagChanged || _layerInteractionManager.showRotationHelperLine) {
         _helperLineCtrl.add(null);
-        // A guide appeared/disappeared → keep the anchor clock in sync so it is
-        // "armed" (at 1) whenever a guide is on screen during the gesture.
+      }
+
+      // A guide appeared/disappeared → keep the anchor clock in sync so it is
+      // "armed" (at 1) whenever a guide is on screen during the gesture.
+      if (flagChanged) {
         _syncGuideAnchorClock();
       }
     }
@@ -566,11 +603,19 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack>
   }
 
   void _onScaleEnd(ScaleEndDetails details) {
+    // Whether this gesture was actually transforming a layer (vs a viewer
+    // pan/zoom), so the matching end callback only fires for layer gestures.
+    final bool wasTransformingLayer = _isLayerBeingTransformed;
+
     _layerInteractionManager.activeInteractionLayer = null;
 
     // Check if layers should be removed (drag-to-delete).
     if (_layerInteractionManager.hoverRemoveBtn) {
       for (Layer layer in _layerInteractionManager.selectedLayersScaleStart) {
+        // Remove from the local list (main editor: the authoritative instance).
+        // Sub-editors work on copies and reconcile the deletion by id via
+        // [onRemoveLayer], so it's fine if this identity-based removal is a
+        // no-op there.
         widget.layers.remove(layer);
         widget.onRemoveLayer?.call(layer);
       }
@@ -605,6 +650,10 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack>
     // the anchor clock: if a guide was visible it now fades out and the anchor
     // is released when the clock hits 0; otherwise it is released immediately.
     _syncGuideAnchorClock();
+
+    if (wasTransformingLayer) {
+      widget.onLayerScaleEnd?.call(details);
+    }
 
     setState(() {});
   }

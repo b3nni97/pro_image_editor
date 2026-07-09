@@ -202,8 +202,19 @@ class ExtendedInteractiveViewerState extends State<ExtendedInteractiveViewer>
   void setEnableInteraction(bool value) {
     if (_enableInteraction != value) {
       _enableInteraction = value;
+      // When interaction is handed off (e.g. a layer is grabbed) mid-bounce,
+      // finish settling the pan to bounds so the image isn't left stuck at an
+      // out-of-bounds position until the next viewer gesture.
+      if (!value) {
+        _rawViewerKey.currentState?.settleToBounds();
+      }
       setState(() {});
     }
+  }
+
+  /// Animates the pan back within bounds, cancelling any in-flight inertia.
+  void settleToBounds() {
+    _rawViewerKey.currentState?.settleToBounds();
   }
 
   /// Reset the transformations to the initial state.

@@ -747,6 +747,11 @@ class FilterEditorState extends State<FilterEditor>
                                   layers: mutableLayers,
                                   editorBodySize: editorBodySize,
                                   interactiveViewerKey: interactiveViewerKey,
+                                  onRemoveLayer: removeLayerFromSubEditor,
+                                  onLayerScaleStart: callbacks.mainEditorCallbacks
+                                      ?.handleLayerTransformStart,
+                                  onLayerScaleEnd: callbacks.mainEditorCallbacks
+                                      ?.handleLayerTransformEnd,
                                   removeAreaBuilder: configs.mainEditor.widgets
                                               .removeLayerArea ==
                                           null

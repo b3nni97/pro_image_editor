@@ -924,9 +924,22 @@ class LayerInteractionManager {
               gestureRotationDeg >= helperLineConfigs.rotateLineMinIntentDeg;
 
           if (canSnap) {
-            const breakFreeDeg = 10.0; // how far to rotate to escape lock
+            // How far to rotate to escape the lock (configurable).
+            final breakFreeDeg = helperLineConfigs.rotateBreakFreeDeg;
+            // Whether the fingers are actually rotating (vs a translation-
+            // dominant move where the angle is essentially still). Uses the
+            // smoothed speed so incidental finger jitter during a move doesn't
+            // count as rotation.
+            final bool rotationActive = _smoothedRotationSpeed >= 8.0; // °/s
 
-            if (showRotationHelperLine) {
+            if (showRotationHelperLine && !rotationActive) {
+              // Locked but not rotating (e.g. moving the layer with two
+              // fingers): hold the line steady so it simply follows the layer
+              // via its position update, without re-evaluating the snap —
+              // which would otherwise flicker the line and re-fire the haptic.
+              layer.rotation = rotationHelperLineDeg;
+              showRotationHelperLineUi = hasRotationIntent;
+            } else if (showRotationHelperLine) {
               // ── LOCKED: hold at snap angle, check break-free ──
               final lockDetail =
                   _snapDetailRotation[layer.id] ?? detail.rotation;
@@ -992,7 +1005,7 @@ class LayerInteractionManager {
                 _baseAngleFactor[layer.id] = snapRad - detail.rotation;
                 layer.rotation = snapRad;
 
-                helperLinesCallbacks?.handleRotateLineHit();
+                _fireRotateLineHaptic();
 
                 // Update helper line position.
                 final frac = _getFractionalLayerOffset(layer);
@@ -1010,6 +1023,17 @@ class LayerInteractionManager {
             showRotationHelperLine = false;
             showRotationHelperLineUi = false;
           }
+        }
+
+        // Keep the rotation guide line centered on the layer while it is
+        // translated during the same 2-finger gesture, so the line stays
+        // aligned with the (moving) layer instead of its start position.
+        if (showRotationHelperLine) {
+          final frac = _getFractionalLayerOffset(layer);
+          layer.computeLocalCenterOffset(frac);
+          final center = layer.computeOffsetFromCenterFraction(frac);
+          rotationHelperLineX = center.dx + editorSize.width / 2;
+          rotationHelperLineY = center.dy + editorSize.height / 2;
         }
       }
     }
@@ -1073,7 +1097,7 @@ class LayerInteractionManager {
         rotationHelperLineX = posX + editorSize.width / 2;
         rotationHelperLineY = posY + editorSize.height / 2;
         if (!showRotationHelperLine) {
-          helperLinesCallbacks?.handleRotateLineHit();
+          _fireRotateLineHaptic();
         }
         showRotationHelperLine = true;
         showRotationHelperLineUi = hasRotationIntent;
@@ -1104,6 +1128,21 @@ class LayerInteractionManager {
 
   /// Timestamp of the last rotation speed sample for frame-rate independence.
   DateTime _lastRotationTimestamp = DateTime.now();
+
+  /// Timestamp of the last rotate-line haptic, used to debounce it.
+  DateTime _lastRotateHapticTimestamp =
+      DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// Fires the rotate-line haptic, debounced so a brief unlock/relock of the
+  /// snap (e.g. from finger jitter while moving the layer with two fingers)
+  /// doesn't retrigger it every time.
+  void _fireRotateLineHaptic() {
+    final now = DateTime.now();
+    if (now.difference(_lastRotateHapticTimestamp).inMilliseconds >= 250) {
+      helperLinesCallbacks?.handleRotateLineHit();
+      _lastRotateHapticTimestamp = now;
+    }
+  }
 
 
   void onScaleStart({

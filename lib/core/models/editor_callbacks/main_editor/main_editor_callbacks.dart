@@ -25,9 +25,8 @@ class MainEditorCallbacks extends StandaloneEditorCallbacks {
     this.onOpenSubEditor,
     this.onStartCloseSubEditor,
     this.onEndCloseSubEditor,
-    this.onScaleStart,
-    this.onScaleUpdate,
-    this.onScaleEnd,
+    this.onLayerTransformStart,
+    this.onLayerTransformEnd,
     this.onEditorZoomScaleStart,
     this.onEditorZoomScaleUpdate,
     this.onEditorZoomScaleEnd,
@@ -221,23 +220,14 @@ class MainEditorCallbacks extends StandaloneEditorCallbacks {
   final Function(ProImageEditorState state, ImportStateHistory import)?
       onImportHistoryEnd;
 
-  /// A callback function that is triggered when a scaling gesture starts.
-  ///
-  /// The [ScaleStartDetails] parameter provides information about the scaling
-  /// gesture.
-  final Function(ScaleStartDetails value)? onScaleStart;
+  /// Triggered when the user starts moving, scaling or rotating a *layer*
+  /// (e.g. dragging a text or sticker layer) — not when panning/zooming the
+  /// editor itself. Useful to hide surrounding UI while a layer is manipulated.
+  final Function(ScaleStartDetails details)? onLayerTransformStart;
 
-  /// A callback function that is triggered when a scaling gesture is updated.
-  ///
-  /// The [ScaleUpdateDetails] parameter provides information about the scaling
-  /// gesture.
-  final Function(ScaleUpdateDetails value)? onScaleUpdate;
-
-  /// A callback function that is triggered when a scaling gesture ends.
-  ///
-  /// The [ScaleEndDetails] parameter provides information about the scaling
-  /// gesture.
-  final Function(ScaleEndDetails value)? onScaleEnd;
+  /// Triggered when a layer move/scale/rotate gesture ends.
+  /// See [onLayerTransformStart].
+  final Function(ScaleEndDetails details)? onLayerTransformEnd;
 
   /// Called when the user ends a pan or scale gesture on the widget.
   ///
@@ -418,31 +408,16 @@ class MainEditorCallbacks extends StandaloneEditorCallbacks {
     handleUpdateUI();
   }
 
-  /// Handles the start of a scaling gesture.
-  ///
-  /// This method calls the [onScaleStart] callback with the provided [details]
-  /// and then calls [handleUpdateUI].
-  void handleScaleStart(ScaleStartDetails details) {
-    onScaleStart?.call(details);
-    handleUpdateUI();
+  /// Handles the start of a layer move/scale/rotate gesture by calling
+  /// [onLayerTransformStart].
+  void handleLayerTransformStart(ScaleStartDetails details) {
+    onLayerTransformStart?.call(details);
   }
 
-  /// Handles the update of a scaling gesture.
-  ///
-  /// This method calls the [onScaleUpdate] callback with the provided [details]
-  /// and then calls [handleUpdateUI].
-  void handleScaleUpdate(ScaleUpdateDetails details) {
-    onScaleUpdate?.call(details);
-    handleUpdateUI();
-  }
-
-  /// Handles the end of a scaling gesture.
-  ///
-  /// This method calls the [onScaleEnd] callback with the provided [details]
-  /// and then calls [handleUpdateUI].
-  void handleScaleEnd(ScaleEndDetails details) {
-    onScaleEnd?.call(details);
-    handleUpdateUI();
+  /// Handles the end of a layer move/scale/rotate gesture by calling
+  /// [onLayerTransformEnd].
+  void handleLayerTransformEnd(ScaleEndDetails details) {
+    onLayerTransformEnd?.call(details);
   }
 
   /// Creates a copy with modified editor callbacks.
@@ -460,9 +435,8 @@ class MainEditorCallbacks extends StandaloneEditorCallbacks {
     Function()? onLongPress,
     Function()? onEscapeButton,
     bool Function(KeyEvent event)? onKeyboardEvent,
-    Function(ScaleStartDetails)? onScaleStart,
-    Function(ScaleUpdateDetails)? onScaleUpdate,
-    Function(ScaleEndDetails)? onScaleEnd,
+    Function(ScaleStartDetails)? onLayerTransformStart,
+    Function(ScaleEndDetails)? onLayerTransformEnd,
     GestureScaleEndCallback? onEditorZoomScaleEnd,
     GestureScaleStartCallback? onEditorZoomScaleStart,
     GestureScaleUpdateCallback? onEditorZoomScaleUpdate,
@@ -503,9 +477,9 @@ class MainEditorCallbacks extends StandaloneEditorCallbacks {
       onLongPress: onLongPress ?? this.onLongPress,
       onEscapeButton: onEscapeButton ?? this.onEscapeButton,
       onKeyboardEvent: onKeyboardEvent ?? this.onKeyboardEvent,
-      onScaleStart: onScaleStart ?? this.onScaleStart,
-      onScaleUpdate: onScaleUpdate ?? this.onScaleUpdate,
-      onScaleEnd: onScaleEnd ?? this.onScaleEnd,
+      onLayerTransformStart:
+          onLayerTransformStart ?? this.onLayerTransformStart,
+      onLayerTransformEnd: onLayerTransformEnd ?? this.onLayerTransformEnd,
       onEditorZoomScaleEnd: onEditorZoomScaleEnd ?? this.onEditorZoomScaleEnd,
       onEditorZoomScaleStart:
           onEditorZoomScaleStart ?? this.onEditorZoomScaleStart,

@@ -355,6 +355,11 @@ class BlurEditorState extends State<BlurEditor>
                                 onTextLayerTap: initConfigs.onTextLayerTap,
                                 layers: mutableLayers,
                                 editorBodySize: editorBodySize,
+                                onRemoveLayer: removeLayerFromSubEditor,
+                                onLayerScaleStart: callbacks.mainEditorCallbacks
+                                    ?.handleLayerTransformStart,
+                                onLayerScaleEnd: callbacks.mainEditorCallbacks
+                                    ?.handleLayerTransformEnd,
                                 removeAreaBuilder: configs.mainEditor.widgets
                                             .removeLayerArea ==
                                         null

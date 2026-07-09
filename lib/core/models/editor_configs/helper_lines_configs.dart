@@ -16,6 +16,7 @@ class HelperLineConfigs {
     this.isDisabledAtZoom = false,
     this.releaseThreshold = 10.0,
     this.rotateLineMinIntentDeg = 5.0,
+    this.rotateBreakFreeDeg = 10.0,
     this.fastDragSnapSkipThreshold = 1.0,
     this.rotateSnapSkipSpeedDeg = 60.0,
     this.liftJitterTolerance = 10.0,
@@ -60,6 +61,16 @@ class HelperLineConfigs {
   /// while the object still snaps cleanly to 45° multiples. Set to `0` to
   /// show the line on any rotation.
   final double rotateLineMinIntentDeg;
+
+  /// How far (in degrees) the user must rotate away from a locked snap angle
+  /// before the rotation "breaks free" of it.
+  ///
+  /// A larger value makes the snap stickier: incidental rotation while moving a
+  /// layer with two fingers won't unlock (and re-lock) the guide — which would
+  /// otherwise re-fire the snap haptic. The default of `10.0` matches the
+  /// classic behaviour; raise it (e.g. `20`) if moving a layer keeps
+  /// triggering the rotation snap.
+  final double rotateBreakFreeDeg;
 
   /// The smoothed drag speed (in content pixels per frame) above which the
   /// horizontal/vertical position snap is skipped while dragging a layer.
@@ -124,6 +135,7 @@ class HelperLineConfigs {
     bool? isDisabledAtZoom,
     double? releaseThreshold,
     double? rotateLineMinIntentDeg,
+    double? rotateBreakFreeDeg,
     double? fastDragSnapSkipThreshold,
     double? rotateSnapSkipSpeedDeg,
     double? liftJitterTolerance,
@@ -139,6 +151,7 @@ class HelperLineConfigs {
       releaseThreshold: releaseThreshold ?? this.releaseThreshold,
       rotateLineMinIntentDeg:
           rotateLineMinIntentDeg ?? this.rotateLineMinIntentDeg,
+      rotateBreakFreeDeg: rotateBreakFreeDeg ?? this.rotateBreakFreeDeg,
       fastDragSnapSkipThreshold:
           fastDragSnapSkipThreshold ?? this.fastDragSnapSkipThreshold,
       rotateSnapSkipSpeedDeg:

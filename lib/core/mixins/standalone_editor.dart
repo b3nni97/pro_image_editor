@@ -87,6 +87,33 @@ mixin StandaloneEditorState<T extends StatefulWidget,
   /// last sync from the main editor.
   bool layersModified = false;
 
+  /// Ids of layers the user drag-deleted inside this sub-editor. Remembered so
+  /// a re-sync from the main editor's (still-stale) list doesn't bring them
+  /// back before this editor commits its state (see [syncLayersWhenIdle],
+  /// [removeLayerFromSubEditor]).
+  final Set<String> locallyRemovedLayerIds = {};
+
+  /// Removes [layer] (matched by id) from this editor's working copy in
+  /// response to a drag-to-delete gesture.
+  ///
+  /// Matches by id (not identity) to stay robust regardless of which copy the
+  /// interactive layer stack hands back, and remembers the id so a subsequent
+  /// re-sync from the main editor's still-stale list doesn't resurrect it (see
+  /// [syncLayersWhenIdle]).
+  void removeLayerFromSubEditor(Layer layer) {
+    locallyRemovedLayerIds.add(layer.id);
+    layersModified = true;
+    // The interactive layer stack may have already removed it by identity; only
+    // touch the list (and rebuild) if the copy is still present.
+    final removed = mutableLayers.indexWhere((l) => l.id == layer.id);
+    if (removed < 0) return;
+    if (mounted) {
+      setState(() => mutableLayers.removeAt(removed));
+    } else {
+      mutableLayers.removeAt(removed);
+    }
+  }
+
   /// Guards against scheduling multiple deferred layer syncs
   /// (see [syncLayersWhenIdle]).
   bool _layerSyncScheduled = false;
@@ -103,6 +130,11 @@ mixin StandaloneEditorState<T extends StatefulWidget,
   /// a flight destroys the heroine that owns the flight's motion controller
   /// and cuts the landing animation short (visible snap when the text editor
   /// closes). Defer the sync until the flight is over instead.
+  ///
+  /// A mid-gesture re-sync can swap out the instance being dragged, so
+  /// drag-to-delete removals are reconciled by id (see
+  /// [removeLayerFromSubEditor] / [locallyRemovedLayerIds]) rather than by
+  /// identity, and this method filters those ids out below.
   void syncLayersWhenIdle({bool deferred = false}) {
     if (!mounted) return;
     if (mutableLayers.any((l) => HeroineController.isTagInFlight(l.id))) {
@@ -120,6 +152,16 @@ mixin StandaloneEditorState<T extends StatefulWidget,
     // the "hidden while its editor is open" flight status of an edited text
     // layer, making it briefly visible at the target before the close flight.
     final incoming = List<Layer>.from(layers ?? []);
+    // Once the main editor has dropped a drag-deleted layer from its own list
+    // (on commit), stop tracking its id — otherwise a same-id layer that undo
+    // legitimately restores would be filtered out below forever.
+    locallyRemovedLayerIds.removeWhere(
+      (id) => !incoming.any((l) => l.id == id),
+    );
+    // Drop layers the user drag-deleted here. The main editor's list (the
+    // source of [layers]) is only reconciled on commit, so until then a
+    // re-sync would otherwise resurrect them.
+    incoming.removeWhere((l) => locallyRemovedLayerIds.contains(l.id));
     for (final layer in incoming) {
       final i = mutableLayers.indexWhere((l) => l.id == layer.id);
       if (i >= 0) {
@@ -131,7 +173,10 @@ mixin StandaloneEditorState<T extends StatefulWidget,
     mutableLayers
       ..clear()
       ..addAll(incoming);
-    layersModified = false;
+    // Keep the "modified" flag set while a drag-delete is still pending so
+    // [exportLayers] reports the change on commit even though the sync
+    // otherwise resets it.
+    layersModified = locallyRemovedLayerIds.isNotEmpty;
     // The immediate path runs during didUpdateWidget, where a rebuild
     // follows anyway; the deferred path needs its own.
     if (deferred) setState(() {});

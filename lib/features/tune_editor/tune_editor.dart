@@ -682,6 +682,11 @@ class TuneEditorState extends State<TuneEditor>
         layers: mutableLayers,
         editorBodySize: editorBodySize,
         interactiveViewerKey: interactiveViewerKey,
+        onRemoveLayer: removeLayerFromSubEditor,
+        onLayerScaleStart:
+            callbacks.mainEditorCallbacks?.handleLayerTransformStart,
+        onLayerScaleEnd:
+            callbacks.mainEditorCallbacks?.handleLayerTransformEnd,
         removeAreaBuilder: configs.mainEditor.widgets.removeLayerArea == null
             ? null
             : (removeAreaKey, manager, rebuildStream, isLayerBeingTransformed,

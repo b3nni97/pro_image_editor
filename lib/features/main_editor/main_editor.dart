@@ -1393,6 +1393,16 @@ class ProImageEditorState extends State<ProImageEditor>
           ..flipY = subLayer.flipY;
       }
     }
+
+    // Adopt the sub-editor's layer order too (e.g. bring-to-front on drag) so
+    // the z-order stays consistent when returning to the main editor or
+    // switching to another sub-editor.
+    final order = <String, int>{
+      for (int i = 0; i < subEditorLayers.length; i++) subEditorLayers[i].id: i,
+    };
+    activeLayers.sort(
+      (a, b) => (order[a.id] ?? 1 << 30).compareTo(order[b.id] ?? 1 << 30),
+    );
   }
 
   /// Handles tap events on a text layer.
@@ -3597,6 +3607,8 @@ class ProImageEditorState extends State<ProImageEditor>
                 imageBounds,
               ),
       heroResetStream: _controllers.layerHeroResetCtrl.stream,
+      onLayerScaleStart: mainEditorCallbacks?.handleLayerTransformStart,
+      onLayerScaleEnd: mainEditorCallbacks?.handleLayerTransformEnd,
       mouseService: _mouseService,
       isDragSelectionActive: _layerDragSelectionService.isActive,
       interactiveViewerKey: interactiveViewer,
