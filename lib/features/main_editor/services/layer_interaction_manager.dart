@@ -148,6 +148,11 @@ class LayerInteractionManager {
   /// Flag indicating if the remove button is hovered.
   bool hoverRemoveBtn = false;
 
+  /// Centre of the drag-to-delete area in the layer stack's content space while
+  /// a layer hovers it, else `null`. Lets a hovered layer animate toward the
+  /// delete zone as it shrinks away (see LayerWidget's remove-hover effect).
+  Offset? removeAreaCenter;
+
   /// Enables or disables hit detection.
   /// When `true`, allows detecting user interactions with the painted layer.
   bool enabledHitDetection = true;
@@ -642,6 +647,7 @@ class LayerInteractionManager {
       detail: detail,
       onHoveredRemoveChanged: onHoveredRemoveChanged,
       removeAreaKey: removeAreaKey,
+      context: context,
     );
 
     bool hasMultiSelection = selectedLayers.length > 1;
@@ -826,6 +832,7 @@ class LayerInteractionManager {
   void _checkLayerHoverRemoveArea({
     required ScaleUpdateDetails detail,
     required GlobalKey removeAreaKey,
+    required BuildContext context,
     required Function(bool value) onHoveredRemoveChanged,
   }) {
     RenderBox? box =
@@ -838,6 +845,18 @@ class LayerInteractionManager {
         box.size.width,
         box.size.height,
       ).contains(detail.focalPoint);
+
+      // While hovering, expose the remove-area centre in the layer stack's
+      // content space so a hovered layer can be visually "pulled into" it (see
+      // LayerWidget's remove-hover effect). Cleared when not hovering.
+      if (hit) {
+        final stackBox = context.findRenderObject() as RenderBox?;
+        final centerGlobal = box.localToGlobal(box.size.center(Offset.zero));
+        removeAreaCenter = stackBox?.globalToLocal(centerGlobal);
+      } else {
+        removeAreaCenter = null;
+      }
+
       if (hoverRemoveBtn != hit) {
         hoverRemoveBtn = hit;
         onHoveredRemoveChanged.call(hoverRemoveBtn);
@@ -1255,6 +1274,7 @@ class LayerInteractionManager {
     isHorizontalGuideVisible = false;
     showHelperLines = false;
     hoverRemoveBtn = false;
+    removeAreaCenter = null;
   }
 
   /// Rotate a layer.

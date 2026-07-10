@@ -356,6 +356,9 @@ class BlurEditorState extends State<BlurEditor>
                                 layers: mutableLayers,
                                 editorBodySize: editorBodySize,
                                 onRemoveLayer: removeLayerFromSubEditor,
+                                onHoverRemoveAreaChange: callbacks
+                                    .mainEditorCallbacks
+                                    ?.onHoverRemoveAreaChange,
                                 onLayerScaleStart: callbacks.mainEditorCallbacks
                                     ?.handleLayerTransformStart,
                                 onLayerScaleEnd: callbacks.mainEditorCallbacks

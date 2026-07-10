@@ -683,6 +683,8 @@ class TuneEditorState extends State<TuneEditor>
         editorBodySize: editorBodySize,
         interactiveViewerKey: interactiveViewerKey,
         onRemoveLayer: removeLayerFromSubEditor,
+        onHoverRemoveAreaChange:
+            callbacks.mainEditorCallbacks?.onHoverRemoveAreaChange,
         onLayerScaleStart:
             callbacks.mainEditorCallbacks?.handleLayerTransformStart,
         onLayerScaleEnd:

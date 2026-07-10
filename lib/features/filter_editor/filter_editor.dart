@@ -748,6 +748,9 @@ class FilterEditorState extends State<FilterEditor>
                                   editorBodySize: editorBodySize,
                                   interactiveViewerKey: interactiveViewerKey,
                                   onRemoveLayer: removeLayerFromSubEditor,
+                                  onHoverRemoveAreaChange: callbacks
+                                      .mainEditorCallbacks
+                                      ?.onHoverRemoveAreaChange,
                                   onLayerScaleStart: callbacks.mainEditorCallbacks
                                       ?.handleLayerTransformStart,
                                   onLayerScaleEnd: callbacks.mainEditorCallbacks

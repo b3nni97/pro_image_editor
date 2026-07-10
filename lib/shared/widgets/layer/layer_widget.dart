@@ -118,6 +118,11 @@ class _LayerWidgetState extends State<LayerWidget>
 
   late final Offset _fractionalOffset;
 
+  /// Last computed pull vector toward the drag-to-delete area, retained so the
+  /// "suck in" translate can animate back out after the layer leaves the zone
+  /// (see [build]).
+  Offset _removeAreaPull = Offset.zero;
+
   PointerEvent? _lastDownEvent;
   Offset? _lastLayerOffset;
   int? _temporaryLayerHash;
@@ -356,48 +361,65 @@ class _LayerWidgetState extends State<LayerWidget>
       overlayPadding = EdgeInsets.zero;
     }
 
-    return Positioned.fill(
-      child: _TransformedLayerBox(
-        layerOffset: Offset(offsetX, offsetY),
-        fractionalOffset: _fractionalOffset,
-        overlayPadding: overlayPadding,
-        transform: transformMatrix,
-        child: _buildRemoveHoverEffect(
-          child: RepaintBoundary(
-            child: _buildInteractionHandlers(),
-          ),
-        ),
-      ),
-    );
-  }
+    final Widget content = RepaintBoundary(child: _buildInteractionHandlers());
 
-  /// While this layer is dragged over the drag-to-delete area it shrinks and
-  /// fades to preview its removal, animating back to full size when dragged
-  /// out again. Only the layer(s) taking part in the current drag react.
-  Widget _buildRemoveHoverEffect({required Widget child}) {
     final style = layerInteraction.style;
-    // Nothing to do when the effect is disabled.
-    if (style.removeAreaHoverScale == 1.0 &&
-        style.removeAreaHoverOpacity == 1.0) {
-      return child;
-    }
-
+    final bool effectEnabled = !(style.removeAreaHoverScale == 1.0 &&
+        style.removeAreaHoverOpacity == 1.0);
     final manager = _layerInteractionManager;
-    final bool overRemoveArea = manager != null &&
+    final bool overRemoveArea = effectEnabled &&
+        manager != null &&
         manager.hoverRemoveBtn &&
         (_isSelected || manager.activeInteractionLayer?.id == _layer.id);
 
-    const duration = Duration(milliseconds: 200);
-    return AnimatedScale(
-      scale: overRemoveArea ? style.removeAreaHoverScale : 1.0,
-      duration: duration,
+    // Vector (content space) from this layer's centre to the delete-area centre
+    // so a hovered layer is "pulled into" the zone as it shrinks/fades away.
+    // Persisted so the pull also animates smoothly back out on release/exit,
+    // where [removeAreaCenter] is already cleared.
+    if (overRemoveArea && manager.removeAreaCenter != null) {
+      _removeAreaPull = manager.removeAreaCenter! - Offset(offsetX, offsetY);
+    }
+    final Offset pull = _removeAreaPull;
+
+    if (!effectEnabled) {
+      return Positioned.fill(
+        child: _TransformedLayerBox(
+          layerOffset: Offset(offsetX, offsetY),
+          fractionalOffset: _fractionalOffset,
+          overlayPadding: overlayPadding,
+          transform: transformMatrix,
+          child: content,
+        ),
+      );
+    }
+
+    // Drive translate (via layerOffset, so rotation doesn't skew the pull),
+    // scale and opacity off a single animated value so the "suck into the
+    // delete zone" effect stays in sync in and out.
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(end: overRemoveArea ? 1.0 : 0.0),
+      duration: const Duration(milliseconds: 200),
       curve: Curves.easeOut,
-      child: AnimatedOpacity(
-        opacity: overRemoveArea ? style.removeAreaHoverOpacity : 1.0,
-        duration: duration,
-        curve: Curves.easeOut,
-        child: child,
-      ),
+      child: content,
+      builder: (context, t, animChild) {
+        final double scale = 1.0 + (style.removeAreaHoverScale - 1.0) * t;
+        final double opacity = 1.0 + (style.removeAreaHoverOpacity - 1.0) * t;
+        return Positioned.fill(
+          child: _TransformedLayerBox(
+            layerOffset: Offset(offsetX, offsetY) + pull * t,
+            fractionalOffset: _fractionalOffset,
+            overlayPadding: overlayPadding,
+            transform: transformMatrix,
+            child: Transform.scale(
+              scale: scale,
+              child: Opacity(
+                opacity: opacity.clamp(0.0, 1.0),
+                child: animChild,
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
