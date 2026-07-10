@@ -46,6 +46,8 @@ class LayerInteractionStyle {
     this.dragSelectionBorderWidth = 2,
     this.removeAreaHoverScale = 0.0,
     this.removeAreaHoverOpacity = 0.0,
+    this.removeAreaHoverDuration = const Duration(milliseconds: 200),
+    this.removeAreaHoverCurve = Curves.easeOut,
   });
 
   /// The padding to apply around the overlay of the layer.
@@ -153,6 +155,13 @@ class LayerInteractionStyle {
   /// `1.0` disables the fade. Defaults to `0.0` (fully fades out).
   final double removeAreaHoverOpacity;
 
+  /// Duration of the drag-to-delete hover animation (pull toward the area,
+  /// shrink and fade), both on enter and exit. Defaults to `200ms`.
+  final Duration removeAreaHoverDuration;
+
+  /// Curve of the drag-to-delete hover animation. Defaults to [Curves.easeOut].
+  final Curve removeAreaHoverCurve;
+
   /// Creates a copy of this `LayerInteractionStyle` object with the given
   /// fields replaced with new values.
   ///
@@ -185,6 +194,8 @@ class LayerInteractionStyle {
     double? dragSelectionBorderWidth,
     double? removeAreaHoverScale,
     double? removeAreaHoverOpacity,
+    Duration? removeAreaHoverDuration,
+    Curve? removeAreaHoverCurve,
   }) {
     return LayerInteractionStyle(
       overlayPadding: overlayPadding ?? this.overlayPadding,
@@ -222,6 +233,9 @@ class LayerInteractionStyle {
       removeAreaHoverScale: removeAreaHoverScale ?? this.removeAreaHoverScale,
       removeAreaHoverOpacity:
           removeAreaHoverOpacity ?? this.removeAreaHoverOpacity,
+      removeAreaHoverDuration:
+          removeAreaHoverDuration ?? this.removeAreaHoverDuration,
+      removeAreaHoverCurve: removeAreaHoverCurve ?? this.removeAreaHoverCurve,
     );
   }
 }

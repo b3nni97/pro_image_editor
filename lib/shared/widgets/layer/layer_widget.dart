@@ -398,8 +398,8 @@ class _LayerWidgetState extends State<LayerWidget>
     // delete zone" effect stays in sync in and out.
     return TweenAnimationBuilder<double>(
       tween: Tween<double>(end: overRemoveArea ? 1.0 : 0.0),
-      duration: const Duration(milliseconds: 200),
-      curve: Curves.easeOut,
+      duration: style.removeAreaHoverDuration,
+      curve: style.removeAreaHoverCurve,
       child: content,
       builder: (context, t, animChild) {
         final double scale = 1.0 + (style.removeAreaHoverScale - 1.0) * t;
