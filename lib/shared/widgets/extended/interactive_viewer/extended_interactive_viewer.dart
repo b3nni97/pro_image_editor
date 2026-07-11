@@ -181,6 +181,36 @@ class ExtendedInteractiveViewerState extends State<ExtendedInteractiveViewer>
   }
 
   @override
+  void didUpdateWidget(covariant ExtendedInteractiveViewer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // The base fit ([initialMatrix4]) can change while the viewer stays mounted
+    // — e.g. when the crop/aspect ratio changes and the sub-editor is rebuilt
+    // with a new fit. Adopt the new fit, but only when the viewer is still
+    // sitting at the previous fit (the user hasn't zoomed/panned away and no
+    // shared-zoom start matrix is active); otherwise their zoom is preserved.
+    //
+    // Uses an element-wise tolerance instead of `==` because Matrix4 equality
+    // is unreliable here (identity vs value, float drift from recomputing the
+    // fit each build).
+    final Matrix4? oldInitial = oldWidget.initialMatrix4;
+    final Matrix4? newInitial = widget.initialMatrix4;
+    if (newInitial != null &&
+        oldInitial != null &&
+        !_matricesClose(newInitial, oldInitial) &&
+        _matricesClose(_transformCtrl.value, oldInitial)) {
+      _transformCtrl.value = newInitial;
+    }
+  }
+
+  /// Whether two 4x4 matrices are equal within a small tolerance.
+  bool _matricesClose(Matrix4 a, Matrix4 b, [double eps = 1e-4]) {
+    for (int i = 0; i < 16; i++) {
+      if ((a.storage[i] - b.storage[i]).abs() > eps) return false;
+    }
+    return true;
+  }
+
+  @override
   void dispose() {
     _transformCtrl.dispose();
     _animationCtrl.dispose();
