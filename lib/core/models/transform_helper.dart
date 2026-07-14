@@ -29,7 +29,19 @@ class TransformHelper {
     required this.mainImageSize,
     required this.editorBodySize,
     this.transformConfigs,
+    this.scaleOverride,
   });
+
+  /// When set, [scale] returns this value directly instead of computing it.
+  ///
+  /// The computed [scale] assumes [editorBodySize] shows the *full* image
+  /// fitted (contain). When the target box is letterboxed to the *crop*
+  /// aspect ratio instead — its aspect ratio equals the crop rect's — the
+  /// stick-on-height/width comparison becomes an unstable equality and the
+  /// computation collapses to the full-image contain scale, which is far too
+  /// small. Call sites that know the correct scale (e.g. the crop editor's
+  /// fake-hero overlay) can pin it here.
+  final double? scaleOverride;
 
   /// The size of the main body.
   ///
@@ -66,6 +78,7 @@ class TransformHelper {
   /// - A double representing the scale factor used to transform the image
   ///   within the editor body.
   double get scale {
+    if (scaleOverride != null) return scaleOverride!;
     if (mainBodySize.isEmpty) return 1;
 
     Size imageSize = transformConfigs?.is90DegRotated == true

@@ -532,6 +532,12 @@ class ProImageEditorState extends State<ProImageEditor>
   /// Indicates whether a sub-editor is currently open.
   bool isSubEditorOpen = false;
 
+  /// Set when a crop-rotate change is committed, to invalidate the shared zoom:
+  /// the next pushed sub-editor (filter/tune) must open at its *new* fit instead
+  /// of inheriting the now-stale zoom matrix of the shared viewer (which still
+  /// reflects the pre-crop fit). Consumed the next time such an editor opens.
+  bool _resetSharedZoomAfterTransform = false;
+
   /// Indicates whether a sub-editor is in the process of closing.
   bool isSubEditorClosing = false;
 
@@ -2213,8 +2219,13 @@ class ProImageEditorState extends State<ProImageEditor>
     // back into the shared viewer so the editor below shows the same zoom
     // when this route closes.
     final bool shareZoom = tuneEditorConfigs.enableShareZoomMatrix;
+    // Don't inherit the shared zoom right after a crop change (it's stale) —
+    // open at the new fit instead. See [_resetSharedZoomAfterTransform].
     final Matrix4? initialZoomMatrix =
-        shareZoom ? _sharedZoomViewer?.transformMatrix4 : null;
+        (shareZoom && !_resetSharedZoomAfterTransform)
+            ? _sharedZoomViewer?.transformMatrix4
+            : null;
+    _resetSharedZoomAfterTransform = false;
     final effectiveCallbacks = !shareZoom
         ? callbacks
         : callbacks.copyWith(
@@ -2305,8 +2316,13 @@ class ProImageEditorState extends State<ProImageEditor>
     // zoom back into the shared viewer so the editor below shows the same
     // zoom when this route closes.
     final bool shareZoom = filterEditorConfigs.enableShareZoomMatrix;
+    // Don't inherit the shared zoom right after a crop change (it's stale) —
+    // open at the new fit instead. See [_resetSharedZoomAfterTransform].
     final Matrix4? initialZoomMatrix =
-        shareZoom ? _sharedZoomViewer?.transformMatrix4 : null;
+        (shareZoom && !_resetSharedZoomAfterTransform)
+            ? _sharedZoomViewer?.transformMatrix4
+            : null;
+    _resetSharedZoomAfterTransform = false;
     final effectiveCallbacks = !shareZoom
         ? callbacks
         : callbacks.copyWith(
@@ -2896,6 +2912,9 @@ class ProImageEditorState extends State<ProImageEditor>
           final hasChanged = exported != stateManager.transformConfigs;
           if (hasChanged) {
             addHistory(transformConfigs: exported);
+            // The fit changed, so the shared zoom matrix is now stale — force
+            // the next pushed sub-editor to open at its new fit.
+            _resetSharedZoomAfterTransform = true;
           }
         }
       } else if (filterEditor.currentState != null) {

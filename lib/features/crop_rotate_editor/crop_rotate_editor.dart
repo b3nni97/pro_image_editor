@@ -1745,6 +1745,13 @@ class CropRotateEditorState extends State<CropRotateEditor>
     // visible as a small pixel jump at the end of the transition. Wait for
     // the flight to end first.
     await HeroineController.whenTagIdle(heroTag);
+    // The layer heroines (text/sticker flights onto the fake hero) settle
+    // independently of the image heroine and usually a moment later. Swapping
+    // to the live layer overlay while they are still moving cuts their landing
+    // short the same way — the same small jump, just on the layers.
+    for (final layer in _layers) {
+      await HeroineController.whenTagIdle(layer.id);
+    }
     if (!mounted || _heroAnimationId != id) return;
     _showFakeHero = false;
     showWidgets = true;
@@ -4847,6 +4854,15 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
     double gapX = 0;
     double gapY = 0;
+    // Layer scale for the fake-hero overlay when a crop is applied. The
+    // letterbox below has the *crop's* aspect ratio, which makes
+    // [TransformHelper.scale]'s stick-on-height/width comparison an unstable
+    // equality that collapses to the full-image contain scale — the text then
+    // renders several times too small and the hero flight to/from the other
+    // sub-editors visibly zooms. The correct value mirrors the image: how much
+    // the crop-aspect box shrinks going from the full body (where the
+    // destination editors render it) into the padded letterbox here.
+    double? fakeHeroLayerScale;
     if (contentW > 0 && contentH > 0 && fakeHeroAspectRatio > 0) {
       double imgW = contentW;
       double imgH = imgW / fakeHeroAspectRatio;
@@ -4856,6 +4872,16 @@ class CropRotateEditorState extends State<CropRotateEditor>
       }
       gapX = (contentW - imgW) / 2;
       gapY = (contentH - imgH) / 2;
+
+      // Crop-aspect box contained in the *unpadded* body.
+      double bodyFitW = bodySize.width;
+      double bodyFitH = bodyFitW / fakeHeroAspectRatio;
+      if (bodyFitH > bodySize.height) {
+        bodyFitH = bodySize.height;
+        bodyFitW = bodyFitH * fakeHeroAspectRatio;
+      }
+      final double scale = imgW / bodyFitW;
+      if (scale.isFinite && scale > 0) fakeHeroLayerScale = scale;
     }
 
     final EdgeInsets fakeHeroPadding = EdgeInsets.only(
@@ -4907,6 +4933,15 @@ class CropRotateEditorState extends State<CropRotateEditor>
                     mainImageSize: _mainImageSize,
                     editorBodySize: constraints.biggest,
                     transformConfigs: _fakeHeroTransformConfigs,
+                    // Pin the layer scale when a (non-rotated) crop is
+                    // applied — the crop-aspect letterbox otherwise makes the
+                    // computed scale collapse (see [fakeHeroLayerScale]). The
+                    // untouched no-crop and rotated paths keep the previous
+                    // behavior.
+                    scaleOverride: _fakeHeroTransformConfigs.isNotEmpty &&
+                            !_fakeHeroTransformConfigs.is90DegRotated
+                        ? fakeHeroLayerScale
+                        : null,
                   ),
                   configs: configs,
                   layers: _layers,

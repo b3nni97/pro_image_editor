@@ -916,8 +916,17 @@ class _LayerFittedShuttleBuilder extends HeroineShuttleBuilder {
 
     Widget side(BuildContext heroContext) {
       if (!heroContext.mounted) return const SizedBox.shrink();
+      // BoxFit.fill, not contain: both endpoints render the same layer, so
+      // the flight box normally keeps the child's aspect ratio and fill ==
+      // contain. But the very first flight frame can measure the source with
+      // a transient 1-frame layout wobble (route push), making the box aspect
+      // slightly off — contain then lets the *smaller* dimension win and the
+      // whole visible text pops to the target size for that frame (a visible
+      // jump when arriving at the crop editor), while fill only distorts the
+      // glyphs imperceptibly for that frame. The image hero's shuttle uses
+      // fill for the same reason and is smooth.
       return FittedBox(
-        fit: BoxFit.contain,
+        fit: BoxFit.fill,
         clipBehavior: Clip.none,
         child: InheritedTheme.captureAll(
           heroContext,
