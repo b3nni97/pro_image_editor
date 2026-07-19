@@ -11,6 +11,7 @@ import 'package:flutter/foundation.dart' show clampDouble;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:vector_math/vector_math_64.dart' show Matrix4, Quad, Vector3;
 
@@ -1859,6 +1860,20 @@ class _InteractiveViewerScrollPhysicsState
   void _handleTransformation() {
     // A change to the TransformationController's value is a change to the
     // state.
+    //
+    // The controller can be updated synchronously *during* build/layout —
+    // e.g. a sub-editor's viewer adopts a new base fit in didUpdateWidget,
+    // which notifies the shared-zoom listener that writes to this viewer's
+    // controller. Calling setState in that phase throws, so defer the
+    // rebuild to the end of the frame.
+    if (!mounted) return;
+    if (SchedulerBinding.instance.schedulerPhase ==
+        SchedulerPhase.persistentCallbacks) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() {});
+      });
+      return;
+    }
     setState(() {});
   }
 

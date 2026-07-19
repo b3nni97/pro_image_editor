@@ -5,6 +5,7 @@ import '/features/main_editor/main_editor.dart';
 import '/features/main_editor/services/state_manager.dart';
 import '/shared/services/import_export/import_state_history.dart';
 import '../../../enums/sub_editors_name.dart';
+import '../../history/history_action.dart';
 import '../../layers/layer.dart';
 import '../standalone_editor_callbacks.dart';
 import 'helper_lines/helper_lines_callbacks.dart';
@@ -42,6 +43,7 @@ class MainEditorCallbacks extends StandaloneEditorCallbacks {
     this.onImportHistoryEnd,
     this.onHoverRemoveAreaChange,
     this.onStateHistoryChange,
+    this.onHistoryFeedback,
     this.onImageDecoded,
     this.onEditTextLayer,
     this.onCreateTextLayer,
@@ -109,6 +111,14 @@ class MainEditorCallbacks extends StandaloneEditorCallbacks {
   /// changes.
   final Function(StateManager stateHistory, ProImageEditorState editor)?
       onStateHistoryChange;
+
+  /// Callback that is triggered after every undo/redo with a description of
+  /// the reverted (undo) or re-applied (redo) action. Use it to show
+  /// feedback like "UNDO CHANGE FILTER" above the image.
+  ///
+  /// See also [ProImageEditorState.historyFeedbackNotifier] for a
+  /// listenable alternative.
+  final Function(HistoryFeedback feedback)? onHistoryFeedback;
 
   /// Callback that is triggered after the image has been successfully decoded.
   final Function()? onImageDecoded;
@@ -461,6 +471,7 @@ class MainEditorCallbacks extends StandaloneEditorCallbacks {
     Function(bool isPointerInside)? onHoverRemoveAreaChange,
     Function(StateManager stateHistory, ProImageEditorState editor)?
         onStateHistoryChange,
+    Function(HistoryFeedback feedback)? onHistoryFeedback,
   }) {
     return MainEditorCallbacks(
       onLayerTapDown: onLayerTapDown ?? this.onLayerTapDown,
@@ -507,6 +518,7 @@ class MainEditorCallbacks extends StandaloneEditorCallbacks {
       onHoverRemoveAreaChange:
           onHoverRemoveAreaChange ?? this.onHoverRemoveAreaChange,
       onStateHistoryChange: onStateHistoryChange ?? this.onStateHistoryChange,
+      onHistoryFeedback: onHistoryFeedback ?? this.onHistoryFeedback,
     );
   }
 }

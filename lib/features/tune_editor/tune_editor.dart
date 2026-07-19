@@ -386,13 +386,25 @@ class TuneEditorState extends State<TuneEditor>
     }
   }
 
+  /// Synchronizes the working state from the global history after an
+  /// undo/redo that was triggered by the main editor.
+  void syncFromGlobalHistory() {
+    if (!_useGlobalHistory) return;
+    _syncFromGlobalState();
+  }
+
   /// Synchronizes the local state from the global history after undo/redo.
   void _syncFromGlobalState() {
-    tuneAdjustmentMatrix =
-        _historyScope!.getActiveTuneAdjustments().map((e) => e.copy()).toList();
-    mutableLayers
-      ..clear()
-      ..addAll(_historyScope!.getActiveLayers());
+    // Merge by id against the full adjustment list (like initState does):
+    // the active global state can be empty (undo to the initial state) or
+    // partial, but the editor's working matrix must always cover every
+    // adjustment option — the bottom bar indexes into it by position.
+    final active = _historyScope!.getActiveTuneAdjustments();
+    tuneAdjustmentMatrix = tuneAdjustmentList.map((item) {
+      final i = active.indexWhere((el) => el.id == item.id);
+      return i >= 0 ? active[i].copy() : item.toMatrixItem();
+    }).toList();
+    adoptGlobalLayers(_historyScope!.getActiveLayers());
     historyVersion++;
     uiStream.add(null);
     setState(() {});
@@ -438,19 +450,12 @@ class TuneEditorState extends State<TuneEditor>
 
   /// Saves the current state before making changes.
   ///
-  /// When global history is active, adds a history entry to the main editor.
-  /// Otherwise, saves to the local undo stack.
+  /// With global history nothing happens here — the completed adjustment is
+  /// committed in [onChangedEnd], so touching a slider without changing the
+  /// value never creates an undo step. In local mode, the pre-change state is
+  /// saved to the local undo stack.
   void onChangedStart(double value) {
-    if (_useGlobalHistory) {
-      // Global history: save current tune state as a history entry.
-      // The addHistory call captures the full state snapshot.
-      _historyScope!.addHistory(
-        tuneAdjustments: tuneAdjustmentMatrix.map((e) => e.copy()).toList(),
-        layers: _historyScope!.copyLayers(mutableLayers),
-        blockCaptureScreenshot: true,
-      );
-      return;
-    }
+    if (_useGlobalHistory) return;
 
     // Local undo stack
     _undoStack.add(
@@ -460,8 +465,24 @@ class TuneEditorState extends State<TuneEditor>
   }
 
   /// Handles the end of changes in the tune factor value.
+  ///
+  /// When global history is active, commits the completed adjustment
+  /// (including the current layers) as one undo step. Unchanged values are
+  /// deduplicated by the history and add no entry.
   void onChangedEnd(double value) {
     setState(() {});
+
+    if (_useGlobalHistory) {
+      _historyScope!.addHistory(
+        tuneAdjustments: tuneAdjustmentMatrix.map((e) => e.copy()).toList(),
+        layers: _historyScope!.copyLayers(mutableLayers),
+        blockCaptureScreenshot: true,
+        action: HistoryAction(
+          HistoryActionType.tune,
+          detail: tuneAdjustmentList[selectedIndex].id,
+        ),
+      );
+    }
 
     tuneEditorCallbacks?.handleTuneFactorChangeEnd(tuneAdjustmentMatrix);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -700,6 +721,7 @@ class TuneEditorState extends State<TuneEditor>
                   isLayerBeingTransformed,
                   imageBounds,
                 ),
+        imageAreaOverlayBuilder: configs.mainEditor.widgets.imageAreaOverlay,
         transformHelper: TransformHelper(
           mainBodySize: getValidSizeOrDefault(mainBodySize, editorBodySize),
           mainImageSize: getValidSizeOrDefault(mainImageSize, editorBodySize),
@@ -714,13 +736,15 @@ class TuneEditorState extends State<TuneEditor>
           layersModified = true;
           initConfigs.onLayerTransformChanged?.call(mutableLayers);
         },
-        onBeforeLayerChange: _useGlobalHistory
+        onCommitLayerChange: _useGlobalHistory
             ? () {
-                _historyScope!.addHistory(
+                return _historyScope!.addHistory(
                   tuneAdjustments:
                       tuneAdjustmentMatrix.map((e) => e.copy()).toList(),
                   layers: _historyScope!.copyLayers(mutableLayers),
                   blockCaptureScreenshot: true,
+                  action:
+                      const HistoryAction(HistoryActionType.transformLayer),
                 );
               }
             : null,

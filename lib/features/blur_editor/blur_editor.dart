@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:heroine/heroine.dart';
 
 import '/core/models/history/editor_history_scope.dart';
+import '/core/models/history/history_action.dart';
 
 import '/shared/widgets/smart_hero.dart';
 
@@ -255,16 +256,11 @@ class BlurEditorState extends State<BlurEditor>
   bool get _useGlobalHistory => _historyScope != null;
 
   /// Handles the start of changes in the blur factor value.
-  /// Saves the current state to the global history before changes begin.
-  void _onChangedStart(double value) {
-    if (_useGlobalHistory) {
-      _historyScope!.addHistory(
-        blur: blurFactor,
-        layers: _historyScope!.copyLayers(mutableLayers),
-        blockCaptureScreenshot: true,
-      );
-    }
-  }
+  ///
+  /// With global history nothing happens here — the completed change is
+  /// committed in [_onChangedEnd], so touching the slider without changing
+  /// the value never creates an undo step.
+  void _onChangedStart(double value) {}
 
   /// Handles changes in the blur factor value.
   void _onChanged(double value) {
@@ -272,11 +268,33 @@ class BlurEditorState extends State<BlurEditor>
   }
 
   /// Handles the end of changes in the blur factor value.
+  ///
+  /// When global history is active, commits the completed blur change as one
+  /// undo step. Unchanged values are deduplicated and add no entry.
   void _onChangedEnd(double value) {
+    if (_useGlobalHistory) {
+      _historyScope!.addHistory(
+        blur: blurFactor,
+        layers: _historyScope!.copyLayers(mutableLayers),
+        blockCaptureScreenshot: true,
+        action: const HistoryAction(HistoryActionType.blur),
+      );
+    }
+
     blurEditorCallbacks?.handleBlurFactorChangeEnd(value);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       takeScreenshot();
     });
+  }
+
+  /// Synchronizes the working state from the global history after an
+  /// undo/redo that was triggered by the main editor.
+  void syncFromGlobalHistory() {
+    if (!_useGlobalHistory) return;
+    blurFactor = _historyScope!.getActiveBlur();
+    adoptGlobalLayers(_historyScope!.getActiveLayers());
+    _uiBlurStream.add(null);
+    setState(() {});
   }
 
   @override
@@ -378,6 +396,8 @@ class BlurEditorState extends State<BlurEditor>
                                           isLayerBeingTransformed,
                                           imageBounds,
                                         ),
+                                imageAreaOverlayBuilder: configs
+                                    .mainEditor.widgets.imageAreaOverlay,
                                 transformHelper: TransformHelper(
                                   mainBodySize: getValidSizeOrDefault(
                                       mainBodySize, editorBodySize),
@@ -394,13 +414,16 @@ class BlurEditorState extends State<BlurEditor>
                                   initConfigs.onLayerTransformChanged
                                       ?.call(mutableLayers);
                                 },
-                                onBeforeLayerChange: _useGlobalHistory
+                                onCommitLayerChange: _useGlobalHistory
                                     ? () {
-                                        _historyScope!.addHistory(
+                                        return _historyScope!.addHistory(
                                           blur: blurFactor,
                                           layers: _historyScope!
                                               .copyLayers(mutableLayers),
                                           blockCaptureScreenshot: true,
+                                          action: const HistoryAction(
+                                              HistoryActionType
+                                                  .transformLayer),
                                         );
                                       }
                                     : null,

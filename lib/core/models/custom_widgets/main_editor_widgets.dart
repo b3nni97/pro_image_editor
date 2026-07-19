@@ -32,6 +32,7 @@ class MainEditorWidgets {
   const MainEditorWidgets({
     this.closeWarningDialog,
     this.removeLayerArea,
+    this.imageAreaOverlay,
     this.wrapBody,
     this.appBar,
     this.bottomBar,
@@ -73,6 +74,25 @@ class MainEditorWidgets {
 
   /// {@macro removeLayerArea}
   final RemoveLayerArea? removeLayerArea;
+
+  /// Builds a widget that is rendered inside the visible (letterboxed) image
+  /// area, above the layers — in the main editor and in every sub-editor
+  /// with interactive layers (tune, filter, blur), positioned exactly like
+  /// the drag-to-delete area.
+  ///
+  /// [imageBounds] is the rectangle of the visible image within the editor
+  /// body. The widget ignores pointer events and stays pinned to the
+  /// un-zoomed base view (it does not zoom/pan with the canvas).
+  ///
+  /// Use this e.g. for undo/redo feedback like "UNDO CHANGE FILTER":
+  ///
+  /// ```dart
+  /// imageAreaOverlay: (imageBounds) => Positioned.fromRect(
+  ///   rect: imageBounds,
+  ///   child: MyHistoryFeedbackWidget(),
+  /// ),
+  /// ```
+  final Widget Function(Rect imageBounds)? imageAreaOverlay;
 
   /// Wraps the editor's body content area with a custom widget.
   ///
@@ -146,6 +166,7 @@ class MainEditorWidgets {
   MainEditorWidgets copyWith({
     Future<bool> Function(ProImageEditorState editor)? closeWarningDialog,
     RemoveLayerArea? removeLayerArea,
+    Widget Function(Rect imageBounds)? imageAreaOverlay,
     Widget Function(
       ProImageEditorState editor,
       Widget content,
@@ -165,6 +186,7 @@ class MainEditorWidgets {
     return MainEditorWidgets(
       closeWarningDialog: closeWarningDialog ?? this.closeWarningDialog,
       removeLayerArea: removeLayerArea ?? this.removeLayerArea,
+      imageAreaOverlay: imageAreaOverlay ?? this.imageAreaOverlay,
       wrapBody: wrapBody ?? this.wrapBody,
       appBar: appBar ?? this.appBar,
       bottomBar: bottomBar ?? this.bottomBar,

@@ -221,9 +221,14 @@ class FilterEditorState extends State<FilterEditor>
 
   /// The last filter state that was committed to the undo stack.
   /// Used to track the "before" state when committing a new change.
-  late _FilterHistoryEntry _lastCommitted = _FilterHistoryEntry(
-    filter: _selectedFilter,
-    opacity: _filterOpacity,
+  ///
+  /// Initialized eagerly in [initState]: a lazy (`late`) initializer would
+  /// only run on first access, which can happen *after* the first selection
+  /// already changed [_selectedFilter] — the baseline would then equal the
+  /// new selection and the first commit would be silently skipped.
+  _FilterHistoryEntry _lastCommitted = _FilterHistoryEntry(
+    filter: PresetFilters.none,
+    opacity: 1.0,
   );
 
   /// A version counter that increments on every undo/redo action.
@@ -339,29 +344,37 @@ class FilterEditorState extends State<FilterEditor>
     }
   }
 
+  /// Synchronizes the working state from the global history after an
+  /// undo/redo that was triggered by the main editor.
+  void syncFromGlobalHistory() {
+    if (!_useGlobalHistory) return;
+    _syncFromGlobalState();
+  }
+
   /// Synchronizes the local state from the global history after undo/redo.
   void _syncFromGlobalState() {
-    // Restore filter state from global history
+    // A still-pending selection commit is superseded by the undo/redo —
+    // firing it afterwards would commit the stale selection on top of the
+    // restored state.
+    _commitTimer?.cancel();
+    // Restore filter state from global history. The active matrix can be a
+    // lerped variant (opacity < 1), so use the same exact + fuzzy matching
+    // as the initial state restoration.
     final activeFilters = _historyScope!.getActiveFilters();
-    final filterList = filterEditorConfigs.filterList ?? presetFiltersList;
     if (activeFilters.isNotEmpty &&
         !listEquals(activeFilters.first, identityMatrix)) {
-      // Try to find which filter matches
-      for (var filter in filterList) {
-        if (filter.filters.isNotEmpty &&
-            listEquals(filter.filters.first, activeFilters.first)) {
-          _selectedFilter = filter;
-          _filterOpacity = 1.0;
-          break;
-        }
-      }
+      _matchFilterFromMatrix(activeFilters.first);
     } else {
       _selectedFilter = PresetFilters.none;
       _filterOpacity = 1.0;
     }
-    mutableLayers
-      ..clear()
-      ..addAll(_historyScope!.getActiveLayers());
+    // Keep the commit baseline in sync with the restored state so the next
+    // selection/opacity commit compares against what is actually active.
+    _lastCommitted = _FilterHistoryEntry(
+      filter: _selectedFilter,
+      opacity: _filterOpacity,
+    );
+    adoptGlobalLayers(_historyScope!.getActiveLayers());
     historyVersion++;
     _uiFilterStream.add(null);
     setState(() {});
@@ -373,13 +386,17 @@ class FilterEditorState extends State<FilterEditor>
   /// Otherwise, uses the local undo stack.
   void commitPendingChange() {
     _commitTimer?.cancel();
-    if (_lastCommitted.filter != _selectedFilter) {
+    if (_lastCommitted.filter != _selectedFilter ||
+        _lastCommitted.opacity != _filterOpacity) {
       if (_useGlobalHistory) {
         // Global history: save current filter state
         _historyScope!.addHistory(
           filters: _getActiveFilters(),
           layers: _historyScope!.copyLayers(mutableLayers),
           blockCaptureScreenshot: true,
+          action: HistoryAction(_lastCommitted.filter != _selectedFilter
+              ? HistoryActionType.filter
+              : HistoryActionType.filterOpacity),
         );
       } else {
         _undoStack.add(_FilterHistoryEntry(
@@ -408,6 +425,10 @@ class FilterEditorState extends State<FilterEditor>
         !listEquals(appliedFilters.first, identityMatrix)) {
       _initializeFilterFromApplied();
     }
+    _lastCommitted = _FilterHistoryEntry(
+      filter: _selectedFilter,
+      opacity: _filterOpacity,
+    );
 
     filterEditorCallbacks?.onInit?.call();
     WidgetsBinding.instance.addPostFrameCallback((timeStamp) {
@@ -486,13 +507,22 @@ class FilterEditorState extends State<FilterEditor>
   /// value (via [lerpColorMatrix]), both an exact match and a fuzzy
   /// reverse-lerp match are attempted.
   void _initializeFilterFromApplied() {
-    final filterList = filterEditorConfigs.filterList ?? presetFiltersList;
-    final firstApplied = appliedFilters.first;
+    _matchFilterFromMatrix(appliedFilters.first);
+  }
 
-    // Pass 1: Exact match (opacity was 1.0)
+  /// Restores the selected filter (and its opacity) from an exported filter
+  /// matrix, using an exact match first and a fuzzy reverse-lerp match for
+  /// matrices that were exported with an opacity below 1.0.
+  void _matchFilterFromMatrix(List<double> firstApplied) {
+    final filterList = filterEditorConfigs.filterList ?? presetFiltersList;
+
+    // Pass 1: Exact match — the matrix equals the raw filter, so the
+    // opacity is 1.0 (don't restore a remembered per-filter opacity here,
+    // the matched state IS full opacity).
     for (final filter in filterList) {
       if (filter.filters.isNotEmpty &&
           listEquals(filter.filters.first, firstApplied)) {
+        _filterOpacityMap[filter.name] = 1.0;
         _setFilterInternal(filter);
         return;
       }
@@ -577,7 +607,11 @@ class FilterEditorState extends State<FilterEditor>
     _filterOpacity = _filterOpacityMap[filter.name] ?? 1.0;
     _uiFilterStream.add(null);
 
-    // Commit after 1 second of being settled on this filter
+    // Commit after 1 second of being settled on this filter. Scrolling
+    // through the filter list passes over many filters — only the one the
+    // user settles on becomes an undo step. Editor switches, opacity drags
+    // and done() commit any still-pending selection immediately via
+    // [commitPendingChange].
     _commitTimer = Timer(const Duration(seconds: 1), commitPendingChange);
   }
 
@@ -615,7 +649,14 @@ class FilterEditorState extends State<FilterEditor>
   }
 
   /// Handles the end of changes in the filter factor value.
+  ///
+  /// When global history is active, commits the completed opacity change as
+  /// one undo step: selecting a filter and adjusting its opacity are two
+  /// separate steps (undo first restores the full-opacity filter, then the
+  /// previous filter).
   void onChangedEnd(double value) {
+    if (_useGlobalHistory) commitPendingChange();
+
     filterEditorCallbacks?.handleFilterFactorChangeEnd(value);
     setState(() {});
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -770,6 +811,8 @@ class FilterEditorState extends State<FilterEditor>
                                             isLayerBeingTransformed,
                                             imageBounds,
                                           ),
+                                  imageAreaOverlayBuilder: configs
+                                      .mainEditor.widgets.imageAreaOverlay,
                                   transformHelper: TransformHelper(
                                     mainBodySize: getValidSizeOrDefault(
                                         mainBodySize, editorBodySize),
@@ -789,13 +832,16 @@ class FilterEditorState extends State<FilterEditor>
                                     initConfigs.onLayerTransformChanged
                                         ?.call(mutableLayers);
                                   },
-                                  onBeforeLayerChange: _useGlobalHistory
+                                  onCommitLayerChange: _useGlobalHistory
                                       ? () {
-                                          _historyScope!.addHistory(
+                                          return _historyScope!.addHistory(
                                             filters: _getActiveFilters(),
                                             layers: _historyScope!
                                                 .copyLayers(mutableLayers),
                                             blockCaptureScreenshot: true,
+                                            action: const HistoryAction(
+                                                HistoryActionType
+                                                    .transformLayer),
                                           );
                                         }
                                       : null,

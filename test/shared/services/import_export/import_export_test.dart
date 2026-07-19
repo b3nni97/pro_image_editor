@@ -135,8 +135,10 @@ void main() {
         expect(editor.stateManager.historyPointer, 1);
 
         await runExportImport(editor, onAfterImport: () {
+          // History entries are full snapshots: an explicit empty filter list
+          // clears the active filters instead of inheriting the previous ones.
           editor.addHistory(filters: []);
-          expect(editor.stateManager.activeFilters.length, 1);
+          expect(editor.stateManager.activeFilters.length, 0);
         });
 
         expect(editor.stateManager.activeFilters, testFilters);
@@ -161,8 +163,10 @@ void main() {
         expect(editor.stateManager.historyPointer, 1);
 
         await runExportImport(editor, onAfterImport: () {
+          // History entries are full snapshots: an explicit empty adjustment
+          // list clears the active tune adjustments instead of inheriting.
           editor.addHistory(tuneAdjustments: []);
-          expect(editor.stateManager.activeTuneAdjustments.length, 1);
+          expect(editor.stateManager.activeTuneAdjustments.length, 0);
         });
 
         expect(editor.stateManager.activeTuneAdjustments, [tuneMatrix.copy()]);

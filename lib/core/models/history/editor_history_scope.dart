@@ -1,6 +1,7 @@
 import '/core/models/layers/layer.dart';
 import '/features/filter_editor/types/filter_matrix.dart';
 import '/features/tune_editor/models/tune_adjustment_matrix.dart';
+import 'history_action.dart';
 
 /// Provides sub-editors with access to the main editor's global history
 /// system (undo/redo).
@@ -28,12 +29,16 @@ class EditorHistoryScope {
   ///
   /// Pass only the fields that changed. Unchanged fields are automatically
   /// filled from the current active state by the main editor.
-  final void Function({
+  ///
+  /// Returns `true` when an entry was added, `false` when the change was
+  /// skipped because it is visually identical to the current state.
+  final bool Function({
     List<Layer>? layers,
     FilterMatrix? filters,
     List<TuneAdjustmentMatrix>? tuneAdjustments,
     double? blur,
     bool blockCaptureScreenshot,
+    HistoryAction? action,
   }) addHistory;
 
   /// Triggers a global undo, reverting the last change.

@@ -12,6 +12,7 @@ export 'core/models/editor_callbacks/pro_image_editor_callbacks.dart';
 export 'core/enums/editor_mode.dart';
 export 'core/models/editor_configs/pro_image_editor_configs.dart';
 export 'core/models/editor_image.dart';
+export 'core/models/history/history_action.dart';
 export 'core/models/history/state_history.dart';
 
 /// Video editing

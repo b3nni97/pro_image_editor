@@ -6,6 +6,8 @@ import '/core/models/editor_callbacks/main_editor/main_editor_callbacks.dart';
 import '/core/models/editor_configs/pro_image_editor_configs.dart';
 import '/core/models/history/state_history.dart';
 import '/core/models/layers/layer.dart';
+import '/features/filter_editor/types/filter_matrix.dart';
+import '/features/tune_editor/models/tune_adjustment_matrix.dart';
 import '/shared/services/import_export/constants/export_import_version.dart';
 import '/shared/services/import_export/enums/export_import_enum.dart';
 import '/shared/services/import_export/export_state_history.dart';
@@ -172,7 +174,7 @@ class MainEditorStateHistoryService {
             layers: [],
             tuneAdjustments: [],
           ),
-        ...import.stateHistory,
+        ..._normalizeToFullSnapshots(import.stateHistory),
       ]
       ..historyPointer = import.editorPosition + (enableEmptyHistory ? 1 : 0);
 
@@ -196,9 +198,17 @@ class MainEditorStateHistoryService {
       }
     }
 
-    for (var i = 0; i < import.stateHistory.length; i++) {
-      stateManager.stateHistory.add(import.stateHistory[i]);
-      if (i < import.stateHistory.length - 1) {
+    final normalized = _normalizeToFullSnapshots(
+      import.stateHistory,
+      baseFilters: stateManager.activeFilters,
+      baseTuneAdjustments: stateManager.activeTuneAdjustments,
+      baseBlur: stateManager.activeBlur,
+      baseTransform: stateManager.transformConfigs,
+    );
+
+    for (var i = 0; i < normalized.length; i++) {
+      stateManager.stateHistory.add(normalized[i]);
+      if (i < normalized.length - 1) {
         controllers.screenshot
             .addEmptyScreenshot(screenshots: stateManager.screenshots);
       } else {
@@ -206,5 +216,42 @@ class MainEditorStateHistoryService {
       }
     }
     stateManager.historyPointer = stateManager.stateHistory.length - 1;
+  }
+
+  /// Materializes sparse history entries into full snapshots.
+  ///
+  /// Exports from older versions use inheritance semantics: an entry with an
+  /// empty filter list, `null` blur, etc. means "unchanged from the previous
+  /// entry". The state manager works with full snapshots, so this inheritance
+  /// is resolved once at import time by carrying the last known values
+  /// forward.
+  List<EditorStateHistory> _normalizeToFullSnapshots(
+    List<EditorStateHistory> entries, {
+    FilterMatrix baseFilters = const [],
+    List<TuneAdjustmentMatrix> baseTuneAdjustments = const [],
+    double baseBlur = 0.0,
+    TransformConfigs? baseTransform,
+  }) {
+    var filters = baseFilters;
+    var tuneAdjustments = baseTuneAdjustments;
+    var blur = baseBlur;
+    var transform = baseTransform;
+
+    return entries.map((entry) {
+      if (entry.filters.isNotEmpty) filters = entry.filters;
+      if (entry.tuneAdjustments.isNotEmpty) {
+        tuneAdjustments = entry.tuneAdjustments;
+      }
+      if (entry.blur != null) blur = entry.blur!;
+      if (entry.transformConfigs != null) transform = entry.transformConfigs;
+
+      return EditorStateHistory(
+        layers: entry.layers,
+        filters: List.of(filters),
+        tuneAdjustments: List.of(tuneAdjustments),
+        blur: blur,
+        transformConfigs: transform,
+      );
+    }).toList();
   }
 }

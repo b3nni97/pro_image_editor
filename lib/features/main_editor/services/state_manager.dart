@@ -1,23 +1,34 @@
-
+import 'dart:ui' show Offset, Rect;
 
 import '/core/models/editor_image.dart';
 import '/core/models/history/state_history.dart';
 import '/core/models/layers/layer.dart';
 import '/core/models/multi_threading/thread_capture_model.dart';
+import '/features/filter_editor/constants/identity_matrix_constant.dart';
 import '/features/filter_editor/types/filter_matrix.dart';
 import '/features/tune_editor/models/tune_adjustment_matrix.dart';
 import '../../crop_rotate_editor/models/transform_configs.dart';
 
 /// A class for managing the state and history of image editing changes.
+///
+/// Every history entry is a complete, immutable snapshot of the editor state
+/// (layers, filters, tune adjustments, blur, transform). Entries own deep
+/// copies of their layers, so later mutations of the live working state can
+/// never retroactively change committed history.
 class StateManager {
   /// Creates an instance of [StateManager].
   StateManager({
     required this.onStateHistoryChange,
     required this.activeBackgroundImage,
+    required this.copyLayers,
   });
 
   /// Optional callbacks for additional editor actions.
   final Function()? onStateHistoryChange;
+
+  /// Creates deep copies of layers so history entries stay isolated from the
+  /// live working state. Copies preserve layer ids and GlobalKeys.
+  final List<Layer> Function(List<Layer> layers) copyLayers;
 
   /// Position in the state history.
   int _historyPointer = 0;
@@ -94,45 +105,29 @@ class StateManager {
   /// Updates the active items in the editor state based on the current
   /// history pointer.
   ///
-  /// This method performs the following actions:
-  /// - Retrieves the active history up to the current history pointer.
-  /// - Resets and updates the active filters from the last history entry that
-  /// contains filters.
-  /// - Updates the active tune adjustments from the last history entry that
-  /// contains tune adjustments.
-  /// - Sets the active layers to the layers of the current history entry.
-  /// - Updates the transform configurations from the last history entry that
-  /// contains transform configurations.
-  /// - Updates the active blur value from the last history entry that contains
-  /// a blur value.
+  /// Every history entry is a full snapshot, so the active state is read
+  /// directly from the entry at the current pointer. The active layers become
+  /// a fresh working copy so gestures can mutate them without touching the
+  /// committed history entry.
   void updateActiveItems() {
-    var activeHistory = _stateHistory.getRange(0, _historyPointer + 1);
+    _refreshActiveFromEntry();
+  }
 
-    _activeFilters = [];
+  /// Reads the active state from the entry at the current history pointer.
+  ///
+  /// [workingLayers] can supply the live layer list that should stay the
+  /// active working state (used by [addHistory] so the mounted layer
+  /// instances survive a commit without being swapped for copies). When
+  /// omitted, a fresh copy of the entry's layers is created — required after
+  /// undo/redo/import, where the entry is the only source of truth.
+  void _refreshActiveFromEntry({List<Layer>? workingLayers}) {
+    final entry = _stateHistory[_historyPointer];
 
-    _activeFilters = activeHistory
-        .lastWhere((item) => item.filters.isNotEmpty,
-            orElse: EditorStateHistory.new)
-        .filters;
-
-    _activeTuneAdjustments = activeHistory
-        .lastWhere((item) => item.tuneAdjustments.isNotEmpty,
-            orElse: EditorStateHistory.new)
-        .tuneAdjustments;
-
-    activeLayers = _stateHistory[historyPointer].layers;
-
-    _transformConfigs = activeHistory
-            .lastWhere((item) => item.transformConfigs != null,
-                orElse: EditorStateHistory.new)
-            .transformConfigs ??
-        TransformConfigs.empty();
-
-    _activeBlur = activeHistory
-            .lastWhere((item) => item.blur != null,
-                orElse: EditorStateHistory.new)
-            .blur ??
-        0.0;
+    _activeFilters = entry.filters;
+    _activeTuneAdjustments = entry.tuneAdjustments;
+    activeLayers = workingLayers ?? copyLayers(entry.layers);
+    _transformConfigs = entry.transformConfigs ?? TransformConfigs.empty();
+    _activeBlur = entry.blur ?? 0.0;
 
     onStateHistoryChange?.call();
 
@@ -256,8 +251,13 @@ class StateManager {
 
   /// Adds a new entry to the history of image editor changes and updates the
   /// history pointer.
-  /// This method ensures that any forward changes (redo history) are cleared
-  /// before adding a new entry.
+  ///
+  /// The entry stores deep copies of [history]'s layers, so the committed
+  /// snapshot stays isolated from the live working state. When the new state
+  /// is visually identical to the entry at the current pointer, no entry is
+  /// added (unless [force] is `true`) — this keeps every undo step a visible
+  /// change. Forward (redo) history is only discarded when an entry is
+  /// actually added.
   ///
   /// - [history]: An `EditorStateHistory` object representing the new editor
   /// state to be added.
@@ -265,21 +265,32 @@ class StateManager {
   /// the history list.
   ///   Defaults to 1000. If the history exceeds this limit, older entries are
   /// removed.
+  /// - [force]: Adds the entry even when it equals the current state. Needed
+  /// by the image-generation pipeline, which uses `canUndo` to decide whether
+  /// a screenshot-based result must be produced.
   ///
-  /// After adding the new history entry:
-  /// 1. The history pointer is updated to point to the latest state.
-  /// 2. The history list size is adjusted according to `historyLimit`.
-  /// 3. Active editor components are refreshed.
-  void addHistory(
+  /// Returns `true` when an entry was added, `false` when the change was
+  /// skipped as a no-op.
+  bool addHistory(
     EditorStateHistory history, {
     int historyLimit = 1000,
     bool enableScreenshotLimit = true,
+    bool force = false,
   }) {
+    final entry = history.copyWith(layers: copyLayers(history.layers));
+
+    if (!force &&
+        _stateHistory.isNotEmpty &&
+        isVisuallyEqual(entry, _stateHistory[_historyPointer])) {
+      return false;
+    }
+
     _cleanForwardChanges();
-    _stateHistory.add(history);
+    _stateHistory.add(entry);
     historyPointer = _stateHistory.length - 1;
     setHistoryLimit(historyLimit, enableScreenshotLimit);
-    updateActiveItems();
+    _refreshActiveFromEntry(workingLayers: history.layers);
+    return true;
   }
 
   /// Redoes the last undone change, moving the history pointer forward by one
@@ -331,6 +342,172 @@ class StateManager {
         }
       }
     }
+  }
+
+  /// Whether two history entries represent the same visual editor state.
+  ///
+  /// Used to skip no-op history commits: an undo step between two visually
+  /// equal entries would be invisible to the user. Tune adjustments with a
+  /// value of `0` are treated as absent, and `null`/empty transforms compare
+  /// equal.
+  bool isVisuallyEqual(EditorStateHistory a, EditorStateHistory b) {
+    return (a.blur ?? 0.0) == (b.blur ?? 0.0) &&
+        _transformsEqual(a.transformConfigs, b.transformConfigs) &&
+        _filtersEqual(a.filters, b.filters) &&
+        _tuneEqual(a.tuneAdjustments, b.tuneAdjustments) &&
+        _layerListsEqual(a.layers, b.layers);
+  }
+
+  bool _transformsEqual(TransformConfigs? a, TransformConfigs? b) {
+    final configsA = a ?? TransformConfigs.empty();
+    final configsB = b ?? TransformConfigs.empty();
+    if (_isNeutralTransform(configsA) && _isNeutralTransform(configsB)) {
+      return true;
+    }
+    return configsA == configsB;
+  }
+
+  /// Whether the transform is visually equivalent to "no transform": no
+  /// rotation, flip, zoom, perspective or offset, and a crop rect covering
+  /// the full image.
+  ///
+  /// An untouched crop editor exports a "concretized" transform (real
+  /// cropRect/originalSize instead of the `empty()` placeholders) that must
+  /// compare equal to [TransformConfigs.empty] to keep no-op crop sessions
+  /// out of the history.
+  bool _isNeutralTransform(TransformConfigs t) {
+    if (t.isEmpty) return true;
+
+    final originalRatio =
+        t.originalSize.isFinite ? t.originalSize.aspectRatio : double.nan;
+    final coversFullImage = t.cropRect == Rect.largest ||
+        (t.cropRect.left == 0 &&
+            t.cropRect.top == 0 &&
+            originalRatio.isFinite &&
+            (t.cropRect.size.aspectRatio - originalRatio).abs() < 0.001);
+
+    return t.angle == 0 &&
+        t.straightenAngle == 0 &&
+        t.perspectiveX == 0 &&
+        t.perspectiveY == 0 &&
+        !t.flipX &&
+        !t.flipY &&
+        t.scaleUser == 1 &&
+        t.offset == Offset.zero &&
+        coversFullImage;
+  }
+
+  bool _filtersEqual(FilterMatrix a, FilterMatrix b) {
+    // Identity matrices are visually absent: a filter editor without a
+    // selection exports a single identity matrix instead of an empty list.
+    final effectiveA = a.where((m) => !_isIdentityColorMatrix(m)).toList();
+    final effectiveB = b.where((m) => !_isIdentityColorMatrix(m)).toList();
+
+    if (effectiveA.length != effectiveB.length) return false;
+    for (var i = 0; i < effectiveA.length; i++) {
+      if (effectiveA[i].length != effectiveB[i].length) return false;
+      for (var j = 0; j < effectiveA[i].length; j++) {
+        if (effectiveA[i][j] != effectiveB[i][j]) return false;
+      }
+    }
+    return true;
+  }
+
+  bool _isIdentityColorMatrix(List<double> matrix) {
+    if (matrix.length != identityMatrix.length) return false;
+    for (var i = 0; i < matrix.length; i++) {
+      if (matrix[i] != identityMatrix[i]) return false;
+    }
+    return true;
+  }
+
+  bool _tuneEqual(
+    List<TuneAdjustmentMatrix> a,
+    List<TuneAdjustmentMatrix> b,
+  ) {
+    // Zero-value adjustments are visually absent: the tune editor initializes
+    // every adjustment to 0 even when nothing was changed.
+    final mapA = {
+      for (var item in a)
+        if (item.value != 0.0) item.id: item.value,
+    };
+    final mapB = {
+      for (var item in b)
+        if (item.value != 0.0) item.id: item.value,
+    };
+    if (mapA.length != mapB.length) return false;
+    for (var entry in mapA.entries) {
+      if (mapB[entry.key] != entry.value) return false;
+    }
+    return true;
+  }
+
+  bool _layerListsEqual(List<Layer> a, List<Layer> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (!_layersEqual(a[i], b[i])) return false;
+    }
+    return true;
+  }
+
+  /// Compares the visually relevant content of two layers. Interaction flags,
+  /// meta data and layout caches are ignored because they don't change what
+  /// the user sees on the canvas.
+  bool _layersEqual(Layer a, Layer b) {
+    if (a.runtimeType != b.runtimeType) return false;
+    if (a.id != b.id ||
+        a.offset != b.offset ||
+        a.rotation != b.rotation ||
+        a.scale != b.scale ||
+        a.flipX != b.flipX ||
+        a.flipY != b.flipY ||
+        a.groupId != b.groupId) {
+      return false;
+    }
+
+    if (a is TextLayer && b is TextLayer) {
+      return a.text == b.text &&
+          a.color == b.color &&
+          a.background == b.background &&
+          a.colorMode == b.colorMode &&
+          a.align == b.align &&
+          a.fontScale == b.fontScale &&
+          a.textStyle == b.textStyle &&
+          a.maxTextWidth == b.maxTextWidth &&
+          a.customSecondaryColor == b.customSecondaryColor;
+    }
+    if (a is EmojiLayer && b is EmojiLayer) {
+      return a.emoji == b.emoji;
+    }
+    if (a is PaintLayer && b is PaintLayer) {
+      return a.opacity == b.opacity &&
+          _mapsDeepEqual(a.item.toMap(), b.item.toMap());
+    }
+    if (a is WidgetLayer && b is WidgetLayer) {
+      return a.width == b.width && identical(a.widget, b.widget);
+    }
+    return true;
+  }
+
+  bool _mapsDeepEqual(Map<dynamic, dynamic> a, Map<dynamic, dynamic> b) {
+    if (a.length != b.length) return false;
+    for (var entry in a.entries) {
+      if (!b.containsKey(entry.key)) return false;
+      if (!_valuesDeepEqual(entry.value, b[entry.key])) return false;
+    }
+    return true;
+  }
+
+  bool _valuesDeepEqual(dynamic a, dynamic b) {
+    if (a is Map && b is Map) return _mapsDeepEqual(a, b);
+    if (a is List && b is List) {
+      if (a.length != b.length) return false;
+      for (var i = 0; i < a.length; i++) {
+        if (!_valuesDeepEqual(a[i], b[i])) return false;
+      }
+      return true;
+    }
+    return a == b;
   }
 
 }

@@ -9,6 +9,7 @@ import 'package:heroine/heroine.dart';
 import '/core/constants/editor_various_constants.dart';
 import '/core/constants/image_constants.dart';
 import '/core/models/history/editor_history_scope.dart';
+import '/core/models/history/history_action.dart';
 import '/core/mixins/converted_configs.dart';
 import '/core/mixins/editor_callbacks_mixin.dart';
 import '/core/mixins/editor_configs_mixin.dart';
@@ -442,6 +443,7 @@ class ProImageEditorState extends State<ProImageEditor>
     activeBackgroundImage: widget.editorImage,
     onStateHistoryChange: () =>
         mainEditorCallbacks?.onStateHistoryChange?.call(stateManager, this),
+    copyLayers: (layers) => _layerCopyManager.copyLayerList(layers),
   );
 
   /// Provides sub-editors with access to the global history system.
@@ -452,31 +454,22 @@ class ProImageEditorState extends State<ProImageEditor>
       List<TuneAdjustmentMatrix>? tuneAdjustments,
       double? blur,
       bool blockCaptureScreenshot = false,
+      HistoryAction? action,
     }) {
-      addHistory(
+      return addHistory(
         layers: layers,
         filters: filters,
         tuneAdjustments: tuneAdjustments,
         blur: blur,
         blockCaptureScreenshot: blockCaptureScreenshot,
+        action: action,
       );
     },
-    undo: () {
-      if (stateManager.canUndo) {
-        layerInteractionManager.clearSelectedLayers();
-        _checkInteractiveViewer();
-        stateManager.undo();
-        decodeImage();
-      }
-    },
-    redo: () {
-      if (stateManager.canRedo) {
-        layerInteractionManager.clearSelectedLayers();
-        _checkInteractiveViewer();
-        stateManager.redo();
-        decodeImage();
-      }
-    },
+    // Route through the main undo/redo actions so every consumer (main
+    // editor body, callbacks, active sub-editor sync) updates consistently,
+    // no matter whether the user pressed the main or the sub-editor button.
+    undo: undoAction,
+    redo: redoAction,
     canUndo: () => stateManager.canUndo,
     canRedo: () => stateManager.canRedo,
     getActiveLayers: () =>
@@ -750,6 +743,7 @@ class ProImageEditorState extends State<ProImageEditor>
   void dispose() {
     _prewarmedKeyboardConnection?.close();
     _rebuildController.close();
+    historyFeedbackNotifier.dispose();
     _controllers.dispose();
     layerInteractionManager.scaleDebounce.dispose();
     SystemChrome.setSystemUIOverlayStyle(
@@ -838,7 +832,11 @@ class ProImageEditorState extends State<ProImageEditor>
   ///   heroScreenshotRequired: false,
   /// );
   /// ```
-  void addHistory({
+  /// Fields that are not passed are filled from the current active state, so
+  /// every history entry is a complete snapshot. Returns `true` when an entry
+  /// was added, `false` when the change was skipped because it is visually
+  /// identical to the current state (no-op).
+  bool addHistory({
     List<Layer>? layers,
     Layer? newLayer,
     TransformConfigs? transformConfigs,
@@ -847,23 +845,34 @@ class ProImageEditorState extends State<ProImageEditor>
     double? blur,
     bool heroScreenshotRequired = false,
     bool blockCaptureScreenshot = false,
+    bool force = false,
+    HistoryAction? action,
   }) {
     List<Layer> activeLayerList = _layerCopyManager.copyLayerList(activeLayers);
 
-    stateManager.addHistory(
+    final added = stateManager.addHistory(
       EditorStateHistory(
-        transformConfigs: transformConfigs,
-        blur: blur,
+        transformConfigs: transformConfigs ?? stateManager.transformConfigs,
+        blur: blur ?? stateManager.activeBlur,
         layers: layers ??
             (newLayer != null
                 ? [...activeLayerList, newLayer]
                 : activeLayerList),
-        filters: filters ?? [],
-        tuneAdjustments: tuneAdjustments ?? [],
+        filters: List.of(filters ?? stateManager.activeFilters),
+        tuneAdjustments:
+            List.of(tuneAdjustments ?? stateManager.activeTuneAdjustments),
+        action: action,
       ),
       historyLimit: stateHistoryConfigs.stateHistoryLimit,
       enableScreenshotLimit: imageGenerationConfigs.enableBackgroundGeneration,
+      force: force,
     );
+
+    if (!added) {
+      setState(() {});
+      return false;
+    }
+
     if (!blockCaptureScreenshot) {
       if (!heroScreenshotRequired) {
         _takeScreenshot();
@@ -876,6 +885,7 @@ class ProImageEditorState extends State<ProImageEditor>
       );
     }
     setState(() {});
+    return true;
   }
 
   /// Replaces a layer at the specified index with a new layer.
@@ -908,6 +918,8 @@ class ProImageEditorState extends State<ProImageEditor>
       layers: _layerCopyManager.copyLayerList(activeLayers)
         ..removeAt(index)
         ..insert(index, layer),
+      action: HistoryAction(HistoryActionType.updateLayer,
+          detail: _describeLayerKind(layer)),
     );
 
     _controllers.uiLayerCtrl.add(null);
@@ -1050,7 +1062,12 @@ class ProImageEditorState extends State<ProImageEditor>
       autoCorrectZoomScale: autoCorrectZoomScale,
     );
 
-    addHistory(newLayer: layer, blockCaptureScreenshot: blockCaptureScreenshot);
+    addHistory(
+      newLayer: layer,
+      blockCaptureScreenshot: blockCaptureScreenshot,
+      action: HistoryAction(HistoryActionType.addLayer,
+          detail: _describeLayerKind(layer)),
+    );
 
     if (removeLayerIndex >= 0) {
       activeLayers.removeAt(removeLayerIndex);
@@ -1066,18 +1083,35 @@ class ProImageEditorState extends State<ProImageEditor>
 
   /// Remove a layer from the editor.
   ///
-  /// This method removes a layer from the editor and updates the editing state.
+  /// This method removes a layer from the editor and updates the editing
+  /// state. When the layer was already removed from the working list (e.g. by
+  /// the interactive layer stack), the current state is committed as-is so the
+  /// removal still becomes an undo step.
   void removeLayer(Layer layer, {bool blockCaptureScreenshot = false}) {
-    int layerPos = activeLayers.indexOf(layer);
-    if (layerPos < 0) return;
+    int layerPos = activeLayers.indexWhere((item) => item.id == layer.id);
 
     mainEditorCallbacks?.handleRemoveLayer(layer);
 
-    var layers = _layerCopyManager.copyLayerList(activeLayers)
-      ..removeAt(layerPos);
+    var layers = _layerCopyManager.copyLayerList(activeLayers);
+    if (layerPos >= 0) layers.removeAt(layerPos);
 
-    addHistory(layers: layers, blockCaptureScreenshot: blockCaptureScreenshot);
+    addHistory(
+      layers: layers,
+      blockCaptureScreenshot: blockCaptureScreenshot,
+      action: HistoryAction(HistoryActionType.removeLayer,
+          detail: _describeLayerKind(layer)),
+    );
     setState(() {});
+  }
+
+  /// Returns a short identifier for the kind of [layer]
+  /// (`text`, `emoji`, `paint`, `sticker`).
+  String _describeLayerKind(Layer layer) {
+    if (layer.isTextLayer) return 'text';
+    if (layer.isEmojiLayer) return 'emoji';
+    if (layer.isPaintLayer) return 'paint';
+    if (layer.isWidgetLayer) return 'sticker';
+    return 'layer';
   }
 
   /// Remove all layers from the editor.
@@ -1085,7 +1119,10 @@ class ProImageEditorState extends State<ProImageEditor>
   /// This method removes all layers from the editor and updates the editing
   /// state.
   void removeAllLayers() {
-    addHistory(layers: []);
+    addHistory(
+      layers: [],
+      action: const HistoryAction(HistoryActionType.removeLayer, detail: 'all'),
+    );
     setState(() {});
   }
 
@@ -1356,7 +1393,13 @@ class ProImageEditorState extends State<ProImageEditor>
       await decodeImage();
       _rebuildController.add(null);
     } else {
-      addHistory();
+      // Forced: the background image lives outside the history entries
+      // (tracked per pointer in the state manager), so this entry is
+      // intentionally identical to the current one.
+      addHistory(
+        force: true,
+        action: const HistoryAction(HistoryActionType.backgroundImage),
+      );
 
       /// Ensure the screenshot is already added to the task list.
       WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -1999,6 +2042,13 @@ class ProImageEditorState extends State<ProImageEditor>
     /// Overrides [SubEditorPageStyle.transitionDuration] when set.
     Duration? duration,
   }) async {
+    // Capture the open sub-editor BEFORE committing: the commit resets the
+    // sub-editor GlobalKeys (except the embedded one), so afterwards a
+    // *pushed* editor below (e.g. filter) is no longer reachable through
+    // [_openSubEditorState] even though its state stays mounted. The direct
+    // state reference keeps working for the layer adoptions below — without
+    // it, the text hero flight has no destination in that editor's stack.
+    final subEditorBelow = _openSubEditorState;
     await _commitCurrentSubEditorState();
     final customCallback = mainEditorCallbacks?.onCreateTextLayer;
     TextLayer? layer;
@@ -2021,6 +2071,19 @@ class ProImageEditorState extends State<ProImageEditor>
       // of the absolute image center.
       _applyViewerZoomCorrection(placeholder);
       activeLayers.add(placeholder);
+      // Pushed sub-editors (e.g. filter) never re-sync their layer copies
+      // from the main editor, so hand them the placeholder explicitly —
+      // otherwise the text editor's hero flight has no destination in their
+      // layer stack and the closing animation silently degrades to a fade.
+      // The copy gets its own GlobalKeys but keeps the id (the hero tag).
+      subEditorBelow?.adoptLayerAddition(
+        _layerCopyManager.duplicateLayer(
+          placeholder,
+          offset: Offset.zero,
+          enableCopyId: true,
+          enableCopyKey: false,
+        ),
+      );
       setState(() {});
 
       // Wait for the frame to fully render (build + layout + paint)
@@ -2047,8 +2110,10 @@ class ProImageEditorState extends State<ProImageEditor>
       );
 
       if (layer == null || !mounted) {
-        // User cancelled – remove the placeholder.
+        // User cancelled – remove the placeholder (also from the open
+        // sub-editor's copy).
         activeLayers.remove(placeholder);
+        subEditorBelow?.adoptLayerRemoval(placeholder.id);
         setState(() {});
         return;
       }
@@ -2099,7 +2164,23 @@ class ProImageEditorState extends State<ProImageEditor>
         activeLayers.add(layer);
       }
 
-      addHistory(layers: activeLayers);
+      // Swap the real text into the open sub-editor's copy as well (matched
+      // by id, keeping that editor's own keys), so the closing flight lands
+      // on the real content there.
+      subEditorBelow?.adoptLayerUpdate(
+        _layerCopyManager.duplicateLayer(
+          layer,
+          offset: Offset.zero,
+          enableCopyId: true,
+          enableCopyKey: false,
+        ),
+      );
+
+      addHistory(
+        layers: activeLayers,
+        action:
+            const HistoryAction(HistoryActionType.addLayer, detail: 'text'),
+      );
       _selectLayerAfterHeroIsDone(layer.id);
 
       setState(() {});
@@ -2164,11 +2245,21 @@ class ProImageEditorState extends State<ProImageEditor>
           appliedTuneAdjustments: stateManager.activeTuneAdjustments,
           onDone: (transformConfigs, fitToScreenFactor, imageInfos) async {
             _imageInfos = null;
-            unawaited(decodeImage(transformConfigs));
-            addHistory(
-              transformConfigs: transformConfigs,
-              heroScreenshotRequired: true,
+            // Pressing "Done" without any crop/rotate action exports a
+            // concretized identity transform — don't record that as an undo
+            // step and keep decoding with the active (unchanged) transform.
+            final cropChanged =
+                cropRotateEditor.currentState?.hasVisualChanges ?? true;
+            unawaited(
+              decodeImage(cropChanged ? transformConfigs : null),
             );
+            if (cropChanged) {
+              addHistory(
+                transformConfigs: transformConfigs,
+                heroScreenshotRequired: true,
+                action: const HistoryAction(HistoryActionType.cropRotate),
+              );
+            }
 
             /// Important to reset the layer hero positions
             if (activeLayers.isNotEmpty) {
@@ -2280,7 +2371,11 @@ class ProImageEditorState extends State<ProImageEditor>
 
     if (tuneAdjustments == null) return;
 
-    addHistory(tuneAdjustments: tuneAdjustments, heroScreenshotRequired: true);
+    addHistory(
+      tuneAdjustments: tuneAdjustments,
+      heroScreenshotRequired: true,
+      action: const HistoryAction(HistoryActionType.tune),
+    );
 
     setState(() {});
     mainEditorCallbacks?.handleUpdateUI();
@@ -2374,7 +2469,11 @@ class ProImageEditorState extends State<ProImageEditor>
 
     if (filters == null) return;
 
-    addHistory(filters: filters, heroScreenshotRequired: true);
+    addHistory(
+      filters: filters,
+      heroScreenshotRequired: true,
+      action: const HistoryAction(HistoryActionType.filter),
+    );
 
     setState(() {});
     mainEditorCallbacks?.handleUpdateUI();
@@ -2432,7 +2531,11 @@ class ProImageEditorState extends State<ProImageEditor>
 
     if (blur == null) return;
 
-    addHistory(blur: blur, heroScreenshotRequired: true);
+    addHistory(
+      blur: blur,
+      heroScreenshotRequired: true,
+      action: const HistoryAction(HistoryActionType.blur),
+    );
 
     setState(() {});
     mainEditorCallbacks?.handleUpdateUI();
@@ -2565,7 +2668,10 @@ class ProImageEditorState extends State<ProImageEditor>
       // Insert directly at newIndex, no adjustment needed
       layers.insert(newIndex, item);
 
-      addHistory(layers: layers);
+      addHistory(
+        layers: layers,
+        action: const HistoryAction(HistoryActionType.reorderLayer),
+      );
       setState(() {});
     }
   }
@@ -2628,6 +2734,10 @@ class ProImageEditorState extends State<ProImageEditor>
 
     // Global undo through stateManager
     if (stateManager.canUndo) {
+      // The entry at the current pointer describes the change that is being
+      // reverted (entry N = change from state N-1 to N).
+      final undoneAction =
+          stateManager.stateHistory[stateManager.historyPointer].action;
       setState(() {
         layerInteractionManager.clearSelectedLayers();
         _checkInteractiveViewer();
@@ -2635,6 +2745,7 @@ class ProImageEditorState extends State<ProImageEditor>
         decodeImage();
       });
       mainEditorCallbacks?.handleUndo();
+      _emitHistoryFeedback(HistoryFeedbackMode.undo, undoneAction);
       _notifyActiveSubEditorRebuild();
     }
   }
@@ -2659,22 +2770,89 @@ class ProImageEditorState extends State<ProImageEditor>
         stateManager.redo();
         decodeImage();
       });
+      // After the pointer moved forward, the entry at the pointer is the
+      // change that was just re-applied.
+      final redoneAction =
+          stateManager.stateHistory[stateManager.historyPointer].action;
       mainEditorCallbacks?.handleRedo();
+      _emitHistoryFeedback(HistoryFeedbackMode.redo, redoneAction);
       _notifyActiveSubEditorRebuild();
     }
   }
+
+  /// Emits a [HistoryFeedback] after every undo/redo, describing the
+  /// reverted (undo) or re-applied (redo) action. Listen to this (or use
+  /// [MainEditorCallbacks.onHistoryFeedback]) to show feedback like
+  /// "UNDO CHANGE FILTER" above the image.
+  final ValueNotifier<HistoryFeedback?> historyFeedbackNotifier =
+      ValueNotifier(null);
+
+  void _emitHistoryFeedback(HistoryFeedbackMode mode, HistoryAction? action) {
+    final feedback = HistoryFeedback(mode: mode, action: action);
+    historyFeedbackNotifier.value = feedback;
+    mainEditorCallbacks?.onHistoryFeedback?.call(feedback);
+  }
+
+  /// Derives which crop/rotate operation changed between two local
+  /// crop-editor history states, so crop-internal undo/redo can report
+  /// details like `straighten` or `perspectiveX`.
+  HistoryAction _describeCropChange(
+    TransformConfigs before,
+    TransformConfigs after,
+  ) {
+    String? detail;
+    if (before.straightenAngle != after.straightenAngle) {
+      detail = 'straighten';
+    } else if (before.perspectiveX != after.perspectiveX) {
+      detail = 'perspectiveX';
+    } else if (before.perspectiveY != after.perspectiveY) {
+      detail = 'perspectiveY';
+    } else if (before.angle != after.angle) {
+      detail = 'rotate';
+    } else if (before.flipX != after.flipX || before.flipY != after.flipY) {
+      detail = 'flip';
+    } else if (before.aspectRatio != after.aspectRatio ||
+        before.cropRect != after.cropRect) {
+      detail = 'crop';
+    } else if (before.scaleUser != after.scaleUser ||
+        before.offset != after.offset) {
+      detail = 'zoom';
+    }
+    return HistoryAction(HistoryActionType.cropRotate, detail: detail);
+  }
+
+  /// Whether [editor] is the currently active sub-editor. Sub-editor routes
+  /// can stack, so a still-mounted GlobalKey state alone is not enough —
+  /// without this guard a stale editor below the active one could swallow
+  /// undo/redo or commits. `unknown` (embedded initial sub-editors) matches
+  /// any editor as a fallback.
+  bool _isActiveSubEditor(SubEditor editor) =>
+      _activeSubEditor == editor || _activeSubEditor == SubEditor.unknown;
 
   /// Attempts to delegate undo to sub-editors that still use local undo
   /// (paint, cropRotate). Tune/Filter/Blur use global history.
   /// Returns true if the sub-editor handled the undo.
   bool _delegateUndoToLocalSubEditor() {
-    if (paintEditor.currentState != null && paintEditor.currentState!.canUndo) {
+    if (paintEditor.currentState != null &&
+        _isActiveSubEditor(SubEditor.paint) &&
+        paintEditor.currentState!.canUndo) {
       paintEditor.currentState!.undoAction();
+      _emitHistoryFeedback(
+        HistoryFeedbackMode.undo,
+        const HistoryAction(HistoryActionType.paint),
+      );
       return true;
     }
     if (cropRotateEditor.currentState != null &&
+        _isActiveSubEditor(SubEditor.cropRotate) &&
         cropRotateEditor.currentState!.canUndo) {
-      cropRotateEditor.currentState!.undoAction();
+      final cropState = cropRotateEditor.currentState!;
+      final before = cropState.activeHistory;
+      cropState.undoAction();
+      _emitHistoryFeedback(
+        HistoryFeedbackMode.undo,
+        _describeCropChange(before, cropState.activeHistory),
+      );
       return true;
     }
     return false;
@@ -2684,13 +2862,26 @@ class ProImageEditorState extends State<ProImageEditor>
   /// (paint, cropRotate). Tune/Filter/Blur use global history.
   /// Returns true if the sub-editor handled the redo.
   bool _delegateRedoToLocalSubEditor() {
-    if (paintEditor.currentState != null && paintEditor.currentState!.canRedo) {
+    if (paintEditor.currentState != null &&
+        _isActiveSubEditor(SubEditor.paint) &&
+        paintEditor.currentState!.canRedo) {
       paintEditor.currentState!.redoAction();
+      _emitHistoryFeedback(
+        HistoryFeedbackMode.redo,
+        const HistoryAction(HistoryActionType.paint),
+      );
       return true;
     }
     if (cropRotateEditor.currentState != null &&
+        _isActiveSubEditor(SubEditor.cropRotate) &&
         cropRotateEditor.currentState!.canRedo) {
-      cropRotateEditor.currentState!.redoAction();
+      final cropState = cropRotateEditor.currentState!;
+      final before = cropState.activeHistory;
+      cropState.redoAction();
+      _emitHistoryFeedback(
+        HistoryFeedbackMode.redo,
+        _describeCropChange(before, cropState.activeHistory),
+      );
       return true;
     }
     return false;
@@ -2699,38 +2890,70 @@ class ProImageEditorState extends State<ProImageEditor>
   /// Notifies the active sub-editor to rebuild its UI after a main editor
   /// undo/redo so that changes to applied filters, tune adjustments, blur,
   /// etc. are visually reflected in the sub-editor's preview.
+  ///
+  /// Besides the applied-state overrides (background rendering), each editor
+  /// must also sync its own *working* values (e.g. the tune editor's
+  /// adjustment matrix that drives its sliders and preview) — otherwise an
+  /// undo moves the history pointer without any visible effect.
   void _notifyActiveSubEditorRebuild() {
-    if (tuneEditor.currentState != null) {
-      tuneEditor.currentState!.updateAppliedState(
+    // Only the *active* editor is synced. Stale editors mounted below (e.g.
+    // an embedded tune editor beneath a pushed filter editor) re-sync
+    // through their regular update flow when they become active again;
+    // touching them here would move their layer copies mid-session.
+    if (tuneEditor.currentState != null && _isActiveSubEditor(SubEditor.tune)) {
+      tuneEditor.currentState!
+        ..updateAppliedState(
+          filters: stateManager.activeFilters,
+          tuneAdjustments: stateManager.activeTuneAdjustments,
+          blur: stateManager.activeBlur,
+          transformConfigs: stateManager.transformConfigs,
+        )
+        ..syncFromGlobalHistory()
+        ..uiStream.add(null);
+    }
+    if (filterEditor.currentState != null &&
+        _isActiveSubEditor(SubEditor.filter)) {
+      filterEditor.currentState!
+        ..updateAppliedState(
+          filters: stateManager.activeFilters,
+          tuneAdjustments: stateManager.activeTuneAdjustments,
+          blur: stateManager.activeBlur,
+          transformConfigs: stateManager.transformConfigs,
+        )
+        ..syncFromGlobalHistory()
+        ..uiFilterStream.add(null);
+    }
+    if (blurEditor.currentState != null && _isActiveSubEditor(SubEditor.blur)) {
+      blurEditor.currentState!
+        ..updateAppliedState(
+          filters: stateManager.activeFilters,
+          tuneAdjustments: stateManager.activeTuneAdjustments,
+          blur: stateManager.activeBlur,
+          transformConfigs: stateManager.transformConfigs,
+        )
+        ..syncFromGlobalHistory();
+    }
+    if (paintEditor.currentState != null &&
+        _isActiveSubEditor(SubEditor.paint)) {
+      paintEditor.currentState!.updateAppliedState(
         filters: stateManager.activeFilters,
         tuneAdjustments: stateManager.activeTuneAdjustments,
         blur: stateManager.activeBlur,
         transformConfigs: stateManager.transformConfigs,
       );
-      tuneEditor.currentState!.uiStream.add(null);
     }
-    if (filterEditor.currentState != null) {
-      filterEditor.currentState!.updateAppliedState(
-        filters: stateManager.activeFilters,
-        tuneAdjustments: stateManager.activeTuneAdjustments,
-        blur: stateManager.activeBlur,
-        transformConfigs: stateManager.transformConfigs,
-      );
-      filterEditor.currentState!.uiFilterStream.add(null);
-    }
-    if (blurEditor.currentState != null) {
-      blurEditor.currentState!.updateAppliedState(
-        filters: stateManager.activeFilters,
-        tuneAdjustments: stateManager.activeTuneAdjustments,
-        blur: stateManager.activeBlur,
-        transformConfigs: stateManager.transformConfigs,
-      );
-      // BlurEditor doesn't have a dedicated UI stream; setState from main
-      // editor's rebuild handles it.
-    }
-    if (cropRotateEditor.currentState != null) {
+    if (cropRotateEditor.currentState != null &&
+        _isActiveSubEditor(SubEditor.cropRotate)) {
       cropRotateEditor.currentState!
-          .applyExternalTransformConfigs(stateManager.transformConfigs);
+        // No transformConfigs override here: the crop editor's transform is
+        // driven by [applyExternalTransformConfigs], and the override would
+        // interfere with its internal transform math.
+        ..updateAppliedState(
+          filters: stateManager.activeFilters,
+          tuneAdjustments: stateManager.activeTuneAdjustments,
+          blur: stateManager.activeBlur,
+        )
+        ..applyExternalTransformConfigs(stateManager.transformConfigs);
     }
   }
 
@@ -2798,8 +3021,10 @@ class ProImageEditorState extends State<ProImageEditor>
 
     /// For the case the user add initial transformConfigs but there are no
     /// changes we need to ensure the editor will generate the image.
+    /// Forced because the entry is intentionally identical to the current
+    /// state (the generation pipeline keys off `canUndo`).
     if (mainEditorConfigs.transformSetup != null && !stateManager.canUndo) {
-      addHistory();
+      addHistory(force: true);
     }
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -2902,22 +3127,37 @@ class ProImageEditorState extends State<ProImageEditor>
     // (initialSubEditor != null) because the embedded editor has no
     // navigation route, so isSubEditorOpen may be false.
     if (isSubEditorOpen || mainEditorConfigs.initialSubEditor != null) {
-      if (cropRotateEditor.currentState != null) {
+      // Sub-editor routes can stack, so the GlobalKey states of previously
+      // opened editors may still be mounted below the current one. Only the
+      // *active* editor's state may be committed — otherwise a stale editor
+      // below would overwrite the newer state.
+      final isActive = _isActiveSubEditor;
+
+      if (cropRotateEditor.currentState != null &&
+          isActive(SubEditor.cropRotate)) {
         await cropRotateEditor.currentState!.showFakeHero();
         // After skipAnimation the state might already be gone if the widget
         // was disposed during the pushReplacement, so guard with a null check.
         final cropState = cropRotateEditor.currentState;
         if (cropState != null) {
           final exported = cropState.exportStateHistory();
-          final hasChanged = exported != stateManager.transformConfigs;
+          // An untouched crop editor exports a "concretized" transform
+          // (real cropRect/originalSize) that never equals the active one,
+          // so additionally require an actual visual change since open.
+          final hasChanged = cropState.hasVisualChanges &&
+              exported != stateManager.transformConfigs;
           if (hasChanged) {
-            addHistory(transformConfigs: exported);
+            addHistory(
+              transformConfigs: exported,
+              action: const HistoryAction(HistoryActionType.cropRotate),
+            );
             // The fit changed, so the shared zoom matrix is now stale — force
             // the next pushed sub-editor to open at its new fit.
             _resetSharedZoomAfterTransform = true;
           }
         }
-      } else if (filterEditor.currentState != null) {
+      } else if (filterEditor.currentState != null &&
+          isActive(SubEditor.filter)) {
         final exported = filterEditor.currentState!.exportStateHistory();
         final hasChanged = !listEquals(exported, stateManager.activeFilters);
         final exportedLayers = filterEditor.currentState!.exportLayers();
@@ -2925,9 +3165,12 @@ class ProImageEditorState extends State<ProImageEditor>
           addHistory(
             filters: hasChanged ? exported : null,
             layers: _adoptExportedLayers(exportedLayers),
+            action: HistoryAction(hasChanged
+                ? HistoryActionType.filter
+                : HistoryActionType.transformLayer),
           );
         }
-      } else if (tuneEditor.currentState != null) {
+      } else if (tuneEditor.currentState != null && isActive(SubEditor.tune)) {
         final tuneState = tuneEditor.currentState!;
         final exported = tuneState.exportStateHistory();
         // Filter out zero-value adjustments for comparison, because the tune
@@ -2943,6 +3186,9 @@ class ProImageEditorState extends State<ProImageEditor>
           addHistory(
             tuneAdjustments: hasChanged ? exported : null,
             layers: _adoptExportedLayers(exportedLayers),
+            action: HistoryAction(hasChanged
+                ? HistoryActionType.tune
+                : HistoryActionType.transformLayer),
           );
         }
 
@@ -2950,18 +3196,21 @@ class ProImageEditorState extends State<ProImageEditor>
         // switching to another sub-editor.
         if (tuneState.canRedo) {
           final redoEntries = tuneState.redoStack;
+          int addedCount = 0;
           for (final redoState in redoEntries.reversed) {
-            addHistory(
+            final added = addHistory(
               tuneAdjustments: redoState,
               blockCaptureScreenshot: true,
+              action: const HistoryAction(HistoryActionType.tune),
             );
+            if (added) addedCount++;
           }
           // Move pointer back so these become redo-able entries
-          for (int i = 0; i < redoEntries.length; i++) {
+          for (int i = 0; i < addedCount; i++) {
             stateManager.undo();
           }
         }
-      } else if (blurEditor.currentState != null) {
+      } else if (blurEditor.currentState != null && isActive(SubEditor.blur)) {
         final exported = blurEditor.currentState!.exportStateHistory();
         final hasChanged = exported != stateManager.activeBlur;
         final exportedLayers = blurEditor.currentState!.exportLayers();
@@ -2969,9 +3218,13 @@ class ProImageEditorState extends State<ProImageEditor>
           addHistory(
             blur: hasChanged ? exported : null,
             layers: _adoptExportedLayers(exportedLayers),
+            action: HistoryAction(hasChanged
+                ? HistoryActionType.blur
+                : HistoryActionType.transformLayer),
           );
         }
-      } else if (paintEditor.currentState != null) {
+      } else if (paintEditor.currentState != null &&
+          isActive(SubEditor.paint)) {
         var res = paintEditor.currentState!.exportStateHistory();
         for (var layer in res.removedLayers) {
           removeLayer(layer, blockCaptureScreenshot: true);
@@ -2987,9 +3240,15 @@ class ProImageEditorState extends State<ProImageEditor>
               autoCorrectZoomOffset: false,
               autoCorrectZoomScale: false);
         }
-      } else if (textEditor.currentState != null) {
+      } else if (textEditor.currentState != null && isActive(SubEditor.text)) {
         var layer = textEditor.currentState!.exportStateHistory();
-        if (layer != null) addHistory(newLayer: layer);
+        if (layer != null) {
+          addHistory(
+            newLayer: layer,
+            action:
+                const HistoryAction(HistoryActionType.addLayer, detail: 'text'),
+          );
+        }
       }
     }
 
@@ -3025,8 +3284,10 @@ class ProImageEditorState extends State<ProImageEditor>
         !hasChanges &&
         imageGenerationConfigs.enableUseOriginalBytes;
 
+    // Forced no-op entry: the generation pipeline needs `canUndo == true`
+    // to produce a screenshot-based result instead of the original bytes.
     if (!hasChanges && !imageGenerationConfigs.enableUseOriginalBytes) {
-      addHistory();
+      addHistory(force: true);
     }
 
     return await _controllers.screenshot.captureFinalScreenshot(
@@ -3625,6 +3886,7 @@ class ProImageEditorState extends State<ProImageEditor>
                 isLayerBeingTransformed,
                 imageBounds,
               ),
+      imageAreaOverlayBuilder: configs.mainEditor.widgets.imageAreaOverlay,
       heroResetStream: _controllers.layerHeroResetCtrl.stream,
       onLayerScaleStart: mainEditorCallbacks?.handleLayerTransformStart,
       onLayerScaleEnd: mainEditorCallbacks?.handleLayerTransformEnd,
@@ -3637,7 +3899,11 @@ class ProImageEditorState extends State<ProImageEditor>
       getActiveLayers: () => activeLayers,
       getEnableMultiSelectMode: () => enableMultiSelectMode,
       onAddHistory: (layers) {
-        addHistory(layers: layers, blockCaptureScreenshot: true);
+        return addHistory(
+          layers: layers,
+          blockCaptureScreenshot: true,
+          action: const HistoryAction(HistoryActionType.transformLayer),
+        );
       },
       onUIUpdate: () {
         _controllers.uiLayerCtrl.add(null);

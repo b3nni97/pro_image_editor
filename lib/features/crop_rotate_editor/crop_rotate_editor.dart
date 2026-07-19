@@ -793,12 +793,14 @@ class CropRotateEditorState extends State<CropRotateEditor>
           if (!_layoutReadyCompleter.isCompleted) {
             _layoutReadyCompleter.complete();
           }
+          _exportAtOpen ??= exportStateHistory();
         });
       } else {
         // No nested init needed — mark layout as ready immediately.
         if (!_layoutReadyCompleter.isCompleted) {
           _layoutReadyCompleter.complete();
         }
+        _exportAtOpen ??= exportStateHistory();
       }
     });
   }
@@ -955,6 +957,22 @@ class CropRotateEditorState extends State<CropRotateEditor>
 
     cropRotateEditorCallbacks?.handleDone();
     _interactionActive = false;
+  }
+
+  /// Snapshot of the exported transform right after the editor finished its
+  /// initial layout. Baseline for [hasVisualChanges].
+  TransformConfigs? _exportAtOpen;
+
+  /// Whether the current transform differs visually from the state the
+  /// editor was opened with.
+  ///
+  /// More reliable than the local `canUndo`: the local history also records
+  /// no-op interactions (e.g. a tap on the crop area without movement), while
+  /// this compares the exported values against the post-layout baseline.
+  bool get hasVisualChanges {
+    final baseline = _exportAtOpen;
+    if (baseline == null) return canUndo;
+    return exportStateHistory() != baseline;
   }
 
   /// Exports the current crop/rotate/scale state.

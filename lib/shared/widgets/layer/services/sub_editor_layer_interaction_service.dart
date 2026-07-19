@@ -267,6 +267,12 @@ class LayerInteractionService implements BaseLayerInteractionService {
     layerInteraction
       ..rotateScaleLayerSizeHelper = null
       ..rotateScaleLayerScaleHelper = null;
+    // The rotate/scale handle enters through its own gesture detector, so the
+    // layer stack's scale-end commit doesn't fire for it. Commit the completed
+    // transform here; a no-op interaction gets deduplicated by the history.
+    if (getActiveLayers != null) {
+      onAddHistory?.call(_activeLayers);
+    }
     _validateClearLayer();
     onCheckInteractiveViewer?.call();
     onUpdateState();

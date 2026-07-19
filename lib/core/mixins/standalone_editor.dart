@@ -7,6 +7,7 @@ import 'package:heroine/heroine.dart';
 
 import '/core/mixins/converted_callbacks.dart';
 import '/core/models/complete_parameters.dart';
+import '/features/main_editor/services/layer_copy_manager.dart';
 import '/features/filter_editor/types/filter_matrix.dart';
 import '/features/tune_editor/models/tune_adjustment_matrix.dart';
 import '/shared/controllers/video_controller.dart';
@@ -92,6 +93,38 @@ mixin StandaloneEditorState<T extends StatefulWidget,
   /// back before this editor commits its state (see [syncLayersWhenIdle],
   /// [removeLayerFromSubEditor]).
   final Set<String> locallyRemovedLayerIds = {};
+
+  /// Replaces [mutableLayers] with copies of [source] while preserving this
+  /// editor's own layer GlobalKeys (matched by id).
+  ///
+  /// The main editor's layers keep their original keys, so simply adopting
+  /// key-preserving copies would mount the same GlobalKey in two layer
+  /// stacks at once when editors are stacked (e.g. an embedded tune editor
+  /// below a pushed filter editor). Copies of unknown layers (new ids) get
+  /// fresh keys.
+  void adoptGlobalLayers(List<Layer> source) {
+    final copyManager = LayerCopyManager();
+    final adopted = source.map((layer) {
+      final copy = copyManager.duplicateLayer(
+        layer,
+        offset: Offset.zero,
+        enableCopyId: true,
+        enableCopyKey: false,
+      );
+      final existingIndex =
+          mutableLayers.indexWhere((el) => el.id == layer.id);
+      if (existingIndex >= 0) {
+        copy
+          ..key = mutableLayers[existingIndex].key
+          ..keyInternalSize = mutableLayers[existingIndex].keyInternalSize;
+      }
+      return copy;
+    }).toList();
+
+    mutableLayers
+      ..clear()
+      ..addAll(adopted);
+  }
 
   /// Removes [layer] (matched by id) from this editor's working copy in
   /// response to a drag-to-delete gesture.
@@ -206,6 +239,20 @@ mixin StandaloneEditorState<T extends StatefulWidget,
     setState(() => mutableLayers.removeAt(i));
   }
 
+  /// Adds [layer] to this editor's working copy — the counterpart of
+  /// [adoptLayerUpdate] for layers the main editor added while this editor
+  /// is open (e.g. the text editor's hero placeholder). Without this, hero
+  /// flights of new layers have no destination in a *pushed* editor's layer
+  /// stack (embedded editors re-sync through didUpdateWidget instead).
+  ///
+  /// The caller must pass a copy with this editor's own GlobalKeys
+  /// (`enableCopyKey: false`) and the original id (the hero tag).
+  void adoptLayerAddition(Layer layer) {
+    if (!mounted) return;
+    if (mutableLayers.any((l) => l.id == layer.id)) return;
+    setState(() => mutableLayers.add(layer));
+  }
+
   /// Returns the applied blur factor.
   /// If [_appliedBlurOverride] is set (via [updateAppliedState]), uses that
   /// instead of the original initConfigs value.
@@ -242,6 +289,9 @@ mixin StandaloneEditorState<T extends StatefulWidget,
     _appliedTuneOverride = tuneAdjustments;
     _appliedBlurOverride = blur;
     _transformConfigsOverride = transformConfigs;
+    // Rebuild so the preview picks up the new overrides — without this the
+    // reverted state is only visible after the next unrelated rebuild.
+    if (mounted) setState(() {});
   }
 
   /// Returns the body size with layers.

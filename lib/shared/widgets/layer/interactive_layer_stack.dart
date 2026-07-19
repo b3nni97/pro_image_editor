@@ -47,7 +47,7 @@ class InteractiveLayerStack extends StatefulWidget {
     this.onPaintLayerEdit,
     this.onLayerRemoved,
     this.onLayersChanged,
-    this.onBeforeLayerChange,
+    this.onCommitLayerChange,
     this.onLayerScaleStart,
     this.onLayerScaleEnd,
     // ──── Shared features ────
@@ -77,6 +77,7 @@ class InteractiveLayerStack extends StatefulWidget {
     this.appBarHeight = 0,
     this.bottomBarHeight = 0,
     this.removeAreaBuilder,
+    this.imageAreaOverlayBuilder,
   });
 
   // ──────────── Required parameters ──────────────
@@ -123,9 +124,11 @@ class InteractiveLayerStack extends StatefulWidget {
   /// Called when layers have been modified (moved, scaled, rotated).
   final VoidCallback? onLayersChanged;
 
-  /// Called once before a layer interaction starts (drag, scale, remove).
-  /// The host editor should save the current state to history here.
-  final VoidCallback? onBeforeLayerChange;
+  /// Called once after a layer interaction completed (drag, scale, remove).
+  /// The host editor should commit the *current* state to history here and
+  /// return whether an entry was added (`false` means the interaction was a
+  /// visual no-op).
+  final bool Function()? onCommitLayerChange;
 
   /// Called when a scale/drag/rotate gesture on a *layer* begins (not when the
   /// gesture pans/zooms the viewer). Useful e.g. to hide surrounding UI while
@@ -164,8 +167,9 @@ class InteractiveLayerStack extends StatefulWidget {
   /// Called to check and toggle the InteractiveViewer state.
   final VoidCallback? onCheckInteractiveViewer;
 
-  /// Called to add a history entry (for undo/redo).
-  final void Function(List<Layer> layers)? onAddHistory;
+  /// Called to commit the given layers as a history entry (for undo/redo).
+  /// Returns whether an entry was added (`false` = visual no-op, skipped).
+  final bool Function(List<Layer> layers)? onAddHistory;
 
   /// Called for additional UI updates (stream notifications).
   final VoidCallback? onUIUpdate;
@@ -230,6 +234,11 @@ class InteractiveLayerStack extends StatefulWidget {
     bool isLayerBeingTransformed,
     Rect imageBounds,
   )? removeAreaBuilder;
+
+  /// Builds a widget rendered inside the visible image area, above the
+  /// layers, pinned to the un-zoomed base view like the remove area
+  /// (see [MainEditorWidgets.imageAreaOverlay]).
+  final Widget Function(Rect imageBounds)? imageAreaOverlayBuilder;
 
   @override
   State<InteractiveLayerStack> createState() => _InteractiveLayerStackState();
@@ -373,13 +382,21 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack>
       onTextLayerTap: widget.onTextLayerTap,
       onPaintLayerEdit: widget.onPaintLayerEdit,
       onLayerRemoved: (layer) {
-        widget.onBeforeLayerChange?.call();
         widget.layers.remove(layer);
+        // Main editor: commits via [onLayerRemoved] → removeLayer.
+        // Sub-editors: commit the post-removal state to the global history.
         widget.onLayerRemoved?.call(layer);
+        widget.onCommitLayerChange?.call();
         widget.onLayersChanged?.call();
         if (mounted) setState(() {});
       },
-      onAddHistory: widget.onAddHistory,
+      onAddHistory: (updatedLayers) {
+        if (widget.onAddHistory != null) {
+          widget.onAddHistory!(updatedLayers);
+        } else {
+          widget.onCommitLayerChange?.call();
+        }
+      },
       onUIUpdate: () {
         _uiLayerCtrl.add(null);
         widget.onUIUpdate?.call();
@@ -425,20 +442,31 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack>
     setState(() {});
   }
 
+  /// Commits the current layer state to the host editor's history.
+  ///
+  /// The main editor commits via [InteractiveLayerStack.onAddHistory] (which
+  /// receives the layers), sub-editors via
+  /// [InteractiveLayerStack.onCommitLayerChange] (which snapshots their own
+  /// state). Returns `true` when a history entry was added — `false` means
+  /// the interaction was a visual no-op and got deduplicated.
+  bool _commitLayerHistory() {
+    if (widget.onAddHistory != null) {
+      final layers = widget.getActiveLayers?.call() ?? widget.layers;
+      return widget.onAddHistory!(layers);
+    }
+    return widget.onCommitLayerChange?.call() ?? false;
+  }
+
   void _onScaleStart(ScaleStartDetails details) {
     if (!_hasSelectedLayers) {
       _viewer?.onScaleStart(details);
       return;
     }
 
-    // A layer gesture (drag/scale/rotate) is starting.
+    // A layer gesture (drag/scale/rotate) is starting. History is committed
+    // when the gesture completes (see [_commitLayerHistory] in [_onScaleEnd]),
+    // so aborted or no-op gestures never create undo steps.
     widget.onLayerScaleStart?.call(details);
-
-    // Save history before the interaction.
-    widget.onBeforeLayerChange?.call();
-    if (widget.onAddHistory != null) {
-      widget.onAddHistory!(widget.layers);
-    }
 
     _checkInteractiveViewer();
     _isLayerBeingTransformed = _hasSelectedLayers;
@@ -622,22 +650,30 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack>
       _layerInteractionManager.clearSelectedLayers();
     }
 
+    // Whether the completed gesture transformed a layer in the
+    // non-selectable interaction mode (which never selects layers, so
+    // [wasTransformingLayer] stays false there).
+    final bool nonSelectableTransform = !isDesktop &&
+        !_hasSelectedLayers &&
+        _layerInteractionManager.layerWasTransformed &&
+        widget.configs.layerInteraction.selectable !=
+            LayerInteractionSelectable.enabled;
+
     if (!_hasSelectedLayers) {
       _viewer?.onScaleEnd(details);
+    }
 
-      // Check for non-selectable layer transform.
-      if (!isDesktop &&
-          _layerInteractionManager.layerWasTransformed &&
-          widget.configs.layerInteraction.selectable !=
-              LayerInteractionSelectable.enabled) {
+    // Commit the completed gesture to history. A no-op gesture (tap without
+    // movement, aborted drag) adds no entry and captures no screenshot.
+    if (wasTransformingLayer || nonSelectableTransform) {
+      if (_commitLayerHistory()) {
         widget.onTakeScreenshot?.call(replaceLastScreenshot: true);
       }
-    } else {
-      // Take screenshot since history was already added in onScaleStart.
-      widget.onTakeScreenshot?.call(replaceLastScreenshot: true);
-      if (!widget.configs.layerInteraction.keepSelectionOnInteraction) {
-        _layerInteractionManager.clearSelectedLayers();
-      }
+    }
+
+    if (_hasSelectedLayers &&
+        !widget.configs.layerInteraction.keepSelectionOnInteraction) {
+      _layerInteractionManager.clearSelectedLayers();
     }
 
     _isLayerBeingTransformed = false;
@@ -873,6 +909,7 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack>
       children: [
         content,
         if (widget.enableRemoveArea) _buildRemoveArea(),
+        if (widget.imageAreaOverlayBuilder != null) _buildImageAreaOverlay(),
       ],
     );
   }
@@ -1170,6 +1207,51 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack>
   }
 
   // ──────────── Remove Area ─────────────────────────────────────
+
+  /// Renders the host-provided overlay inside the visible image area,
+  /// transparent to pointer events.
+  ///
+  /// Unlike the remove area (which is pinned to the base view and therefore
+  /// scales with the base-fit factor), the overlay subtree fully cancels the
+  /// viewer transform and positions in *screen* coordinates: the reported
+  /// image bounds are the base-view (un-zoomed) image rect on screen, and the
+  /// overlay keeps a constant on-screen size regardless of the current
+  /// zoom/pan or a base fit ≠ 1 (e.g. after a crop).
+  Widget _buildImageAreaOverlay() {
+    final overlayBuilder = widget.imageAreaOverlayBuilder!;
+    final viewer = _viewer;
+    final ctrl = viewer?.transformationController;
+
+    Widget buildContent(Rect imageBounds) => IgnorePointer(
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [overlayBuilder(imageBounds)],
+          ),
+        );
+
+    if (viewer == null || ctrl == null) {
+      return Positioned.fill(child: buildContent(_visibleImageRect()));
+    }
+
+    final Matrix4 initial = viewer.widget.initialMatrix4 ?? Matrix4.identity();
+
+    return ListenableBuilder(
+      listenable: ctrl,
+      builder: (context, _) {
+        final Matrix4 counter =
+            Matrix4.tryInvert(ctrl.value) ?? Matrix4.identity();
+        final Rect screenRect =
+            MatrixUtils.transformRect(initial, _visibleImageRect());
+
+        return Positioned.fill(
+          child: Transform(
+            transform: counter,
+            child: buildContent(screenRect),
+          ),
+        );
+      },
+    );
+  }
 
   Widget _buildRemoveArea() {
     // A host-provided builder fully overrides look and position. It must attach

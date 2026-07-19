@@ -5,6 +5,7 @@ import '/features/crop_rotate_editor/models/transform_configs.dart';
 import '/features/filter_editor/types/filter_matrix.dart';
 import '/features/tune_editor/models/tune_adjustment_matrix.dart';
 import '../layers/layer.dart';
+import 'history_action.dart';
 
 /// The `EditorStateHistory` class represents changes made to an image in the
 /// image editor. It contains information about the changes applied to the
@@ -20,6 +21,7 @@ class EditorStateHistory {
     this.filters = const [],
     this.tuneAdjustments = const [],
     this.transformConfigs,
+    this.action,
   });
 
   /// The blur factor.
@@ -37,6 +39,11 @@ class EditorStateHistory {
   /// The transformation from the crop/ rotate editor.
   TransformConfigs? transformConfigs;
 
+  /// The kind of user action that created this entry. Used to describe
+  /// undo/redo events (e.g. "UNDO CHANGE FILTER"); not part of equality or
+  /// serialization.
+  final HistoryAction? action;
+
   /// Creates a copy of the current `EditorStateHistory` instance with the
   /// option to override some of its properties.
   ///
@@ -50,6 +57,7 @@ class EditorStateHistory {
     FilterMatrix? filters,
     List<TuneAdjustmentMatrix>? tuneAdjustments,
     TransformConfigs? transformConfigs,
+    HistoryAction? action,
   }) {
     return EditorStateHistory(
       blur: blur ?? this.blur,
@@ -57,6 +65,7 @@ class EditorStateHistory {
       filters: filters ?? this.filters,
       tuneAdjustments: tuneAdjustments ?? this.tuneAdjustments,
       transformConfigs: transformConfigs ?? this.transformConfigs,
+      action: action ?? this.action,
     );
   }
 
