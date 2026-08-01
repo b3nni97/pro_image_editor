@@ -27,6 +27,7 @@ import '/shared/utils/file_constructor_utils.dart';
 import '/shared/widgets/extended/extended_pop_scope.dart';
 import '/shared/widgets/layer/layer_stack.dart';
 import '/shared/widgets/layer/interactive_layer_stack.dart';
+import '/shared/widgets/original_preview_tap_detector.dart';
 import '/shared/widgets/transform/transformed_content_generator.dart';
 import '../crop_rotate_editor/models/transform_configs.dart';
 import '../filter_editor/widgets/filtered_widget.dart';
@@ -398,6 +399,8 @@ class BlurEditorState extends State<BlurEditor>
                                         ),
                                 imageAreaOverlayBuilder: configs
                                     .mainEditor.widgets.imageAreaOverlay,
+                                originalPreviewListenable:
+                                    initConfigs.originalPreview?.listenable,
                                 transformHelper: TransformHelper(
                                   mainBodySize: getValidSizeOrDefault(
                                       mainBodySize, editorBodySize),
@@ -453,6 +456,17 @@ class BlurEditorState extends State<BlurEditor>
             );
           });
 
+      // A tap on the image area (not on a layer or an overlaid UI element)
+      // briefly shows the original image via the main editor's preview scope.
+      final originalPreview = initConfigs.originalPreview;
+      if (originalPreview != null &&
+          mainEditorConfigs.enableOriginalPreviewOnTap) {
+        content = OriginalPreviewTapDetector(
+          onImageAreaTap: originalPreview.requestPreview,
+          child: content,
+        );
+      }
+
       if (blurEditorConfigs.widgets.wrapBody != null) {
         content = blurEditorConfigs.widgets.wrapBody!(this, content);
       }
@@ -498,6 +512,8 @@ class BlurEditorState extends State<BlurEditor>
               filters: appliedFilters,
               tuneAdjustments: appliedTuneAdjustments,
               blurFactor: blurFactor,
+              originalPreviewListenable:
+                  initConfigs.originalPreview?.listenable,
             ),
           );
         },

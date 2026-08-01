@@ -24,4 +24,27 @@ class GestureManager {
       _isBlocked = false;
     });
   }
+
+  final Map<int, DateTime> _layerPointers = {};
+
+  /// Marks the pointer with the given id as having gone down on a layer
+  /// widget.
+  ///
+  /// Layer widgets handle their taps through raw [Listener]s instead of
+  /// gesture recognizers, so surrounding tap detectors (e.g. the
+  /// "show original" preview) cannot rely on the gesture arena to know a
+  /// tap was aimed at a layer — they check [wasPointerOnLayer] instead.
+  void markPointerOnLayer(int pointer) {
+    final now = DateTime.now();
+    // Prune stale entries so the map stays bounded even when no consumer
+    // ever checks the marked pointers.
+    _layerPointers.removeWhere(
+      (_, time) => now.difference(time) > const Duration(seconds: 10),
+    );
+    _layerPointers[pointer] = now;
+  }
+
+  /// Whether the pointer with the given id went down on a layer widget
+  /// (see [markPointerOnLayer]).
+  bool wasPointerOnLayer(int pointer) => _layerPointers.containsKey(pointer);
 }

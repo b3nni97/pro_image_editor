@@ -7,6 +7,7 @@ import '/shared/services/import_export/import_state_history.dart';
 import '../../../enums/sub_editors_name.dart';
 import '../../history/history_action.dart';
 import '../../layers/layer.dart';
+import '../../original_preview/original_preview.dart';
 import '../standalone_editor_callbacks.dart';
 import 'helper_lines/helper_lines_callbacks.dart';
 
@@ -44,6 +45,7 @@ class MainEditorCallbacks extends StandaloneEditorCallbacks {
     this.onHoverRemoveAreaChange,
     this.onStateHistoryChange,
     this.onHistoryFeedback,
+    this.onOriginalPreviewChanged,
     this.onImageDecoded,
     this.onEditTextLayer,
     this.onCreateTextLayer,
@@ -119,6 +121,15 @@ class MainEditorCallbacks extends StandaloneEditorCallbacks {
   /// See also [ProImageEditorState.historyFeedbackNotifier] for a
   /// listenable alternative.
   final Function(HistoryFeedback feedback)? onHistoryFeedback;
+
+  /// Callback that is triggered when the "show original" preview starts
+  /// (with the event) or ends (with `null`). Use it to show a label like
+  /// "ORIGINAL" or "CROPPED ORIGINAL" above the image while the preview is
+  /// active (see `MainEditorConfigs.enableOriginalPreviewOnTap`).
+  ///
+  /// See also [ProImageEditorState.originalPreviewNotifier] for a
+  /// listenable alternative.
+  final Function(OriginalPreviewEvent? event)? onOriginalPreviewChanged;
 
   /// Callback that is triggered after the image has been successfully decoded.
   final Function()? onImageDecoded;
@@ -472,6 +483,7 @@ class MainEditorCallbacks extends StandaloneEditorCallbacks {
     Function(StateManager stateHistory, ProImageEditorState editor)?
         onStateHistoryChange,
     Function(HistoryFeedback feedback)? onHistoryFeedback,
+    Function(OriginalPreviewEvent? event)? onOriginalPreviewChanged,
   }) {
     return MainEditorCallbacks(
       onLayerTapDown: onLayerTapDown ?? this.onLayerTapDown,
@@ -519,6 +531,8 @@ class MainEditorCallbacks extends StandaloneEditorCallbacks {
           onHoverRemoveAreaChange ?? this.onHoverRemoveAreaChange,
       onStateHistoryChange: onStateHistoryChange ?? this.onStateHistoryChange,
       onHistoryFeedback: onHistoryFeedback ?? this.onHistoryFeedback,
+      onOriginalPreviewChanged:
+          onOriginalPreviewChanged ?? this.onOriginalPreviewChanged,
     );
   }
 }

@@ -25,6 +25,7 @@ import '/features/main_editor/widgets/main_editor_bottombar.dart';
 
 import '/shared/widgets/layer/interactive_layer_stack.dart';
 import '/shared/widgets/layer/services/hero_flight_overrides.dart';
+import '/shared/widgets/original_preview_tap_detector.dart';
 
 import '/pro_image_editor.dart';
 import '/shared/mixins/editor_zoom.mixin.dart';
@@ -744,6 +745,8 @@ class ProImageEditorState extends State<ProImageEditor>
     _prewarmedKeyboardConnection?.close();
     _rebuildController.close();
     historyFeedbackNotifier.dispose();
+    _originalPreviewTimer?.cancel();
+    originalPreviewNotifier.dispose();
     _controllers.dispose();
     layerInteractionManager.scaleDebounce.dispose();
     SystemChrome.setSystemUIOverlayStyle(
@@ -848,6 +851,10 @@ class ProImageEditorState extends State<ProImageEditor>
     bool force = false,
     HistoryAction? action,
   }) {
+    // A committed change ends an active "show original" preview so the user
+    // immediately sees the result of the edit again.
+    hideOriginalPreview();
+
     List<Layer> activeLayerList = _layerCopyManager.copyLayerList(activeLayers);
 
     final added = stateManager.addHistory(
@@ -2364,6 +2371,7 @@ class ProImageEditorState extends State<ProImageEditor>
             onTextLayerTap: _onTextLayerTap,
             onLayerTransformChanged: _syncLayerTransforms,
             historyScope: _editorHistoryScope,
+            originalPreview: _originalPreviewScope,
           ),
         ),
       ),
@@ -2463,6 +2471,7 @@ class ProImageEditorState extends State<ProImageEditor>
           onTextLayerTap: _onTextLayerTap,
           onLayerTransformChanged: _syncLayerTransforms,
           historyScope: _editorHistoryScope,
+          originalPreview: _originalPreviewScope,
         ),
       ),
     );
@@ -2525,6 +2534,7 @@ class ProImageEditorState extends State<ProImageEditor>
           onTextLayerTap: _onTextLayerTap,
           onLayerTransformChanged: _syncLayerTransforms,
           historyScope: _editorHistoryScope,
+          originalPreview: _originalPreviewScope,
         ),
       ),
     );
@@ -2725,6 +2735,7 @@ class ProImageEditorState extends State<ProImageEditor>
   /// the old delegation flow is preserved.
   void undoAction() {
     GestureManager.instance.stopPropagation();
+    hideOriginalPreview();
 
     // Check for sub-editors that still use local undo (paint, cropRotate)
     if (_isSubEditorActive && _delegateUndoToLocalSubEditor()) {
@@ -2756,6 +2767,7 @@ class ProImageEditorState extends State<ProImageEditor>
   /// For editors without historyScope (paint, cropRotate),
   /// the old delegation flow is preserved.
   void redoAction() {
+    hideOriginalPreview();
     // Check for sub-editors that still use local redo (paint, cropRotate)
     if (_isSubEditorActive && _delegateRedoToLocalSubEditor()) {
       setState(() {});
@@ -2791,6 +2803,57 @@ class ProImageEditorState extends State<ProImageEditor>
     final feedback = HistoryFeedback(mode: mode, action: action);
     historyFeedbackNotifier.value = feedback;
     mainEditorCallbacks?.onHistoryFeedback?.call(feedback);
+  }
+
+  /// The active "show original" preview; `null` while no preview is shown.
+  ///
+  /// While an event is set, the editor renders the raw background image
+  /// (no filters, tune adjustments or blur) and hides all layers. An applied
+  /// crop/rotate transform stays visible ([OriginalPreviewEvent.isTransformed]
+  /// reports whether that is the case). Listen to this (or use
+  /// [MainEditorCallbacks.onOriginalPreviewChanged]) to show feedback like
+  /// "ORIGINAL" above the image.
+  final ValueNotifier<OriginalPreviewEvent?> originalPreviewNotifier =
+      ValueNotifier(null);
+
+  Timer? _originalPreviewTimer;
+
+  /// Whether the "show original" preview is currently active.
+  bool get isOriginalPreviewActive => originalPreviewNotifier.value != null;
+
+  /// Grants sub-editors (tune/filter/blur) access to the preview state and
+  /// trigger, so a tap inside an embedded or pushed sub-editor works too.
+  late final OriginalPreviewScope _originalPreviewScope = OriginalPreviewScope(
+    listenable: originalPreviewNotifier,
+    requestPreview: showOriginalPreview,
+  );
+
+  /// Shows the original (unedited) image for
+  /// [MainEditorConfigs.originalPreviewDuration]; an applied crop/rotate
+  /// transform stays visible. Does nothing when the current state has no
+  /// visible edits. Calling it again while active restarts the timer.
+  void showOriginalPreview() {
+    if (!stateManager.hasVisibleChanges) return;
+
+    final event = OriginalPreviewEvent(
+      isTransformed: !stateManager.isTransformNeutral,
+    );
+    _originalPreviewTimer?.cancel();
+    _originalPreviewTimer = Timer(
+      mainEditorConfigs.originalPreviewDuration,
+      hideOriginalPreview,
+    );
+    originalPreviewNotifier.value = event;
+    mainEditorCallbacks?.onOriginalPreviewChanged?.call(event);
+  }
+
+  /// Ends an active "show original" preview immediately.
+  void hideOriginalPreview() {
+    _originalPreviewTimer?.cancel();
+    _originalPreviewTimer = null;
+    if (originalPreviewNotifier.value == null) return;
+    originalPreviewNotifier.value = null;
+    mainEditorCallbacks?.onOriginalPreviewChanged?.call(null);
   }
 
   /// Derives which crop/rotate operation changed between two local
@@ -3801,7 +3864,19 @@ class ProImageEditorState extends State<ProImageEditor>
                   /// correctly, even when it’s empty.
                 },
                 onLongPress: mainEditorCallbacks?.onLongPress,
-                child: _buildInteractiveContent(),
+                child: OriginalPreviewTapDetector(
+                  // A tap on the plain image area (not on a layer) briefly
+                  // shows the original image. Layer taps are filtered by the
+                  // detector itself; skipped while layers are selected so
+                  // the deselect-tap doesn't also trigger the preview.
+                  onImageAreaTap: mainEditorConfigs.enableOriginalPreviewOnTap
+                      ? () {
+                          if (hasSelectedLayers || isSubEditorOpen) return;
+                          showOriginalPreview();
+                        }
+                      : null,
+                  child: _buildInteractiveContent(),
+                ),
               ),
             );
     });
@@ -3887,6 +3962,7 @@ class ProImageEditorState extends State<ProImageEditor>
                 imageBounds,
               ),
       imageAreaOverlayBuilder: configs.mainEditor.widgets.imageAreaOverlay,
+      originalPreviewListenable: originalPreviewNotifier,
       heroResetStream: _controllers.layerHeroResetCtrl.stream,
       onLayerScaleStart: mainEditorCallbacks?.handleLayerTransformStart,
       onLayerScaleEnd: mainEditorCallbacks?.handleLayerTransformEnd,
@@ -3967,6 +4043,7 @@ class ProImageEditorState extends State<ProImageEditor>
       heroTag: _isVideoEditor ? 'image-${configs.heroTag}' : configs.heroTag,
       configs: configs,
       editorImage: editorImage,
+      originalPreviewListenable: originalPreviewNotifier,
       isInitialized: _isInitialized ||
           stateHistoryConfigs.initStateHistory != null ||
           _stateHistoryService.isImportInProgress,
@@ -4038,6 +4115,7 @@ class ProImageEditorState extends State<ProImageEditor>
             onTextLayerTap: _onTextLayerTap,
             onLayerTransformChanged: _syncLayerTransforms,
             historyScope: _editorHistoryScope,
+            originalPreview: _originalPreviewScope,
           ),
         );
       case SubEditorMode.filter:
@@ -4063,6 +4141,7 @@ class ProImageEditorState extends State<ProImageEditor>
             onTextLayerTap: _onTextLayerTap,
             onLayerTransformChanged: _syncLayerTransforms,
             historyScope: _editorHistoryScope,
+            originalPreview: _originalPreviewScope,
           ),
         );
       case SubEditorMode.blur:
@@ -4088,6 +4167,7 @@ class ProImageEditorState extends State<ProImageEditor>
             onTextLayerTap: _onTextLayerTap,
             onLayerTransformChanged: _syncLayerTransforms,
             historyScope: _editorHistoryScope,
+            originalPreview: _originalPreviewScope,
           ),
         );
       default:

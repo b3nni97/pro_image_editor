@@ -31,6 +31,8 @@ class MainEditorConfigs extends ZoomConfigs {
     this.enableKeyboardShortcuts = true,
     this.enableEscapeButton = true,
     this.canZoomWhenLayerSelected = true,
+    this.enableOriginalPreviewOnTap = false,
+    this.originalPreviewDuration = const Duration(milliseconds: 1500),
     super.enableShareZoomMatrix,
     this.resizeToAvoidBottomInset = false,
     this.mobilePanInteraction = MobilePanInteraction.move,
@@ -82,6 +84,22 @@ class MainEditorConfigs extends ZoomConfigs {
   /// If set to `true`, users can zoom in or out while a layer is selected.
   /// If set to `false`, zooming is disabled when a layer is selected.
   final bool canZoomWhenLayerSelected;
+
+  /// When `true`, tapping the image briefly shows the original (unedited)
+  /// image: filters, tune adjustments, blur and layers are hidden for
+  /// [originalPreviewDuration]. An applied crop/rotate transform stays
+  /// visible, so the preview shows the "cropped original" in that case.
+  ///
+  /// Works in the main editor viewer and in the tune/filter/blur
+  /// sub-editors (embedded or pushed). Listen to
+  /// `MainEditorCallbacks.onOriginalPreviewChanged` (or
+  /// `ProImageEditorState.originalPreviewNotifier`) to show feedback like
+  /// an "ORIGINAL" label above the image.
+  final bool enableOriginalPreviewOnTap;
+
+  /// How long the original image stays visible after a tap
+  /// (see [enableOriginalPreviewOnTap]). Tapping again restarts the timer.
+  final Duration originalPreviewDuration;
 
   /// Whether the Scaffold should resize to avoid the bottom inset (keyboard).
   ///
@@ -166,6 +184,8 @@ class MainEditorConfigs extends ZoomConfigs {
     bool? enableZoom,
     bool? enableDoubleTapZoom,
     bool? canZoomWhenLayerSelected,
+    bool? enableOriginalPreviewOnTap,
+    Duration? originalPreviewDuration,
     bool? enableShareZoomMatrix,
     bool? resizeToAvoidBottomInset,
     MobilePanInteraction? mobilePanInteraction,
@@ -195,6 +215,10 @@ class MainEditorConfigs extends ZoomConfigs {
       enableDoubleTapZoom: enableDoubleTapZoom ?? this.enableDoubleTapZoom,
       canZoomWhenLayerSelected:
           canZoomWhenLayerSelected ?? this.canZoomWhenLayerSelected,
+      enableOriginalPreviewOnTap:
+          enableOriginalPreviewOnTap ?? this.enableOriginalPreviewOnTap,
+      originalPreviewDuration:
+          originalPreviewDuration ?? this.originalPreviewDuration,
       enableShareZoomMatrix:
           enableShareZoomMatrix ?? this.enableShareZoomMatrix,
       mobilePanInteraction: mobilePanInteraction ?? this.mobilePanInteraction,

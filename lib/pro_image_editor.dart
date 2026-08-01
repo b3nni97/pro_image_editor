@@ -14,6 +14,7 @@ export 'core/models/editor_configs/pro_image_editor_configs.dart';
 export 'core/models/editor_image.dart';
 export 'core/models/history/history_action.dart';
 export 'core/models/history/state_history.dart';
+export 'core/models/original_preview/original_preview.dart';
 
 /// Video editing
 export '/shared/controllers/video_controller.dart';

@@ -380,9 +380,12 @@ class StateManager {
 
     final originalRatio =
         t.originalSize.isFinite ? t.originalSize.aspectRatio : double.nan;
+    // Tolerances (sub-pixel offsets, tiny ratio drift) absorb the float
+    // noise a no-op aspect-ratio clamp or a concretized identity transform
+    // produces — such a crop is visually indistinguishable from "no crop".
     final coversFullImage = t.cropRect == Rect.largest ||
-        (t.cropRect.left == 0 &&
-            t.cropRect.top == 0 &&
+        (t.cropRect.left.abs() < 0.5 &&
+            t.cropRect.top.abs() < 0.5 &&
             originalRatio.isFinite &&
             (t.cropRect.size.aspectRatio - originalRatio).abs() < 0.001);
 
@@ -396,6 +399,25 @@ class StateManager {
         t.offset == Offset.zero &&
         coversFullImage;
   }
+
+  /// Whether the active crop/rotate transform is visually a no-op compared
+  /// to the raw original image (see [_isNeutralTransform]).
+  ///
+  /// `false` means the displayed image is actually cropped/transformed —
+  /// regardless of whether the user did it in the crop editor or an initial
+  /// aspect-ratio clamp / transform setup applied it. A clamp or concretized
+  /// transform that does not visibly change the image stays neutral.
+  bool get isTransformNeutral => _isNeutralTransform(transformConfigs);
+
+  /// Whether the current state differs visually from the raw original
+  /// image: any layer, non-identity filter, non-zero tune adjustment, blur,
+  /// or an effective crop/rotate transform.
+  bool get hasVisibleChanges =>
+      activeLayers.isNotEmpty ||
+      activeBlur != 0 ||
+      activeFilters.any((m) => !_isIdentityColorMatrix(m)) ||
+      activeTuneAdjustments.any((t) => t.value != 0.0) ||
+      !isTransformNeutral;
 
   bool _filtersEqual(FilterMatrix a, FilterMatrix b) {
     // Identity matrices are visually absent: a filter editor without a

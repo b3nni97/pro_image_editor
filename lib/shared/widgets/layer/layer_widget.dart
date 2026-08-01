@@ -205,6 +205,9 @@ class _LayerWidgetState extends State<LayerWidget>
     if (!widget.isInteractive && _isOutsideHitBox()) {
       return;
     }
+    // Let surrounding tap detectors (e.g. the "show original" preview) know
+    // this pointer is interacting with a layer, not the plain image area.
+    GestureManager.instance.markPointerOnLayer(event.pointer);
     if (!isDesktop || event.buttons != kSecondaryMouseButton) {
       _layersService?.handleTapDown(_layer, event);
     }

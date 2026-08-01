@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 
 import '/core/models/history/editor_history_scope.dart';
+import '/core/models/original_preview/original_preview.dart';
 import '/features/filter_editor/types/filter_matrix.dart';
 import '/features/tune_editor/models/tune_adjustment_matrix.dart';
 import '../editor_callbacks/pro_image_editor_callbacks.dart';
@@ -43,6 +44,7 @@ abstract class EditorInitConfigs {
     this.convertToUint8List = false,
     this.enableCloseButton = true,
     this.historyScope,
+    this.originalPreview,
     this.onLayerTransformChanged,
     this.onTextLayerTap,
   });
@@ -90,6 +92,14 @@ abstract class EditorInitConfigs {
   /// global undo/redo history instead of maintaining a local undo stack.
   /// This enables unified undo/redo across all editors.
   final EditorHistoryScope? historyScope;
+
+  /// Optional scope granting access to the main editor's "show original"
+  /// preview (see `MainEditorConfigs.enableOriginalPreviewOnTap`).
+  ///
+  /// When provided, a tap inside the sub-editor triggers the preview and the
+  /// sub-editor renders the raw image (no filters/tune/blur, layers hidden)
+  /// while the preview is active.
+  final OriginalPreviewScope? originalPreview;
 
   /// Callback triggered whenever layers are transformed (moved, scaled,
   /// or rotated) in the interactive layer stack.

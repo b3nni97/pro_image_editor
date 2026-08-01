@@ -23,6 +23,7 @@ import '/shared/services/content_recorder/widgets/content_recorder.dart';
 import '/shared/utils/file_constructor_utils.dart';
 import '/shared/widgets/layer/layer_stack.dart';
 import '/shared/widgets/layer/interactive_layer_stack.dart';
+import '/shared/widgets/original_preview_tap_detector.dart';
 import '/shared/widgets/transform/transformed_content_generator.dart';
 import 'utils/tune_presets.dart';
 import 'widgets/tune_editor_appbar.dart';
@@ -627,6 +628,17 @@ class TuneEditorState extends State<TuneEditor>
                 );
               });
 
+      // A tap on the image area (not on a layer or an overlaid UI element)
+      // briefly shows the original image via the main editor's preview scope.
+      final originalPreview = initConfigs.originalPreview;
+      if (originalPreview != null &&
+          mainEditorConfigs.enableOriginalPreviewOnTap) {
+        content = OriginalPreviewTapDetector(
+          onImageAreaTap: originalPreview.requestPreview,
+          child: content,
+        );
+      }
+
       if (tuneEditorConfigs.widgets.wrapBody != null) {
         content = tuneEditorConfigs.widgets.wrapBody!(this, content);
       }
@@ -672,6 +684,8 @@ class TuneEditorState extends State<TuneEditor>
               filters: appliedFilters,
               tuneAdjustments: tuneAdjustmentMatrix,
               blurFactor: appliedBlurFactor,
+              originalPreviewListenable:
+                  initConfigs.originalPreview?.listenable,
             ),
           );
         },
@@ -722,6 +736,7 @@ class TuneEditorState extends State<TuneEditor>
                   imageBounds,
                 ),
         imageAreaOverlayBuilder: configs.mainEditor.widgets.imageAreaOverlay,
+        originalPreviewListenable: initConfigs.originalPreview?.listenable,
         transformHelper: TransformHelper(
           mainBodySize: getValidSizeOrDefault(mainBodySize, editorBodySize),
           mainImageSize: getValidSizeOrDefault(mainImageSize, editorBodySize),

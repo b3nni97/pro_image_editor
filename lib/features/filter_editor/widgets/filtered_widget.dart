@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 // Project imports:
 import '/core/models/editor_configs/pro_image_editor_configs.dart';
 import '/core/models/editor_image.dart';
+import '/core/models/original_preview/original_preview.dart';
 import '/shared/widgets/auto_image.dart';
 import '../../tune_editor/models/tune_adjustment_matrix.dart';
 import '../types/filter_matrix.dart';
@@ -30,6 +31,7 @@ class FilteredWidget extends StatelessWidget {
     this.blankSize,
     this.videoPlayer,
     this.enableCachedSize = false,
+    this.originalPreviewListenable,
   }) : assert(image != null || videoPlayer != null || blankSize != null,
             'Image or videoPlayer or blankSize cannot be null');
 
@@ -74,8 +76,27 @@ class FilteredWidget extends StatelessWidget {
   /// size.
   final bool enableCachedSize;
 
+  /// When set, the widget listens to the "show original" preview state and
+  /// renders the raw content (no filters, tune adjustments or blur) while a
+  /// preview event is active (see
+  /// `MainEditorConfigs.enableOriginalPreviewOnTap`). A crop/rotate
+  /// transform applied by a surrounding widget is unaffected.
+  final ValueListenable<OriginalPreviewEvent?>? originalPreviewListenable;
+
   @override
   Widget build(BuildContext context) {
+    final listenable = originalPreviewListenable;
+    if (listenable == null) return _buildFiltered(showOriginal: false);
+
+    return ValueListenableBuilder<OriginalPreviewEvent?>(
+      valueListenable: listenable,
+      builder: (context, event, _) =>
+          _buildFiltered(showOriginal: event != null),
+    );
+  }
+
+  Widget _buildFiltered({required bool showOriginal}) {
+    final double effectiveBlur = showOriginal ? 0 : blurFactor;
     return SizedBox(
       width: width,
       height: height,
@@ -86,17 +107,17 @@ class FilteredWidget extends StatelessWidget {
         children: [
           ColorFilterGenerator(
             key: filterKey,
-            filters: filters,
-            tuneAdjustments: tuneAdjustments,
+            filters: showOriginal ? const [] : filters,
+            tuneAdjustments: showOriginal ? const [] : tuneAdjustments,
             child: _buildContent(),
           ),
-          if (blurFactor > 0) _buildBlur(),
+          if (effectiveBlur > 0) _buildBlur(effectiveBlur),
         ],
       ),
     );
   }
 
-  Widget _buildBlur() {
+  Widget _buildBlur(double blurFactor) {
     return ClipRect(
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: blurFactor, sigmaY: blurFactor),

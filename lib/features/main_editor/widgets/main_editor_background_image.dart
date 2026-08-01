@@ -6,6 +6,7 @@ import '/shared/widgets/smart_hero.dart';
 
 import '/core/models/editor_configs/pro_image_editor_configs.dart';
 import '/core/models/editor_image.dart';
+import '/core/models/original_preview/original_preview.dart';
 import '/features/filter_editor/widgets/filter_generator.dart';
 import '/shared/widgets/auto_image.dart';
 import '/shared/widgets/transform/transformed_content_generator.dart';
@@ -29,6 +30,7 @@ class MainEditorBackgroundImage extends StatefulWidget {
     required this.isInitialized,
     required this.heroTag,
     required this.blankSize,
+    this.originalPreviewListenable,
     this.onCropAnimationChanged,
     this.onAllAnimationsComplete,
   }) : assert(editorImage != null || blankSize != null,
@@ -66,6 +68,11 @@ class MainEditorBackgroundImage extends StatefulWidget {
   /// Used by embedded sub-editors to know when to switch to their own
   /// background rendering.
   final VoidCallback? onAllAnimationsComplete;
+
+  /// When set, the background renders the raw image (no filters/tune/blur)
+  /// while a "show original" preview event is active (see
+  /// `MainEditorConfigs.enableOriginalPreviewOnTap`).
+  final ValueListenable<OriginalPreviewEvent?>? originalPreviewListenable;
 
   @override
   State<MainEditorBackgroundImage> createState() =>
@@ -308,6 +315,7 @@ class _MainEditorBackgroundImageState extends State<MainEditorBackgroundImage>
           filters: w.stateManager.activeFilters,
           tuneAdjustments: w.stateManager.activeTuneAdjustments,
           blurFactor: w.stateManager.activeBlur,
+          originalPreviewListenable: w.originalPreviewListenable,
         ),
       );
     }
@@ -326,6 +334,7 @@ class _MainEditorBackgroundImageState extends State<MainEditorBackgroundImage>
         filters: w.stateManager.activeFilters,
         tuneAdjustments: w.stateManager.activeTuneAdjustments,
         blurFactor: w.stateManager.activeBlur,
+        originalPreviewListenable: w.originalPreviewListenable,
       ),
     );
   }

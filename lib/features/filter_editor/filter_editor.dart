@@ -23,6 +23,7 @@ import '/shared/services/content_recorder/widgets/content_recorder.dart';
 import '/shared/utils/file_constructor_utils.dart';
 import '/shared/widgets/layer/layer_stack.dart';
 import '/shared/widgets/layer/interactive_layer_stack.dart';
+import '/shared/widgets/original_preview_tap_detector.dart';
 import '/shared/widgets/transform/transformed_content_generator.dart';
 import 'constants/identity_matrix_constant.dart';
 import 'utils/lerp_color_matrix_utils.dart';
@@ -813,6 +814,8 @@ class FilterEditorState extends State<FilterEditor>
                                           ),
                                   imageAreaOverlayBuilder: configs
                                       .mainEditor.widgets.imageAreaOverlay,
+                                  originalPreviewListenable:
+                                      initConfigs.originalPreview?.listenable,
                                   transformHelper: TransformHelper(
                                     mainBodySize: getValidSizeOrDefault(
                                         mainBodySize, editorBodySize),
@@ -875,6 +878,17 @@ class FilterEditorState extends State<FilterEditor>
             );
           });
 
+      // A tap on the image area (not on a layer or an overlaid UI element)
+      // briefly shows the original image via the main editor's preview scope.
+      final originalPreview = initConfigs.originalPreview;
+      if (originalPreview != null &&
+          mainEditorConfigs.enableOriginalPreviewOnTap) {
+        content = OriginalPreviewTapDetector(
+          onImageAreaTap: originalPreview.requestPreview,
+          child: content,
+        );
+      }
+
       if (filterEditorConfigs.widgets.wrapBody != null) {
         content = filterEditorConfigs.widgets.wrapBody!(this, content);
       }
@@ -920,6 +934,8 @@ class FilterEditorState extends State<FilterEditor>
               filters: _getActiveFilters(),
               tuneAdjustments: appliedTuneAdjustments,
               blurFactor: appliedBlurFactor,
+              originalPreviewListenable:
+                  initConfigs.originalPreview?.listenable,
             ),
           );
         },

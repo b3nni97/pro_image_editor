@@ -27,6 +27,7 @@ class BlurEditorInitConfigs extends EditorInitConfigs {
     super.appliedBlurFactor,
     super.convertToUint8List,
     super.historyScope,
+    super.originalPreview,
     super.onLayerTransformChanged,
     super.onTextLayerTap,
     this.backgroundImageOverride,

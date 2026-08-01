@@ -26,6 +26,7 @@ class FilterEditorInitConfigs extends EditorInitConfigs {
     super.appliedBlurFactor,
     super.convertToUint8List,
     super.historyScope,
+    super.originalPreview,
     super.onLayerTransformChanged,
     this.backgroundImageOverride,
     this.initialZoomMatrix,

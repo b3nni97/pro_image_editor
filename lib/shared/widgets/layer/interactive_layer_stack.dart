@@ -1,11 +1,13 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '/core/models/editor_callbacks/pro_image_editor_callbacks.dart';
 import '/core/models/editor_configs/pro_image_editor_configs.dart';
 import '/core/models/layers/layer.dart';
+import '/core/models/original_preview/original_preview.dart';
 import '/core/models/transform_helper.dart';
 import '/core/services/mouse_service.dart';
 import '/core/utils/size_utils.dart';
@@ -78,6 +80,7 @@ class InteractiveLayerStack extends StatefulWidget {
     this.bottomBarHeight = 0,
     this.removeAreaBuilder,
     this.imageAreaOverlayBuilder,
+    this.originalPreviewListenable,
   });
 
   // ──────────── Required parameters ──────────────
@@ -239,6 +242,12 @@ class InteractiveLayerStack extends StatefulWidget {
   /// layers, pinned to the un-zoomed base view like the remove area
   /// (see [MainEditorWidgets.imageAreaOverlay]).
   final Widget Function(Rect imageBounds)? imageAreaOverlayBuilder;
+
+  /// When set, the layers are hidden (transparent and non-interactive) while
+  /// a "show original" preview event is active (see
+  /// `MainEditorConfigs.enableOriginalPreviewOnTap`). The remove area and the
+  /// [imageAreaOverlayBuilder] overlay stay visible.
+  final ValueListenable<OriginalPreviewEvent?>? originalPreviewListenable;
 
   @override
   State<InteractiveLayerStack> createState() => _InteractiveLayerStackState();
@@ -817,6 +826,21 @@ class _InteractiveLayerStackState extends State<InteractiveLayerStack>
       layerStack = Transform.scale(
         scale: widget.transformHelper.scale,
         child: layerStack,
+      );
+    }
+
+    // Hide the layers while a "show original" preview is active. Opacity
+    // (instead of removing the widgets) keeps the layer elements and their
+    // GlobalKeys mounted, so no hero/interaction state is lost.
+    if (widget.originalPreviewListenable != null) {
+      final visibleLayerStack = layerStack;
+      layerStack = ValueListenableBuilder<OriginalPreviewEvent?>(
+        valueListenable: widget.originalPreviewListenable!,
+        child: visibleLayerStack,
+        builder: (context, event, child) => IgnorePointer(
+          ignoring: event != null,
+          child: Opacity(opacity: event != null ? 0 : 1, child: child),
+        ),
       );
     }
 
